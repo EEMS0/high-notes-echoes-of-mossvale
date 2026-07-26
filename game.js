@@ -691,10 +691,17 @@
     x: HUB.x - 42, y: HUB.y + 125, facing: 0, moving: false, sniffing: false,
     command: 'follow', biteCooldown: 0, pounceCooldown: 0, howlCooldown: 0,
     guardianCooldown: 0, spiritTimer: 0, attackFlash: 0, attackDuration: 0, target: null,
+    targetScanTimer: 0,
     followAngle: player.facing, motionGrace: 0, gait: 0, spriteColumn: 3,
     directionCandidate: 3, directionHold: 0, animState:'idle', animTime:0,
     activity:'', activityTimer:0, idleActionCooldown:3
   };
+  var ODIN_TARGET_SCAN_INTERVAL = 0.12;
+  var ODIN_EXPANDED_ACTIONS = new Set([
+    'sleep','sit','roll','happy','excited','eat','drink','dig','sniff','play',
+    'guard','growl','attack','dash','carry_item','celebrate','petting_reaction','spirit_howl'
+  ]);
+  var ODIN_DRAW_OPTIONS = Object.freeze({});
 
   /*
    * Odin's generated cells do not share a common internal origin. These
@@ -718,6 +725,8 @@
     odin.gait = 0;
     odin.attackFlash = 0;
     odin.attackDuration = 0;
+    odin.target = null;
+    odin.targetScanTimer = 0;
     odin.spriteColumn = facingColumn(odin.facing);
     odin.directionCandidate = odin.spriteColumn;
     odin.directionHold = 0;
@@ -2710,7 +2719,7 @@
     }, 650);
   }
 
-  function hitEnemy(enemy, damage, sourceX, sourceY) {
+  function hitEnemy(enemy, damage, sourceX, sourceY, lightweightEffects) {
     if (enemy.dead || enemy.flash > 0 || (enemy.type === 'wisp' && enemy.shielded)) {
       if (enemy.type === 'wisp' && enemy.shielded) {
         audioCall('sfx', 'error');
@@ -2734,12 +2743,13 @@
     enemy.x += n.x * 14;
     enemy.y += n.y * 14;
     audioCall('sfx', 'enemyHit');
-    for (var i = 0; i < 8; i++) spawnParticle(enemy.x, enemy.y, enemyColor(enemy), 60, 3);
-    if (enemy.hp <= 0) killEnemy(enemy);
+    var hitParticleCount = lightweightEffects ? 4 : 8;
+    for (var i = 0; i < hitParticleCount; i++) spawnParticle(enemy.x, enemy.y, enemyColor(enemy), 60, 3);
+    if (enemy.hp <= 0) killEnemy(enemy, lightweightEffects);
     return true;
   }
 
-  function killEnemy(enemy) {
+  function killEnemy(enemy, lightweightEffects) {
     if (!enemy || enemy.dead) return;
     enemy.dead = true;
     enemy.deathTimer = 0;
@@ -2777,7 +2787,8 @@
     if (enemy.id.indexOf('summon_') !== 0 && state.defeated.indexOf(enemy.id) < 0) state.defeated.push(enemy.id);
     audioCall('sfx', 'quest');
     showFloat(enemy.x, enemy.y - 22, 'QUIET!', '#ffc857');
-    for (var i = 0; i < 14; i++) spawnParticle(enemy.x, enemy.y, enemyColor(enemy), 95, 4);
+    var deathParticleCount = lightweightEffects ? 8 : 14;
+    for (var i = 0; i < deathParticleCount; i++) spawnParticle(enemy.x, enemy.y, enemyColor(enemy), 95, 4);
     if (enemy.group === 'bramble' && aliveGroup('bramble').length === 0 && state.notes.indexOf('E') < 0) {
       showToast('BRAMBLE BELL CLEARED', 'The western shrine is ready.', NOTE_COLORS.E, 3);
     }
@@ -5608,6 +5619,7 @@
     var index = ODIN_COMMANDS.indexOf(odin.command);
     odin.command = ODIN_COMMANDS[(index + 1) % ODIN_COMMANDS.length];
     odin.target = null;
+    odin.targetScanTimer = 0;
     var labels = {follow:'FOLLOW',attack:'HUNT',guard:'GUARD',fetch:'FETCH'};
     var details = {
       follow:'Odin stays close and attacks nearby threats.',
@@ -5621,13 +5633,26 @@
 
   function nearestOdinEnemy(range) {
     var best = null;
-    var bestDistance = range;
-    enemies.forEach(function (enemy) {
-      if (enemy.dead) return;
-      var d = distance(odin, enemy);
-      if (d < bestDistance) { best = enemy; bestDistance = d; }
-    });
+    var bestDistanceSq = range * range;
+    for (var enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
+      var enemy = enemies[enemyIndex];
+      if (enemy.dead) continue;
+      var dx = odin.x - enemy.x;
+      var dy = odin.y - enemy.y;
+      var distanceSq = dx * dx + dy * dy;
+      if (distanceSq < bestDistanceSq) {
+        best = enemy;
+        bestDistanceSq = distanceSq;
+      }
+    }
     return best;
+  }
+
+  function odinTargetInRange(target, range) {
+    if (!target || target.dead) return false;
+    var dx = odin.x - target.x;
+    var dy = odin.y - target.y;
+    return dx * dx + dy * dy < range * range;
   }
 
   function nearestOdinPickup(range) {
@@ -5658,13 +5683,22 @@
     odin.guardianCooldown = Math.max(0, odin.guardianCooldown - dt);
     odin.spiritTimer = Math.max(0, odin.spiritTimer - dt);
     odin.attackFlash = Math.max(0, odin.attackFlash - dt);
+    odin.targetScanTimer = Math.max(0, odin.targetScanTimer - dt);
 
     var target = null;
     var pickup = null;
     if (odin.command === 'fetch') pickup = nearestOdinPickup(520);
     if (!pickup) {
       var huntRange = odin.command === 'attack' ? 430 : odin.command === 'guard' ? 190 : 260;
-      target = nearestOdinEnemy(huntRange);
+      if (!odinTargetInRange(odin.target, huntRange + 28)) {
+        odin.target = null;
+        odin.targetScanTimer = 0;
+      }
+      if (odin.targetScanTimer <= 0) {
+        odin.target = nearestOdinEnemy(huntRange);
+        odin.targetScanTimer = ODIN_TARGET_SCAN_INTERVAL;
+      }
+      target = odin.target;
     }
 
     if (player.moveX || player.moveY) {
@@ -5752,7 +5786,7 @@
         odin.x = target.x - Math.cos(odin.facing) * 24;
         odin.y = target.y - Math.sin(odin.facing) * 24;
         target.shielded = false;
-        hitEnemy(target, state.skills.indexOf('odin-spirit') >= 0 ? 3 : 2, odin.x, odin.y);
+        hitEnemy(target, state.skills.indexOf('odin-spirit') >= 0 ? 3 : 2, odin.x, odin.y, true);
         target.stun = Math.max(target.stun, 2.2);
         odin.pounceCooldown = state.skills.indexOf('odin-bond') >= 0 ? 6.5 : 8;
         triggerOdinAttack(0.42, 'dash');
@@ -5762,7 +5796,7 @@
       } else if (d <= 58 && odin.biteCooldown <= 0) {
         var biteDamage = state.skills.indexOf('odin-bond') >= 0 ? 2 : 1;
         if (odin.spiritTimer > 0) biteDamage += 1;
-        hitEnemy(target, biteDamage, odin.x, odin.y);
+        hitEnemy(target, biteDamage, odin.x, odin.y, true);
         target.stun = Math.max(target.stun, state.skills.indexOf('odin-bond') >= 0 ? 0.85 : 0.42);
         odin.biteCooldown = state.skills.indexOf('odin-bond') >= 0 ? 1.05 : 1.45;
         triggerOdinAttack(0.24);
@@ -5770,14 +5804,21 @@
     } else if (bossTarget) {
       var bossDistance = distance(odin, boss);
       if (bossDistance <= boss.r + 42 && odin.biteCooldown <= 0 && !boss.shielded) {
-        hitBoss(odin.spiritTimer > 0 ? 2 : 1);
+        hitBoss(odin.spiritTimer > 0 ? 2 : 1, true);
         odin.biteCooldown = 1.5;
         triggerOdinAttack(0.24);
       }
     }
 
     if (state.skills.indexOf('odin-howl') >= 0 && odin.howlCooldown <= 0) {
-      var nearby = enemies.filter(function (enemy) { return !enemy.dead && distance(player, enemy) < 250; }).length;
+      var nearby = 0;
+      for (var nearbyIndex = 0; nearbyIndex < enemies.length && nearby < 2; nearbyIndex++) {
+        var nearbyEnemy = enemies[nearbyIndex];
+        if (nearbyEnemy.dead) continue;
+        var nearbyDx = player.x - nearbyEnemy.x;
+        var nearbyDy = player.y - nearbyEnemy.y;
+        if (nearbyDx * nearbyDx + nearbyDy * nearbyDy < 62500) nearby++;
+      }
       if (nearby >= 2 || (boss && !boss.dead && distance(player, boss) < 330)) {
         activeBuffs.odinHowlTimer = 8;
         activeBuffs.speedTimer = Math.max(activeBuffs.speedTimer, 8);
@@ -6136,7 +6177,7 @@
     boss.hazardCooldown = boss.challengeMode ? 3.35 : (boss.stage >= 3 ? 2.35 : 2.75);
   }
 
-  function hitBoss(damage) {
+  function hitBoss(damage, lightweightEffects) {
     if (!boss || boss.dead) return;
     if (boss.shielded) {
       audioCall('sfx', 'error');
@@ -6160,7 +6201,8 @@
     setAnimationState(boss, 'hurt', 0.18);
     audioCall('sfx', 'enemyHit');
     shake = damage > 1 ? 7 : 4;
-    for (var i = 0; i < 12; i++) spawnParticle(boss.x, boss.y, bossDefForStage(boss.stage).color, 95, 4);
+    var hitParticleCount = lightweightEffects ? 6 : 12;
+    for (var i = 0; i < hitParticleCount; i++) spawnParticle(boss.x, boss.y, bossDefForStage(boss.stage).color, 95, 4);
     if (boss.hp <= 0) finishBoss();
   }
 
@@ -7028,18 +7070,36 @@
     ctx.save();
     ctx.fillStyle = 'rgba(2,8,12,.34)';
     ctx.beginPath(); ctx.ellipse(odin.x, odin.y + 29, attacking ? 20 : 18, 6, 0, 0, Math.PI * 2); ctx.fill();
-    if (odin.spiritTimer > 0) { ctx.shadowColor = '#62c7ff'; ctx.shadowBlur = 18; }
+    /*
+     * Canvas shadow blur on a transparent sprite is disproportionately costly
+     * on mobile GPUs. Spirit Wolf keeps its readable aura with two cheap,
+     * unblurred shapes behind the sprite instead of re-filtering the PNG every
+     * frame for the full seven-second frenzy.
+     */
+    if (odin.spiritTimer > 0) {
+      var spiritPulse = settings.reducedMotion ? 0 : Math.sin(nowTime * 7) * 2;
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = '#62c7ff';
+      ctx.beginPath();
+      ctx.ellipse(renderX, renderY + 11, 25 + spiritPulse, 31 + spiritPulse, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.52;
+      ctx.strokeStyle = '#9de8ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(renderX, renderY + 12, 21 + spiritPulse, 27 + spiritPulse, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     var odinAnimation = odin.activity || (attacking ? 'attack' : odin.animState || 'idle');
-    var expandedActions = ['sleep','sit','roll','happy','excited','eat','drink','dig','sniff','play',
-      'guard','growl','attack','dash','carry_item','celebrate','petting_reaction','spirit_howl'];
-    var odinSpriteId = expandedActions.indexOf(odinAnimation) >= 0 ? 'odin-expanded-actions' : 'odin';
+    var odinSpriteId = ODIN_EXPANDED_ACTIONS.has(odinAnimation) ? 'odin-expanded-actions' : 'odin';
     if (odinSpriteId === 'odin' && (odinAnimation === 'idle' || odinAnimation === 'walk' || odinAnimation === 'run')) {
       odinAnimation += '_' + spriteDirection(odin.facing);
     }
     var odinDrawn = drawProductionSprite(
       odinSpriteId, odinAnimation, odin.animTime, renderX, renderY + 33.5,
       odinSpriteId === 'odin' ? 76 : 78,
-      { glow:odin.spiritTimer > 0 ? '#62c7ff' : null, glowBlur:18 }
+      ODIN_DRAW_OPTIONS
     );
     if (!odinDrawn) drawOdinSpriteCell(row, col, renderX, renderY + 33.5 + bob, 70);
     ctx.fillStyle = '#62c7ff'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';

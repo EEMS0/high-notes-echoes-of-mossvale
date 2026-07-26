@@ -7,6 +7,7 @@
   var pending = new Map();
   var reportedErrors = new Set();
   var readyPromise = null;
+  var EMPTY_DRAW_OPTIONS = Object.freeze({});
 
   function reportOnce(key, error) {
     if (reportedErrors.has(key)) return;
@@ -145,7 +146,7 @@
     var origin = record.manifest.origin || { x: 0.5, y: 0.92 };
     var renderSize = Math.max(1, size || frameHeight);
     var renderWidth = renderSize * sourceWidth / sourceHeight;
-    var opts = options || {};
+    var opts = options || EMPTY_DRAW_OPTIONS;
 
     context.save();
     context.globalAlpha *= opts.alpha == null ? 1 : opts.alpha;
