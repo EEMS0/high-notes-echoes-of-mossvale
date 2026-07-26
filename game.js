@@ -549,7 +549,13 @@
   var particles = [];
   var particlePool = [];
   var projectiles = [];
+  var projectilePool = [];
   var hazards = [];
+  var MAX_ENEMY_PROJECTILES = 180;
+  var MAX_PROJECTILE_POOL = 180;
+  var ENEMY_ROWS = { thorn: 0, slime: 1, buzz: 2, wisp: 3 };
+  var ENEMY_DRAW_OPTIONS = {};
+  var WISP_ENEMY_DRAW_OPTIONS = { alpha: 0.94 };
   var healthPickups = [];
   var shopOpen = false;
   var skillsOpen = false;
@@ -5386,13 +5392,16 @@
 
   function updateEnemies(dt) {
     var speedScale = difficultySpeed();
-    enemies.forEach(function (e) {
+    var cooldownScale = stageEnemyScale().cooldown;
+    var enemyCount = enemies.length;
+    for (var enemyIndex = 0; enemyIndex < enemyCount; enemyIndex++) {
+      var e = enemies[enemyIndex];
       if (e.dead) {
         if (typeof e.deathTimer === 'number') {
           e.deathTimer = Math.min(e.deathDuration || 1.3, e.deathTimer + dt);
           e.animTime = e.deathTimer;
         }
-        return;
+        continue;
       }
       var previousX = e.x;
       var previousY = e.y;
@@ -5411,7 +5420,7 @@
           showFloat(e.x,e.y-18,'♪','#a9f58b');
           if (e.hp <= 0) {
             killEnemy(e);
-            return;
+            continue;
           }
         }
       }
@@ -5420,17 +5429,22 @@
         e.stun -= dt;
         if (e.type === 'wisp' && e.stun <= 0) e.shielded = true;
         setAnimationState(e, 'stunned');
-        return;
+        continue;
       }
-      var d = distance(e, player);
-      var toPlayer = normalize(player.x - e.x, player.y - e.y);
-      e.facing = Math.atan2(toPlayer.y, toPlayer.x);
+      var playerDx = player.x - e.x;
+      var playerDy = player.y - e.y;
+      var playerDistanceSq = playerDx * playerDx + playerDy * playerDy;
+      var d = Math.sqrt(playerDistanceSq);
+      var inverseDistance = d > 0.0001 ? 1 / d : 0;
+      var toPlayerX = playerDx * inverseDistance;
+      var toPlayerY = playerDy * inverseDistance;
+      e.facing = Math.atan2(playerDy, playerDx);
       if (e.isMiniBoss && e.cooldown <= 0 && d < 430) {
         var rays=e.miniPattern==='storm'?10:e.miniPattern==='spores'?12:8;
         var projectileColor=e.miniColor||'#ffc857';
         if(e.miniPattern==='notes'){
           for(var noteRay=-2;noteRay<=2;noteRay++){
-            var noteAngle=Math.atan2(toPlayer.y,toPlayer.x)+noteRay*.18;
+            var noteAngle=e.facing+noteRay*.18;
             fireProjectile(e.x,e.y,Math.cos(noteAngle)*185,Math.sin(noteAngle)*185,projectileColor,7,4,e.power);
           }
         }else{
@@ -5440,7 +5454,7 @@
             fireProjectile(e.x,e.y,Math.cos(miniAngle)*miniSpeed,Math.sin(miniAngle)*miniSpeed,projectileColor,e.miniPattern==='spores'?9:6,4,e.power);
           }
         }
-        e.cooldown=(settings.difficulty==='hard'?1.65:2.15)*stageEnemyScale().cooldown;
+        e.cooldown=(settings.difficulty==='hard'?1.65:2.15)*cooldownScale;
         e.angle+=.37;
         setAnimationState(e, 'special', 0.62);
         showFloat(e.x,e.y-e.r-16,e.miniPattern.toUpperCase(),projectileColor);
@@ -5457,20 +5471,20 @@
           ally.hp = Math.min(ally.maxHp,ally.hp + 1);
           for (var supportSpark=0;supportSpark<7;supportSpark++) spawnParticle(ally.x,ally.y,'#ffb454',45,2);
         } else {
-          fireProjectile(e.x,e.y,toPlayer.x*125,toPlayer.y*125,'#ff9d57',8,4);
+          fireProjectile(e.x,e.y,toPlayerX*125,toPlayerY*125,'#ff9d57',8,4);
         }
-        e.cooldown = 2.8 * stageEnemyScale().cooldown;
+        e.cooldown = 2.8 * cooldownScale;
         setAnimationState(e, 'special', 0.58);
       } else if (e.ai === 'storm' && e.cooldown <= 0 && d < 320) {
         for (var stormRay=0;stormRay<6;stormRay++) {
           var stormAngle = stormRay * Math.PI / 3 + e.angle;
           fireProjectile(e.x,e.y,Math.cos(stormAngle)*135,Math.sin(stormAngle)*135,'#86e8ff',6,3.5);
         }
-        e.cooldown = 2.5 * stageEnemyScale().cooldown;
+        e.cooldown = 2.5 * cooldownScale;
         setAnimationState(e, 'special', 0.58);
       } else if (e.ai === 'ambusher' && e.cooldown <= 0 && d > 100 && d < 260) {
-        e.x = clamp(player.x - toPlayer.x * 92 + -toPlayer.y * 34,30,WORLD.w-30);
-        e.y = clamp(player.y - toPlayer.y * 92 + toPlayer.x * 34,30,WORLD.h-30);
+        e.x = clamp(player.x - toPlayerX * 92 + -toPlayerY * 34,30,WORLD.w-30);
+        e.y = clamp(player.y - toPlayerY * 92 + toPlayerX * 34,30,WORLD.h-30);
         e.mode = 'windup';
         e.timer = 0.34;
         e.cooldown = 2.9;
@@ -5494,14 +5508,14 @@
             e.mode = 'lunge';
             e.timer = 0.28;
             var lungeSpeed = e.ai === 'charger' ? 380 : 310;
-            e.vx = toPlayer.x * lungeSpeed * speedScale * (e.stageScale || 1);
-            e.vy = toPlayer.y * lungeSpeed * speedScale * (e.stageScale || 1);
+            e.vx = toPlayerX * lungeSpeed * speedScale * (e.stageScale || 1);
+            e.vy = toPlayerY * lungeSpeed * speedScale * (e.stageScale || 1);
             setAnimationState(e, 'attack_a', 0.38);
           }
         } else if (e.mode === 'lunge') {
           moveWithCollision(e, e.vx * dt, e.vy * dt);
           e.timer -= dt;
-          if (e.timer <= 0) { e.mode = 'idle'; e.cooldown = 1.1 * (stageEnemyScale().cooldown); }
+          if (e.timer <= 0) { e.mode = 'idle'; e.cooldown = 1.1 * cooldownScale; }
         } else if (d < 250) {
           if (d < 72 && e.cooldown <= 0) {
             e.mode = 'windup';
@@ -5510,8 +5524,8 @@
           } else {
             var stalkSpeed = e.ai === 'guardian' ? 42 : e.ai === 'skirmisher' ? 76 : 58;
             moveWithCollision(e,
-              toPlayer.x * stalkSpeed * speedScale * (e.stageScale || 1) * dt,
-              toPlayer.y * stalkSpeed * speedScale * (e.stageScale || 1) * dt);
+              toPlayerX * stalkSpeed * speedScale * (e.stageScale || 1) * dt,
+              toPlayerY * stalkSpeed * speedScale * (e.stageScale || 1) * dt);
           }
         }
       } else if (e.type === 'buzz') {
@@ -5520,7 +5534,7 @@
           e.x += e.vx * dt;
           e.y += e.vy * dt;
           e.timer -= dt;
-          if (e.timer <= 0) { e.mode = 'orbit'; e.cooldown = 1.2 * (stageEnemyScale().cooldown); }
+          if (e.timer <= 0) { e.mode = 'orbit'; e.cooldown = 1.2 * cooldownScale; }
         } else if (d < 300) {
           var orbitX = player.x + Math.cos(e.angle) * 105;
           var orbitY = player.y + Math.sin(e.angle) * 76;
@@ -5529,19 +5543,19 @@
           if (e.cooldown <= 0 && d < 150) {
             e.mode = 'dive';
             e.timer = 0.58;
-            e.vx = toPlayer.x * 225 * speedScale * (e.stageScale || 1);
-            e.vy = toPlayer.y * 225 * speedScale * (e.stageScale || 1);
+            e.vx = toPlayerX * 225 * speedScale * (e.stageScale || 1);
+            e.vy = toPlayerY * 225 * speedScale * (e.stageScale || 1);
             setAnimationState(e, 'attack_a', 0.58);
           }
         }
       } else if (e.type === 'slime') {
         if (d < 310 && e.cooldown <= 0) {
-          fireProjectile(e.x, e.y, toPlayer.x * 135 * speedScale * (e.projectileScale || 1), toPlayer.y * 135 * speedScale * (e.projectileScale || 1), '#e86edf', 8, 4);
-          e.cooldown = (settings.difficulty === 'hard' ? 1.45 : 1.9) * stageEnemyScale().cooldown;
+          fireProjectile(e.x, e.y, toPlayerX * 135 * speedScale * (e.projectileScale || 1), toPlayerY * 135 * speedScale * (e.projectileScale || 1), '#e86edf', 8, 4);
+          e.cooldown = (settings.difficulty === 'hard' ? 1.45 : 1.9) * cooldownScale;
           setAnimationState(e, 'special', 0.48);
         }
         if (d < 160) {
-          moveWithCollision(e, -toPlayer.x * 24 * dt, -toPlayer.y * 24 * dt);
+          moveWithCollision(e, -toPlayerX * 24 * dt, -toPlayerY * 24 * dt);
         }
       } else if (e.type === 'wisp') {
         e.angle += dt * 1.8;
@@ -5549,10 +5563,10 @@
         e.y = e.homeY + Math.sin(e.angle * 1.3) * 24;
         if (d < 330 && e.cooldown <= 0) {
           for (var s = -1; s <= 1; s++) {
-            var base = Math.atan2(toPlayer.y, toPlayer.x) + s * 0.22;
+            var base = e.facing + s * 0.22;
             fireProjectile(e.x, e.y, Math.cos(base) * 155 * speedScale * (e.projectileScale || 1), Math.sin(base) * 155 * speedScale * (e.projectileScale || 1), '#82aaff', 6, 4);
           }
-          e.cooldown = 2.25 * stageEnemyScale().cooldown;
+          e.cooldown = 2.25 * cooldownScale;
           setAnimationState(e, 'special', 0.58);
         }
       }
@@ -5562,13 +5576,36 @@
         var movedSq = (e.x - previousX) * (e.x - previousX) + (e.y - previousY) * (e.y - previousY);
         setAnimationState(e, movedSq > 0.08 ? (e.mode === 'lunge' || e.mode === 'dive' ? 'run' : 'walk') : 'idle');
       }
-      if (distance(e, player) < e.r + player.r + 2) damagePlayer(e.power || 1, e.x, e.y);
-    });
+      var contactDx = e.x - player.x;
+      var contactDy = e.y - player.y;
+      var contactRange = e.r + player.r + 2;
+      if (contactDx * contactDx + contactDy * contactDy < contactRange * contactRange) {
+        damagePlayer(e.power || 1, e.x, e.y);
+      }
+    }
   }
 
   function fireProjectile(x, y, vx, vy, color, r, life, damage) {
-    projectiles.push({ x: x, y: y, vx: vx, vy: vy, color: color, r: r, life: life || 4, damage: damage || (state.stage >= 4 ? 2 : 1) });
+    if (projectiles.length >= MAX_ENEMY_PROJECTILES) return;
+    var projectile = projectilePool.pop() || {};
+    projectile.x = x;
+    projectile.y = y;
+    projectile.vx = vx;
+    projectile.vy = vy;
+    projectile.color = color;
+    projectile.r = r;
+    projectile.life = life || 4;
+    projectile.damage = damage || (state.stage >= 4 ? 2 : 1);
+    projectiles.push(projectile);
   }
+
+  function recycleProjectile(index) {
+    var projectile = projectiles[index];
+    var lastProjectile = projectiles.pop();
+    if (index < projectiles.length) projectiles[index] = lastProjectile;
+    if (projectilePool.length < MAX_PROJECTILE_POOL) projectilePool.push(projectile);
+  }
+
   function updateProjectiles(dt) {
     for (var projectileIndex = projectiles.length - 1; projectileIndex >= 0; projectileIndex--) {
       var p = projectiles[projectileIndex];
@@ -5583,7 +5620,7 @@
         p.life = 0;
       }
       if (p.life <= 0 || p.x <= 0 || p.y <= 0 || p.x >= WORLD.w || p.y >= WORLD.h) {
-        projectiles.splice(projectileIndex, 1);
+        recycleProjectile(projectileIndex);
       }
     }
   }
@@ -6243,18 +6280,25 @@
   }
 
   function updateHazards(dt) {
-    hazards.forEach(function (h) {
+    for (var hazardIndex = hazards.length - 1; hazardIndex >= 0; hazardIndex--) {
+      var h = hazards[hazardIndex];
       if (h.timer > 0) {
         h.timer -= dt;
       } else {
         h.active -= dt;
-        if (!h.hit && distance(player, h) < h.r + player.r) {
+        var hazardDx = player.x - h.x;
+        var hazardDy = player.y - h.y;
+        var hazardHitRadius = h.r + player.r;
+        if (!h.hit && hazardDx * hazardDx + hazardDy * hazardDy < hazardHitRadius * hazardHitRadius) {
           h.hit = true;
           damagePlayer(1, h.x, h.y);
         }
       }
-    });
-    hazards = hazards.filter(function (h) { return h.active > 0; });
+      if (h.active <= 0) {
+        var lastHazard = hazards.pop();
+        if (hazardIndex < hazards.length) hazards[hazardIndex] = lastHazard;
+      }
+    }
   }
 
   function finishBoss() {
@@ -6818,11 +6862,16 @@
     ctx.beginPath();
     ctx.ellipse(0, e.r, e.r * 0.9, e.r * 0.35, 0, 0, Math.PI * 2);
     ctx.fill();
-    var enemyRows = { thorn: 0, slime: 1, buzz: 2, wisp: 3 };
     var enemyColumn = e.flash > 0 ? 3 : (e.mode === 'idle' ? (Math.floor(nowTime * 4 + e.x) % 2) : (e.mode === 'wander' ? 1 : 2));
     if (e.elite) {
-      ctx.shadowColor = e.eliteColor || '#f6e36d';
-      ctx.shadowBlur = 18;
+      var eliteColor = e.eliteColor || '#f6e36d';
+      var elitePulse = settings.reducedMotion ? 0 : Math.sin(nowTime * 4 + e.x * 0.01) * 2;
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = eliteColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.r + 13 + elitePulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
     var speciesSize = e.isMiniBoss ? 116 : e.elite ? 84 : (e.type === 'thorn' || e.type === 'slime' ? 74 : 68);
     var assetId = e.isMiniBoss ? e.assetId : e.elite ? e.eliteAssetId : e.speciesId;
@@ -6834,11 +6883,11 @@
     var spriteDrawn = drawProductionSprite(
       assetId, animationName, e.dead ? e.deathTimer : e.animTime,
       0, e.r + 10, productionSize,
-      { alpha:e.type === 'wisp' ? 0.94 : 1, glow:e.elite ? e.eliteColor : null }
+      e.type === 'wisp' ? WISP_ENEMY_DRAW_OPTIONS : ENEMY_DRAW_OPTIONS
     );
     if (!spriteDrawn) spriteDrawn = drawAtlasCell('expanded-enemy-species',6,4,e.atlasRow || 0,e.atlasCol || 0,
       0,e.r+8,speciesSize,speciesSize,0.72,e.type === 'wisp' ? 0.94 : 1);
-    if (!spriteDrawn) spriteDrawn = drawSpriteCell('enemy', enemyRows[e.type], enemyColumn, 0, e.r + 5,
+    if (!spriteDrawn) spriteDrawn = drawSpriteCell('enemy', ENEMY_ROWS[e.type], enemyColumn, 0, e.r + 5,
       e.type === 'thorn' || e.type === 'slime' ? 67 : 62, 0.72, e.type === 'wisp' ? 0.92 : 1);
     if (!spriteDrawn && e.type === 'thorn') {
       ctx.fillStyle = color;
@@ -7198,9 +7247,12 @@
     projectiles.forEach(function (p) {
       if (!isVisible(p.x, p.y, 20)) return;
       ctx.save();
+      ctx.globalAlpha = 0.18;
       ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r + 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
@@ -7214,6 +7266,7 @@
 
   function drawHazards() {
     hazards.forEach(function (h) {
+      if (!isVisible(h.x, h.y, h.r + 12)) return;
       ctx.save();
       if (h.timer > 0) {
         ctx.globalAlpha = 0.35 + Math.sin(nowTime * 16) * 0.12;
