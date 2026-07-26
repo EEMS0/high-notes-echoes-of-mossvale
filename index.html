@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#071b18">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="HIGH NOTES">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/app-icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="description" content="HIGH NOTES: Echoes of Mossvale — an original musical woodland action-adventure.">
+  <title>HIGH NOTES: Echoes of Mossvale</title>
+  <link rel="stylesheet" href="styles.css?v=12">
+  <script src="audio.js?v=12" defer></script>
+  <script src="sprite-runtime.js?v=12" defer></script>
+  <script src="game.js?v=12" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#gameCanvas">Skip to game</a>
+
+  <main id="gameShell" class="game-shell" aria-label="HIGH NOTES: Echoes of Mossvale">
+    <canvas
+      id="gameCanvas"
+      width="960"
+      height="540"
+      tabindex="0"
+      role="img"
+      aria-label="Mossvale game world"
+    >Your browser needs HTML canvas support to play HIGH NOTES.</canvas>
+
+    <section class="hud" aria-label="Adventure status">
+      <div class="hud-cluster hud-cluster-left">
+        <div id="healthChip" class="hud-chip health-chip" aria-label="5 of 5 hearts, 0 stored Heartblooms">
+          <span class="hud-icon heart-icon" aria-hidden="true">♥</span>
+          <span id="hearts" aria-live="polite">♥ ♥ ♥</span>
+          <span class="heartbloom-stock" title="Stored Heartblooms"><span aria-hidden="true">✚</span><strong id="heartbloomCount">0</strong></span>
+        </div>
+
+        <button id="backpackHudButton" class="hud-chip resource-chip backpack-hud-button" type="button" aria-label="Open backpack, 0 of 30 Glowweed collected">
+          <span class="leaf-icon" aria-hidden="true">◆</span>
+          <span class="hud-label">PACK</span>
+          <strong id="weedCount">0</strong>
+        </button>
+
+        <div id="notePills" class="note-pills" aria-label="Notes found" aria-live="polite"></div>
+      </div>
+
+      <div class="objective-card" aria-live="polite">
+        <span id="stageName" class="objective-kicker">STAGE I · MOSSVALE</span>
+        <span id="objective">Find Blu by the lantern grove.</span>
+      </div>
+
+      <div id="comboHud" class="combo-hud" aria-live="polite" hidden>
+        <div class="combo-top">
+          <span class="combo-label">RHYTHM</span>
+          <strong id="comboQuality">FIND THE BEAT</strong>
+        </div>
+        <div class="combo-main">
+          <strong id="comboCount">0</strong>
+          <span id="comboMultiplier">×1</span>
+        </div>
+        <div class="combo-track" aria-hidden="true"><span id="comboFill"></span></div>
+      </div>
+
+      <div id="blockHud" class="block-hud" aria-live="polite" hidden>
+        <div class="block-heading"><span id="blockStatus">STAMINA</span><strong id="blockValue">100</strong></div>
+        <div class="block-track" aria-hidden="true"><span id="blockFill"></span></div>
+      </div>
+
+      <div class="ability-wrap" aria-label="Echo Pulse charge">
+        <div class="ability-heading">
+          <span>FIELD KIT</span>
+          <span class="ability-key" aria-hidden="true">QUICK KEYS</span>
+        </div>
+        <div id="abilityBar" class="ability-bar">SPACE SWING · SHIFT DASH</div>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <section id="touchControls" class="touch-controls" aria-label="Touch controls">
+      <div class="touch-utility" aria-label="Game menu">
+        <button id="touchHealButton" class="touch-button utility-button utility-heal" type="button" data-control="heal" aria-label="Heal, medicine pouch empty" disabled>
+          <span aria-hidden="true">♥</span><small>HEAL</small><strong id="touchHeartbloomCount" class="touch-heal-count" aria-hidden="true">0</strong>
+        </button>
+        <button class="touch-button utility-button utility-odin" type="button" data-control="odin" aria-label="Change Odin command">
+          <span aria-hidden="true">🐾</span><small>ODIN</small>
+        </button>
+        <button class="touch-button utility-button" type="button" data-control="map" aria-label="Open map and quests">
+          <span aria-hidden="true">◇</span><small>MAP</small>
+        </button>
+        <button class="touch-button utility-button" type="button" data-control="pause" aria-label="Pause game">
+          <span aria-hidden="true">Ⅱ</span><small>PAUSE</small>
+        </button>
+      </div>
+
+      <div id="joystickZone" class="joystick-zone" aria-label="Floating movement joystick">
+        <div id="joystickBase" class="joystick-base" aria-hidden="true"><span id="joystickKnob" class="joystick-knob"></span></div>
+      </div>
+
+      <div class="direction-pad legacy-direction-pad" aria-label="Movement">
+        <button class="touch-button direction-up" type="button" data-control="up" aria-label="Move up">▲</button>
+        <button class="touch-button direction-left" type="button" data-control="left" aria-label="Move left">◀</button>
+        <span class="direction-center" aria-hidden="true"></span>
+        <button class="touch-button direction-right" type="button" data-control="right" aria-label="Move right">▶</button>
+        <button class="touch-button direction-down" type="button" data-control="down" aria-label="Move down">▼</button>
+      </div>
+
+      <div class="action-pad" aria-label="Actions">
+        <button class="touch-button action-button action-pulse" type="button" data-control="pulse" aria-label="Echo Pulse">
+          <span aria-hidden="true">♪</span><small>PULSE</small>
+        </button>
+        <button class="touch-button action-button action-dodge" type="button" data-control="dodge" aria-label="Dodge">
+          <span aria-hidden="true">↝</span><small>DODGE</small>
+        </button>
+        <button class="touch-button action-button action-attack" type="button" data-control="attack" aria-label="Attack">
+          <span aria-hidden="true">⚔</span><small>STRIKE</small>
+        </button>
+        <button class="touch-button action-button action-block" type="button" data-control="block" aria-label="Hold to block">
+          <span aria-hidden="true">◈</span><small>BLOCK</small>
+        </button>
+        <button class="touch-button action-button action-interact" type="button" data-control="interact" aria-label="Interact">
+          <span aria-hidden="true">✦</span><small>TALK</small>
+        </button>
+      </div>
+    </section>
+
+    <section id="titleScreen" class="overlay title-screen" aria-labelledby="gameTitle">
+      <div class="title-content">
+        <p class="title-kicker">AN ORIGINAL MOSSVALE ADVENTURE</p>
+        <h1 id="gameTitle">
+          <span class="title-main">HIGH NOTES</span>
+          <span class="title-sub">Echoes of Mossvale</span>
+        </h1>
+        <p class="title-tagline">Grow the groove. Find the forgotten song.</p>
+
+        <div class="title-actions">
+          <button id="startButton" class="game-button button-primary" type="button">
+            <span>Begin the Jam</span>
+          </button>
+          <button id="continueButton" class="game-button button-secondary" type="button" hidden>
+            Continue Adventure
+          </button>
+          <div class="button-row compact-row">
+            <button id="howButton" class="game-button button-ghost" type="button">How to Play</button>
+            <button id="statisticsButton" class="game-button button-ghost" type="button">Statistics</button>
+            <button id="settingsButton" class="game-button button-ghost" type="button">Settings</button>
+          </div>
+        </div>
+
+        <p class="title-hint desktop-only"><kbd>WASD</kbd> roam · <kbd>J</kbd> strike · <kbd>E</kbd> vibe</p>
+        <p class="title-touch-hint touch-only">Use both thumbs · turn your device sideways</p>
+      </div>
+      <p class="title-credit">Original art, world &amp; characters</p>
+    </section>
+
+    <section id="howPanel" class="overlay panel-overlay" role="dialog" aria-modal="true" aria-labelledby="howTitle" hidden>
+      <div class="modal-card how-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">FIELD GUIDE</p>
+            <h2 id="howTitle">How to play</h2>
+          </div>
+          <button id="closeHowButton" class="icon-button" type="button" aria-label="Close how to play">×</button>
+        </div>
+
+        <p class="panel-intro">Explore Mossvale, gather brightleaf, recover the lost notes, and turn every fight into part of the song.</p>
+
+        <div class="how-grid">
+          <article class="guide-card">
+            <span class="guide-icon" aria-hidden="true">♣</span>
+            <h3>Forage</h3>
+            <p>Search glades for magical weed. Blu knows which patches hide more than leaves.</p>
+          </article>
+          <article class="guide-card">
+            <span class="guide-icon" aria-hidden="true">♫</span>
+            <h3>Find notes</h3>
+            <p>Recover four melody notes, then visit EEMS to arrange them in the composer.</p>
+          </article>
+          <article class="guide-card">
+            <span class="guide-icon" aria-hidden="true">⚔</span>
+            <h3>Fight smart</h3>
+            <p>Strike, dodge through danger, store Heartblooms for later, and use Echo Pulse when its amber meter is full.</p>
+          </article>
+          <article class="guide-card">
+            <span class="guide-icon" aria-hidden="true">✦</span>
+            <h3>Make friends</h3>
+            <p>Blu, Jimbo, and EEMS each open a different path through the mystery.</p>
+          </article>
+        </div>
+
+        <div class="controls-table desktop-only" aria-label="Keyboard controls">
+          <div><span>Move</span><kbd>WASD / Arrows</kbd></div>
+          <div><span>Attack</span><kbd>Space / J</kbd></div>
+          <div><span>Dodge</span><kbd>Shift / K</kbd></div>
+          <div><span>Echo Pulse</span><kbd>Q / L</kbd></div>
+          <div><span>Use Heartbloom</span><kbd>H</kbd></div>
+          <div><span>Change Odin command</span><kbd>R</kbd></div>
+          <div><span>Interact</span><kbd>E / Enter</kbd></div>
+          <div><span>Map &amp; quests</span><kbd>Tab</kbd></div>
+          <div><span>Backpack</span><kbd>I / B</kbd></div>
+          <div><span>Pause / back</span><kbd>Esc</kbd></div>
+          <div><span>Gamepad</span><kbd>A strike · B dodge · X pulse · Y talk</kbd></div>
+        </div>
+
+        <div class="touch-guide touch-only" aria-label="Touch controls">
+          <p><strong>Move</strong> with the left pad. Use <strong>Strike</strong>, <strong>Dodge</strong>, <strong>Pulse</strong>, and <strong>Talk</strong> with your right thumb.</p>
+          <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. <strong>Map</strong> and <strong>Pause</strong> are at the top-right.</p>
+          <p class="audio-tip">No sound on iPhone? Turn off Silent Mode, raise media volume, then tap the game once.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="settingsPanel" class="overlay panel-overlay settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+      <div class="modal-card settings-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">TUNE THE VIBE</p>
+            <h2 id="settingsTitle">Settings</h2>
+          </div>
+          <button id="closeSettingsButton" class="icon-button" type="button" aria-label="Close settings">×</button>
+        </div>
+
+        <div class="settings-list">
+          <label class="setting-row select-row" for="difficultySelect">
+            <span><strong>Difficulty</strong><small>Adjust enemy pressure and recovery.</small></span>
+            <select id="difficultySelect">
+              <option value="story">Chill</option>
+              <option value="standard" selected>Groove</option>
+              <option value="hard">Wild</option>
+            </select>
+          </label>
+
+          <label class="setting-row range-row" for="musicVolume">
+            <span><strong>Music</strong><small>Melody and woodland ambience.</small></span>
+            <input id="musicVolume" type="range" min="0" max="1" value="0.7" step="0.05">
+          </label>
+
+          <label class="setting-row range-row" for="sfxVolume">
+            <span><strong>Sound effects</strong><small>Combat, pickups, and UI sounds.</small></span>
+            <input id="sfxVolume" type="range" min="0" max="1" value="0.8" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="screenShake">
+            <span><strong>Screen shake</strong><small>Impact movement during combat.</small></span>
+            <input id="screenShake" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row switch-row" for="reducedMotion">
+            <span><strong>Reduced motion</strong><small>Calmer transitions and effects.</small></span>
+            <input id="reducedMotion" type="checkbox">
+          </label>
+
+          <label class="setting-row switch-row" for="objectiveArrow">
+            <span><strong>Objective arrow</strong><small>Point toward the current quest.</small></span>
+            <input id="objectiveArrow" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row select-row" for="interfaceSize">
+            <span><strong>Interface size</strong><small>Scale menus, HUD text, and controls.</small></span>
+            <select id="interfaceSize">
+              <option value="compact">Compact</option>
+              <option value="standard" selected>Standard</option>
+              <option value="large">Large</option>
+            </select>
+          </label>
+
+          <label class="setting-row switch-row" for="largeText">
+            <span><strong>Large text</strong><small>Increase dialogue text further.</small></span>
+            <input id="largeText" type="checkbox">
+          </label>
+        </div>
+
+        <div class="settings-footer">
+          <p>Settings save automatically on this device.</p>
+          <button id="resetButton" class="game-button button-danger" type="button">Reset Adventure</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="pauseScreen" class="overlay pause-screen" role="dialog" aria-modal="true" aria-labelledby="pauseTitle" hidden>
+      <div class="pause-card">
+        <p class="panel-kicker">THE GROOVE CAN WAIT</p>
+        <h2 id="pauseTitle">Paused</h2>
+        <p id="pauseLocation">Mossvale is holding your place.</p>
+        <div class="pause-actions">
+          <button id="resumeButton" class="game-button button-primary" type="button">Resume</button>
+          <button id="pauseMapButton" class="game-button button-secondary" type="button">Map &amp; Quests</button>
+          <button id="pauseBackpackButton" class="game-button button-secondary" type="button">Backpack</button>
+          <button id="pauseInstrumentsButton" class="game-button button-secondary" type="button">Instruments</button>
+          <button id="pauseSkillsButton" class="game-button button-secondary" type="button">Skills</button>
+          <button id="pauseHomeButton" class="game-button button-secondary" type="button">Player Home</button>
+          <button id="pauseStatisticsButton" class="game-button button-secondary" type="button">Statistics</button>
+          <button id="pauseSettingsButton" class="game-button button-ghost" type="button">Settings</button>
+        </div>
+        <small class="desktop-only">Press <kbd>Esc</kbd> to return</small>
+        <small class="touch-only">Tap Resume when you are ready.</small>
+      </div>
+    </section>
+
+    <section id="dialogueBox" class="dialogue-box" role="dialog" aria-labelledby="speakerName" aria-describedby="dialogueText" hidden>
+      <div class="dialogue-portrait-frame" aria-hidden="true">
+        <img id="dialoguePortrait" class="dialogue-portrait" alt="">
+      </div>
+      <div class="speaker-tab">
+        <span class="speaker-spark" aria-hidden="true">✦</span>
+        <strong id="speakerName">Blu</strong>
+      </div>
+      <p id="dialogueText" aria-live="polite">The grove hums when you listen closely.</p>
+      <span id="dialogueHint" class="desktop-only">E / Enter to continue</span>
+      <button id="dialogueContinueButton" class="dialogue-continue touch-only" type="button">Next</button>
+    </section>
+
+    <section id="inventoryScreen" class="overlay feature-screen inventory-screen" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle" hidden>
+      <div class="feature-card inventory-card">
+        <div class="panel-heading inventory-heading">
+          <div>
+            <p class="panel-kicker">FIELD SATCHEL</p>
+            <h2 id="inventoryTitle">Mossvale Backpack</h2>
+          </div>
+          <div class="inventory-count" aria-label="Backpack progress"><span aria-hidden="true">&#10022;</span><strong id="inventoryProgress">0 / 21</strong></div>
+          <button id="closeInventoryButton" class="icon-button" type="button" aria-label="Close backpack">&times;</button>
+        </div>
+        <p class="panel-intro">Everything gathered, learned, tuned, and stored for later on your journey.</p>
+        <div id="inventoryTabs" class="inventory-tabs" role="tablist" aria-label="Backpack categories"></div>
+        <div class="inventory-layout">
+          <div id="inventoryGrid" class="inventory-grid" role="tabpanel" aria-live="polite"></div>
+          <aside id="inventoryDetail" class="inventory-detail" aria-live="polite">
+            <div id="inventoryDetailIcon" class="inventory-detail-icon" aria-hidden="true"></div>
+            <p class="panel-kicker" id="inventoryDetailCategory">HARVEST</p>
+            <h3 id="inventoryDetailName">Glowweed</h3>
+            <p id="inventoryDetailDescription">Bright sprigs that hum near a good rhythm.</p>
+            <div id="inventoryDetailMeta" class="inventory-detail-meta"></div>
+            <button id="inventoryActionButton" class="game-button button-primary inventory-action" type="button" hidden>Use item</button>
+          </aside>
+        </div>
+        <small class="desktop-only inventory-shortcut">Press <kbd>I</kbd> or <kbd>B</kbd> to close</small>
+      </div>
+    </section>
+
+    <section id="shopScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="shopTitle" hidden>
+      <div class="feature-card shop-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">BRAD'S PREMIUM GOODS</p><h2 id="shopTitle">The Beat Boutique</h2></div>
+          <button id="closeShopButton" class="icon-button" type="button" aria-label="Close shop">&times;</button>
+        </div>
+        <div class="merchant-banner">
+          <div class="merchant-portrait" aria-hidden="true"><img src="Sprites/Portraits/brad/happy.png" alt=""></div>
+          <div><strong>Brad has a deal for every difficult road.</strong><p>Beatcoins drop from defeated enemies. Spend them on supplies and permanent upgrades.</p><p id="shopWallet" class="panel-intro">0 Beatcoins</p></div>
+        </div>
+        <div id="shopGrid" class="shop-grid"></div>
+      </div>
+    </section>
+
+    <section id="skillsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="skillsTitle" hidden>
+      <div class="feature-card skills-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">GROOVE TRAINING</p><h2 id="skillsTitle">Skill Tree</h2></div>
+          <button id="closeSkillsButton" class="icon-button" type="button" aria-label="Close skills">&times;</button>
+        </div>
+        <div class="skill-toolbar">
+          <div id="skillFilters" class="skill-filters" role="tablist" aria-label="Skill categories"></div>
+          <div class="skill-zoom" aria-label="Skill tree zoom">
+            <button id="skillZoomOut" class="icon-button" type="button" aria-label="Zoom out">−</button>
+            <strong id="skillZoomValue">100%</strong>
+            <button id="skillZoomIn" class="icon-button" type="button" aria-label="Zoom in">+</button>
+          </div>
+        </div>
+        <p class="panel-intro">Earn a point every five enemy wins and two more from every stage boss. Follow glowing prerequisites to shape a build.</p>
+        <p id="skillPoints" class="skill-point-counter">0 skill points</p>
+        <section class="resonance-panel" aria-labelledby="resonanceTitle"><div class="resonance-heading"><div><p class="panel-kicker">BUILD SYNERGY</p><h3 id="resonanceTitle">Music Resonance</h3></div><strong id="resonanceStatus">No resonance equipped</strong></div><p class="panel-intro">Complete the listed combinations, then equip one resonance to shape your combat style.</p><div id="resonanceGrid" class="resonance-grid"></div></section>
+        <div class="skill-tree-layout">
+          <div id="skillTreeViewport" class="skill-tree-viewport" tabindex="0" aria-label="Pan and zoom skill tree">
+            <div id="skillsGrid" class="skills-grid skill-tree-canvas"></div>
+          </div>
+          <aside id="skillPreview" class="skill-preview" aria-live="polite">
+            <p class="panel-kicker">NODE PREVIEW</p>
+            <h3>Choose a node</h3>
+            <p>Inspect its effect, rarity, category, and prerequisites.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="instrumentsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="instrumentsTitle" hidden>
+      <div class="feature-card instruments-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">PLAY YOUR WAY</p><h2 id="instrumentsTitle">Instrument Mastery</h2></div>
+          <button id="closeInstrumentsButton" class="icon-button" type="button" aria-label="Close instruments">&times;</button>
+        </div>
+        <div class="instrument-status-bar">
+          <span id="equippedInstrumentLabel">Electric Guitar equipped</span>
+          <span id="ultimateChargeLabel">Ultimate 0%</span>
+        </div>
+        <div id="instrumentGrid" class="instrument-grid" aria-live="polite"></div>
+        <aside id="instrumentDetail" class="instrument-detail" aria-live="polite"></aside>
+      </div>
+    </section>
+
+    <section id="homeScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="homeTitle" hidden>
+      <div class="feature-card home-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">A PLACE BETWEEN SONGS</p><h2 id="homeTitle">The Afterglow House</h2></div>
+          <button id="closeHomeButton" class="icon-button" type="button" aria-label="Leave player home">&times;</button>
+        </div>
+        <div id="homeSummary" class="home-summary"></div>
+        <div id="homeRooms" class="home-rooms" aria-live="polite"></div>
+        <div class="home-footer">
+          <label for="homeDecoration">Active decoration</label>
+          <select id="homeDecoration"></select>
+          <button id="homeLeaveButton" class="game-button button-primary" type="button">Return to the Road</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="statisticsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="statisticsTitle" hidden>
+      <div class="feature-card statistics-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">YOUR ADVENTURE IN NUMBERS</p>
+            <h2 id="statisticsTitle">Statistics</h2>
+          </div>
+          <button id="closeStatisticsButton" class="icon-button" type="button" aria-label="Close statistics">&times;</button>
+        </div>
+        <div class="statistics-hero">
+          <div>
+            <p class="panel-kicker">ADVENTURE RANK</p>
+            <h3 id="statisticsRank">Grove Rookie</h3>
+            <p id="statisticsSummary">The first beat is waiting.</p>
+          </div>
+          <div class="statistics-completion" aria-label="Adventure completion">
+            <strong id="statisticsCompletion">0%</strong>
+            <span>COMPLETE</span>
+          </div>
+        </div>
+        <div id="statisticsGrid" class="statistics-grid" aria-live="polite"></div>
+        <section class="boss-records" aria-labelledby="bossRecordsTitle">
+          <div class="boss-records-heading">
+            <p class="panel-kicker">ENCORE ARCHIVE</p>
+            <h3 id="bossRecordsTitle">Boss Records</h3>
+          </div>
+          <div id="bossRecordsList" class="boss-records-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="composerScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="composerTitle" hidden>
+      <div class="feature-card composer-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">EEMS' MOSSBOX</p>
+            <h2 id="composerTitle">Build the High Note</h2>
+          </div>
+          <button id="closeComposerButton" class="icon-button" type="button" aria-label="Close composer">×</button>
+        </div>
+
+        <p class="panel-intro">Tap a step to place a note. Stack your recovered sounds into a four-beat loop.</p>
+        <div id="composerGrid" class="composer-grid" role="grid" aria-label="Melody sequencer"></div>
+        <div id="composerInfo" class="composer-info" aria-live="polite">Choose a recovered note to start arranging.</div>
+
+        <div class="button-row composer-actions">
+          <button id="playMelodyButton" class="game-button button-secondary" type="button">▶ Play Loop</button>
+          <button id="saveMelodyButton" class="game-button button-primary" type="button">Save Melody</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="mapScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="mapTitle" hidden>
+      <div class="feature-card map-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">PATHS &amp; PROMISES</p>
+            <h2 id="mapTitle">Map of Mossvale</h2>
+          </div>
+          <button id="closeMapButton" class="icon-button" type="button" aria-label="Close map">×</button>
+        </div>
+
+        <div class="map-layout">
+          <div class="map-frame">
+            <canvas id="mapCanvas" width="560" height="360" role="img" aria-label="Map showing explored locations"></canvas>
+            <div class="map-legend" aria-label="Map legend"><span><i class="legend-you" aria-hidden="true"></i>You</span><span><i class="legend-quest" aria-hidden="true"></i>Quest</span><span><i class="legend-gate" aria-hidden="true"></i>Travel</span><span><i class="legend-heart" aria-hidden="true"></i>Collectible</span></div>
+          </div>
+          <aside class="quest-panel" aria-labelledby="questTitle">
+            <section class="fast-travel-panel" aria-labelledby="travelTitle">
+              <h3 id="travelTitle">Fast travel</h3>
+              <p>Return to any discovered world hub.</p>
+              <div id="fastTravelList" class="fast-travel-list"></div>
+              <button id="fastTravelHome" class="game-button button-secondary fast-travel-shop" type="button">Return to Player Home</button>
+              <button id="fastTravelShop" class="game-button button-primary fast-travel-shop" type="button">Travel to Brad's Shop</button>
+            </section>
+            <section class="quest-log-section">
+              <h3 id="questTitle">Quest log</h3>
+              <div id="questFilters" class="quest-filters" role="tablist" aria-label="Quest categories">
+                <button class="active" type="button" data-quest-filter="main">Main</button>
+                <button type="button" data-quest-filter="side">Side</button>
+                <button type="button" data-quest-filter="world">World</button>
+              </div>
+              <ul id="questList" aria-live="polite"></ul>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="endingScreen" class="overlay ending-screen" role="dialog" aria-modal="true" aria-labelledby="endingTitle" hidden>
+      <div class="ending-card">
+        <span class="ending-notes" aria-hidden="true">♪ · ♫ · ♪</span>
+        <p class="panel-kicker">THE VALE REMEMBERS</p>
+        <h2 id="endingTitle">A New Song Rises</h2>
+        <p id="endingText">Your melody rolls through the old stones, and Mossvale answers in harmony.</p>
+        <button id="replayButton" class="game-button button-primary" type="button">Play Again</button>
+      </div>
+    </section>
+
+    <aside id="rotateNotice" class="rotate-notice" role="dialog" aria-modal="true" aria-labelledby="rotateTitle" tabindex="-1">
+      <div class="rotate-device" aria-hidden="true"><span>↻</span></div>
+      <strong id="rotateTitle">Turn toward the horizon</strong>
+      <p>Mossvale plays best in landscape. Your game is safely paused.</p>
+    </aside>
+  </main>
+
+  <noscript>
+    <p class="noscript-message">HIGH NOTES needs JavaScript enabled to open the path into Mossvale.</p>
+  </noscript>
+</body>
+</html>

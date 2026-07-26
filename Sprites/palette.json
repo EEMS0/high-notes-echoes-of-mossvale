@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "name": "Mossvale Production Palette",
+  "policy": "Shared anchors plus role-specific sampled ramps; outlines stay soft-dark rather than pure black.",
+  "colors": [
+    {
+      "name": "Night Ink",
+      "hex": "#101521"
+    },
+    {
+      "name": "Plum Outline",
+      "hex": "#271936"
+    },
+    {
+      "name": "Bark Shadow",
+      "hex": "#3a2834"
+    },
+    {
+      "name": "Moss Deep",
+      "hex": "#234738"
+    },
+    {
+      "name": "Moss Mid",
+      "hex": "#3f7451"
+    },
+    {
+      "name": "Moss Light",
+      "hex": "#7ccf77"
+    },
+    {
+      "name": "Heartwood",
+      "hex": "#8c5a3c"
+    },
+    {
+      "name": "Honey Gold",
+      "hex": "#e0a83a"
+    },
+    {
+      "name": "Beat Gold",
+      "hex": "#ffd45c"
+    },
+    {
+      "name": "Ember Orange",
+      "hex": "#ef7b45"
+    },
+    {
+      "name": "Heart Pink",
+      "hex": "#ed5f91"
+    },
+    {
+      "name": "Dream Magenta",
+      "hex": "#c34dcc"
+    },
+    {
+      "name": "Resonance Violet",
+      "hex": "#7455d9"
+    },
+    {
+      "name": "Midnight Blue",
+      "hex": "#283a70"
+    },
+    {
+      "name": "Skyglass Blue",
+      "hex": "#3d82d6"
+    },
+    {
+      "name": "Pulse Cyan",
+      "hex": "#53d8e8"
+    },
+    {
+      "name": "Moon Foam",
+      "hex": "#a3edf1"
+    },
+    {
+      "name": "Pearl",
+      "hex": "#f1e6cf"
+    },
+    {
+      "name": "Bone",
+      "hex": "#c8b99f"
+    },
+    {
+      "name": "Storm Grey",
+      "hex": "#667286"
+    },
+    {
+      "name": "Spore Amber",
+      "hex": "#d88d4c"
+    },
+    {
+      "name": "Tide Teal",
+      "hex": "#2ca5a5"
+    },
+    {
+      "name": "Leaf Spark",
+      "hex": "#a8e063"
+    },
+    {
+      "name": "Hurt Coral",
+      "hex": "#ff6f7f"
+    }
+  ],
+  "regionalAccents": {
+    "Mossvale": "#7ccf77",
+    "Rootsong": "#ef9a52",
+    "Skyglass": "#62d9ff",
+    "Moonwake": "#83e4dc",
+    "Elite": "#ffd45c",
+    "Bosses": "#d77cff",
+    "NPCs": "#ffc857",
+    "Odin": "#53d8e8"
+  }
+}

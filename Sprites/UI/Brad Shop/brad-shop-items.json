@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "sheet": "brad-shop-items-sheet.png",
+  "source": "assets/sprites/runtime/brad-shop-items-sheet.png",
+  "transparentBackground": true,
+  "note": "Existing production Brad shop inventory art retained and surfaced in the new asset hierarchy.",
+  "import": {
+    "filtering": "nearest",
+    "compression": "lossless"
+  }
+}

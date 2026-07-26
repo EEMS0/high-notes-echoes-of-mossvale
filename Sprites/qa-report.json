@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-07-26T21:03:31.034Z",
+  "passed": true,
+  "totals": {
+    "sheetsExpected": 102,
+    "sheetsValidated": 102,
+    "alphaSafeSheets": 102,
+    "portraitsValidated": 612,
+    "categories": {
+      "npc": 38,
+      "enemy": 40,
+      "elite": 8,
+      "boss": 15,
+      "companion": 1
+    },
+    "uniqueWholeSheetHashes": 102
+  },
+  "standards": {
+    "columns": 12,
+    "rows": 26,
+    "transparentPng": true,
+    "requiredPortraitExpressions": [
+      "neutral",
+      "happy",
+      "angry",
+      "surprised",
+      "sad",
+      "talking"
+    ],
+    "odinExpandedActions": 18,
+    "sharedEffectFamilies": 8
+  },
+  "transparentMasterAlpha": {
+    "npc-musician-turnarounds.png": {
+      "transparentPixels": 1091180,
+      "partiallyTransparentPixels": 68540,
+      "opaquePixels": 413012,
+      "transparentCorners": true
+    },
+    "missing-regional-enemies.png": {
+      "transparentPixels": 1124763,
+      "partiallyTransparentPixels": 94549,
+      "opaquePixels": 353204,
+      "transparentCorners": true
+    },
+    "elites-key-poses.png": {
+      "transparentPixels": 1066211,
+      "partiallyTransparentPixels": 146705,
+      "opaquePixels": 359948,
+      "transparentCorners": true
+    },
+    "miniboss-roster.png": {
+      "transparentPixels": 738663,
+      "partiallyTransparentPixels": 99989,
+      "opaquePixels": 734212,
+      "transparentCorners": true
+    },
+    "odin-expanded-actions.png": {
+      "transparentPixels": 1029858,
+      "partiallyTransparentPixels": 82395,
+      "opaquePixels": 461285,
+      "transparentCorners": true
+    }
+  },
+  "duplicateWholeSheetHashes": [],
+  "warnings": [],
+  "failures": []
+}
