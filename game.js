@@ -342,7 +342,8 @@
     reducedMotion: false,
     objectiveArrow: true,
     largeText: false,
-    interfaceSize: 'standard'
+    interfaceSize: 'standard',
+    adaptiveFirstStage: true
   };
   function readStorage(key) {
     try {
@@ -404,7 +405,7 @@
 
   function freshState() {
     return {
-      version: 11,
+      version: 12,
       chapter: 1,
       odinRecruited: false,
       metMara: false,
@@ -482,6 +483,13 @@
       totalKills: 0,
       damagingPulses: 0,
       playSeconds: 0,
+      firstStageOnboarding: {
+        graceConsumed: false,
+        graceRemaining: 18,
+        tutorialFlags: [],
+        struggle: 0,
+        checkpointReloads: 0
+      },
       x: HUB.x,
       y: HUB.y + 115
     };
@@ -556,6 +564,50 @@
   var MAX_FLOATING_TEXT = 48;
   var MAX_ENEMY_PROJECTILES = 180;
   var MAX_PROJECTILE_POOL = 180;
+  // Stage-specific onboarding values. Later worlds continue using their existing
+  // enemy scale and encounter rules.
+  var FIRST_STAGE_BALANCE = Object.freeze({
+    safeZoneRadius: 360,
+    introductoryZoneRadius: 760,
+    standardZoneRadius: 1250,
+    minimumEnemyDistance: 340,
+    minimumOffscreenSpawnDistance: 150,
+    openingGracePeriodSeconds: 18,
+    enemySpawnWarmupSeconds: 1.35,
+    safeZoneDisengageDelaySeconds: 1.5,
+    enemyHealthMultiplier: 0.86,
+    enemyDamageMultiplier: 0.80,
+    enemyAggressionMultiplier: 0.82,
+    projectileSpeedMultiplier: 0.82,
+    attackTelegraphMultiplier: 1.35,
+    attackCooldownMultiplier: 1.28,
+    maximumActiveEnemies: 24,
+    maximumIntroAttackers: 1,
+    maximumLaterAttackers: 2,
+    encounterCooldownSeconds: 44,
+    healingDropModifier: 1.35,
+    healingDropCooldownSeconds: 7,
+    mobileDodgeForgivenessSeconds: 0.09,
+    mobileBlockForgivenessSeconds: 0.08,
+    inputBufferSeconds: 0.16,
+    adaptiveDeathThreshold: 2,
+    adaptiveLowHealthThreshold: 3,
+    spawnValidationRetries: 12
+  });
+  var firstStageRuntime = {
+    graceRemaining: 0,
+    respawnGrace: 0,
+    safe: false,
+    zone: 'final',
+    attackSlots: new Set(),
+    healingDropCooldown: 0,
+    tutorialPromptCooldown: 0,
+    movementStartX: 0,
+    movementStartY: 0,
+    lowHealthLatch: false,
+    debugSignature: ''
+  };
+  var inputBuffer = { attack:0, dodge:0, block:0, interact:0 };
   var ENEMY_ROWS = { thorn: 0, slime: 1, buzz: 2, wisp: 3 };
   var ENEMY_DRAW_OPTIONS = {};
   var WISP_ENEMY_DRAW_OPTIONS = { alpha: 0.94 };
@@ -977,7 +1029,12 @@
     };
   }
   function resetEnemies() {
-    enemies = enemyBlueprints.map(makeEnemy);
+    enemies = [];
+    enemyBlueprints.forEach(function (blueprint, index) {
+      var enemy = makeEnemy(blueprint, index);
+      prepareEnemyForSpawn(enemy, { fixed:true, playerPosition:currentLevel && currentLevel.spawn });
+      enemies.push(enemy);
+    });
     var gone = new Set(state.defeated || []);
     enemies.forEach(function (e) { if (gone.has(e.id)) e.dead = true; });
     MINIBOSS_DEFS.filter(function (definition) {
@@ -997,6 +1054,7 @@
       mini.shielded = false;
       mini.elite = false;
       mini.cooldown = 1.1 + index*.35;
+      prepareEnemyForSpawn(mini, { fixed:true, playerPosition:currentLevel && currentLevel.spawn });
       enemies.push(mini);
     });
   }
@@ -1285,6 +1343,28 @@
     clean.totalKills = clamp(Number(raw.totalKills) || 0, 0, 99999);
     clean.damagingPulses = clamp(Math.floor(Number(raw.damagingPulses) || 0), 0, 99999);
     clean.playSeconds = clamp(Number(raw.playSeconds) || 0, 0, 9999999);
+    var rawOnboarding = raw.firstStageOnboarding && typeof raw.firstStageOnboarding === 'object' ?
+      raw.firstStageOnboarding : {};
+    var hadOpeningProgress = !!(raw.metEems || raw.metJimbo || raw.metBlu || (Number(raw.totalKills) || 0) > 0 ||
+      (Array.isArray(raw.notes) && raw.notes.length) || (Number(raw.stage) || 1) > 1);
+    clean.firstStageOnboarding.graceConsumed = typeof rawOnboarding.graceConsumed === 'boolean' ?
+      rawOnboarding.graceConsumed : hadOpeningProgress;
+    clean.firstStageOnboarding.graceRemaining = clamp(
+      Number(rawOnboarding.graceRemaining),
+      0,
+      FIRST_STAGE_BALANCE.openingGracePeriodSeconds
+    );
+    if (!isFinite(Number(rawOnboarding.graceRemaining))) {
+      clean.firstStageOnboarding.graceRemaining = clean.firstStageOnboarding.graceConsumed ?
+        0 : FIRST_STAGE_BALANCE.openingGracePeriodSeconds;
+    }
+    clean.firstStageOnboarding.tutorialFlags = validUnique(rawOnboarding.tutorialFlags, [
+      'move','interact','attack','dodge','block','heal','odin','rhythm','instrument','resonance','first-victory'
+    ]);
+    clean.firstStageOnboarding.struggle = clamp(Number(rawOnboarding.struggle) || 0, 0, 10);
+    clean.firstStageOnboarding.checkpointReloads = clamp(
+      Math.floor(Number(rawOnboarding.checkpointReloads) || 0), 0, 999
+    );
     clean.chapter = clamp(Math.floor(Number(raw.chapter) || (raw.bossDefeated ? 2 : 1)), 1, 4);
     // V2/V3 stored placeholder relics before the extra stages existed, so only V4
     // records may restore them as genuine stage completion.
@@ -1487,6 +1567,8 @@
     instrumentUltimateCharge = 0;
     instrumentHitStreak = 0;
     encounterDirector = {tension:0,cooldown:24,activeEvent:null,weatherTimer:0,recentDamage:0};
+    inputBuffer.attack = inputBuffer.dodge = inputBuffer.block = inputBuffer.interact = 0;
+    firstStageRuntime.attackSlots.clear();
     mapAnimationTime = 0;
     paused = false;
     keys.clear();
@@ -1514,6 +1596,7 @@
     activateLevel(1);
     resetEnemies();
     resetPlayer(false);
+    resetFirstStageRuntime('new');
     spawnStageHeartblooms(1);
     started = true;
     setHidden(byId('titleScreen'), true);
@@ -1537,6 +1620,7 @@
     activateLevel(state.stage);
     resetEnemies();
     resetPlayer(true);
+    resetFirstStageRuntime('load');
     spawnStageHeartblooms(state.stage);
     started = true;
     setHidden(byId('titleScreen'), true);
@@ -2320,6 +2404,352 @@
     if (!circleHitsObstacle(entity.x, nextY, entity.r, entity)) entity.y = nextY;
   }
 
+  function firstStageSpawnPoint() {
+    return LEVELS[1] && LEVELS[1].spawn ? LEVELS[1].spawn : {x:1400,y:1045};
+  }
+
+  function distanceSquared(a, b) {
+    var dx = a.x - b.x;
+    var dy = a.y - b.y;
+    return dx * dx + dy * dy;
+  }
+
+  function firstStageZoneAt(position) {
+    if (state.stage !== 1) return 'final';
+    var d2 = distanceSquared(position, firstStageSpawnPoint());
+    if (d2 <= FIRST_STAGE_BALANCE.safeZoneRadius * FIRST_STAGE_BALANCE.safeZoneRadius) return 'safe';
+    if (d2 <= FIRST_STAGE_BALANCE.introductoryZoneRadius * FIRST_STAGE_BALANCE.introductoryZoneRadius) return 'intro';
+    if (d2 <= FIRST_STAGE_BALANCE.standardZoneRadius * FIRST_STAGE_BALANCE.standardZoneRadius) return 'standard';
+    return 'final';
+  }
+
+  function isFirstStageProtected(position, extraRadius) {
+    if (state.stage !== 1) return false;
+    var radius = FIRST_STAGE_BALANCE.safeZoneRadius + (extraRadius || 0);
+    return distanceSquared(position, firstStageSpawnPoint()) <= radius * radius;
+  }
+
+  function nearStageObject(position, radius) {
+    var radiusSq;
+    var index;
+    for (index = 0; index < npcs.length; index++) {
+      var npcPosition = npcWorldPosition(npcs[index]);
+      radiusSq = radius + (npcs[index].collisionRadius || 14);
+      if (distanceSquared(position, npcPosition) < radiusSq * radiusSq) return true;
+    }
+    var protectedCollections = [shrines, stagePortals, stageTokens, collectibles];
+    for (var collectionIndex = 0; collectionIndex < protectedCollections.length; collectionIndex++) {
+      var collection = protectedCollections[collectionIndex] || [];
+      for (index = 0; index < collection.length; index++) {
+        radiusSq = radius + (collection[index].r || 18);
+        if (distanceSquared(position, collection[index]) < radiusSq * radiusSq) return true;
+      }
+    }
+    return false;
+  }
+
+  // Authoritative validation used by fixed, procedural, quest, split, and event
+  // spawns. A structured reason makes failed placement debuggable without
+  // forcing an invalid enemy into the map.
+  function canSpawnEnemy(options) {
+    options = options || {};
+    var position = options.position;
+    var enemyRadius = options.radius || 18;
+    if (!position || !isFinite(position.x) || !isFinite(position.y)) return {valid:false,reason:'invalid_position'};
+    if (circleHitsObstacle(position.x, position.y, enemyRadius)) return {valid:false,reason:'collision_geometry'};
+    if (state.stage === 1 && isFirstStageProtected(position, enemyRadius + 18)) {
+      return {valid:false,reason:'inside_safe_zone'};
+    }
+    if (nearStageObject(position, enemyRadius + 36)) return {valid:false,reason:'blocks_interactable'};
+    var playerPosition = options.playerPosition || (started ? player : null);
+    if (playerPosition && options.enforcePlayerDistance !== false) {
+      var minimumDistance = options.minimumPlayerDistance || FIRST_STAGE_BALANCE.minimumEnemyDistance;
+      if (distanceSquared(position, playerPosition) < minimumDistance * minimumDistance) {
+        return {valid:false,reason:'too_close_to_player'};
+      }
+    }
+    for (var enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
+      var other = enemies[enemyIndex];
+      if (!other || other.dead || other === options.ignoreEnemy) continue;
+      var separation = enemyRadius + (other.r || 16) + 18;
+      if (distanceSquared(position, other) < separation * separation) return {valid:false,reason:'overlaps_enemy'};
+    }
+    return {valid:true,reason:'ok'};
+  }
+
+  function findValidEnemySpawn(origin, options) {
+    options = options || {};
+    var attempts = options.attempts || FIRST_STAGE_BALANCE.spawnValidationRetries;
+    var baseRadius = options.baseRadius || 70;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      var angle = (options.angle || 0) + attempt * 2.399963 + Math.random() * 0.18;
+      var radius = baseRadius + attempt * (options.radiusStep || 34);
+      var position = {
+        x:clamp(origin.x + Math.cos(angle) * radius, 40, WORLD.w - 40),
+        y:clamp(origin.y + Math.sin(angle) * radius, 40, WORLD.h - 40)
+      };
+      var validation = canSpawnEnemy({
+        position:position,
+        radius:options.radius,
+        playerPosition:options.playerPosition,
+        enforcePlayerDistance:options.enforcePlayerDistance,
+        minimumPlayerDistance:options.minimumPlayerDistance,
+        ignoreEnemy:options.ignoreEnemy
+      });
+      if (validation.valid) return {position:position,validation:validation};
+    }
+    return {position:null,validation:{valid:false,reason:'no_valid_position'}};
+  }
+
+  function firstStageProgressMilestone() {
+    return !!(state.metBlu || state.notes.length >= 1 || state.totalKills >= 4);
+  }
+
+  function prepareEnemyForSpawn(enemy, options) {
+    options = options || {};
+    enemy.spawnWarmup = options.fixed ? 0 : (state.stage === 1 ?
+      FIRST_STAGE_BALANCE.enemySpawnWarmupSeconds : 0.85);
+    enemy.introduced = !options.fixed;
+    enemy.contactCooldown = 0;
+    enemy.attackSlotUntil = 0;
+    enemy.disengageTimer = 0;
+    enemy.encounterZone = firstStageZoneAt(enemy);
+    if (state.stage !== 1) return enemy;
+    if (enemy.encounterZone === 'safe') {
+      var spawn = firstStageSpawnPoint();
+      var dx = enemy.x - spawn.x;
+      var dy = enemy.y - spawn.y;
+      var direction = normalize(dx || 1, dy || 0);
+      var relocationOrigin = {
+        x:spawn.x + direction.x * (FIRST_STAGE_BALANCE.safeZoneRadius + 72),
+        y:spawn.y + direction.y * (FIRST_STAGE_BALANCE.safeZoneRadius + 72)
+      };
+      var relocated = findValidEnemySpawn(relocationOrigin, {
+        radius:enemy.r,
+        baseRadius:0,
+        radiusStep:28,
+        enforcePlayerDistance:false
+      });
+      if (relocated.position) {
+        enemy.x = enemy.homeX = relocated.position.x;
+        enemy.y = enemy.homeY = relocated.position.y;
+        enemy.encounterZone = firstStageZoneAt(enemy);
+      } else {
+        enemy.dead = true;
+        enemy.spawnRejected = 'inside_safe_zone';
+      }
+    }
+    if (!enemy.dead) {
+      var fixedValidation = canSpawnEnemy({
+        position:enemy,
+        radius:enemy.r,
+        playerPosition:options.playerPosition,
+        enforcePlayerDistance:false,
+        ignoreEnemy:enemy
+      });
+      if (!fixedValidation.valid) {
+        var corrected = findValidEnemySpawn({x:enemy.x,y:enemy.y},{
+          radius:enemy.r,
+          baseRadius:52,
+          radiusStep:30,
+          enforcePlayerDistance:false,
+          ignoreEnemy:enemy
+        });
+        if (corrected.position) {
+          enemy.x = enemy.homeX = corrected.position.x;
+          enemy.y = enemy.homeY = corrected.position.y;
+          enemy.encounterZone = firstStageZoneAt(enemy);
+        } else {
+          enemy.dead = true;
+          enemy.spawnRejected = fixedValidation.reason;
+        }
+      }
+    }
+    if (!enemy.isMiniBoss && enemy.encounterZone === 'intro') {
+      var adjustedHp = Math.max(1, Math.floor(enemy.maxHp * FIRST_STAGE_BALANCE.enemyHealthMultiplier));
+      enemy.hp = enemy.maxHp = adjustedHp;
+      enemy.elite = false;
+      enemy.eliteId = null;
+    }
+    if ((enemy.isMiniBoss || enemy.elite) && !firstStageProgressMilestone()) enemy.progressionLocked = true;
+    return enemy;
+  }
+
+  function resetFirstStageRuntime(reason) {
+    firstStageRuntime.attackSlots.clear();
+    firstStageRuntime.respawnGrace = reason === 'respawn' && state.stage === 1 ? 6 : 0;
+    firstStageRuntime.healingDropCooldown = 0;
+    firstStageRuntime.tutorialPromptCooldown = 2.5;
+    firstStageRuntime.lowHealthLatch = false;
+    firstStageRuntime.movementStartX = player.x;
+    firstStageRuntime.movementStartY = player.y;
+    firstStageRuntime.safe = state.stage === 1 && isFirstStageProtected(player);
+    firstStageRuntime.zone = firstStageZoneAt(player);
+    firstStageRuntime.graceRemaining = state.stage === 1 && !state.firstStageOnboarding.graceConsumed ?
+      clamp(state.firstStageOnboarding.graceRemaining, 0, FIRST_STAGE_BALANCE.openingGracePeriodSeconds) : 0;
+    if (state.stage === 1) encounterDirector.cooldown = Math.max(
+      encounterDirector.cooldown, FIRST_STAGE_BALANCE.encounterCooldownSeconds
+    );
+    inputBuffer.attack = inputBuffer.dodge = inputBuffer.block = inputBuffer.interact = 0;
+  }
+
+  function recordFirstStageTutorial(flag) {
+    if (state.stage !== 1 || !state.firstStageOnboarding || state.firstStageOnboarding.tutorialFlags.indexOf(flag) >= 0) return;
+    state.firstStageOnboarding.tutorialFlags.push(flag);
+  }
+
+  function adaptiveFirstStageStrength() {
+    if (state.stage !== 1 || settings.adaptiveFirstStage === false) return 0;
+    var fullAssistThreshold = FIRST_STAGE_BALANCE.adaptiveDeathThreshold * 2 +
+      FIRST_STAGE_BALANCE.adaptiveLowHealthThreshold * 0.67;
+    return clamp((state.firstStageOnboarding.struggle || 0) / fullAssistThreshold, 0, 1);
+  }
+
+  function firstStageHostilesSuspended() {
+    return state.stage === 1 && (firstStageRuntime.safe || firstStageRuntime.graceRemaining > 0 ||
+      firstStageRuntime.respawnGrace > 0);
+  }
+
+  function releaseEnemyAttackSlot(enemy) {
+    if (!enemy) return;
+    firstStageRuntime.attackSlots.delete(enemy.id);
+    enemy.attackSlotUntil = 0;
+  }
+
+  function firstStageAttackerLimit() {
+    return firstStageRuntime.zone === 'intro' ? FIRST_STAGE_BALANCE.maximumIntroAttackers :
+      FIRST_STAGE_BALANCE.maximumLaterAttackers;
+  }
+
+  function claimEnemyAttackSlot(enemy) {
+    if (state.stage !== 1 || enemy.isMiniBoss || boss) return true;
+    if (firstStageHostilesSuspended() || enemy.progressionLocked || enemy.spawnWarmup > 0) return false;
+    if (firstStageRuntime.attackSlots.has(enemy.id)) {
+      enemy.attackSlotUntil = 1.6;
+      return true;
+    }
+    if (firstStageRuntime.attackSlots.size >= firstStageAttackerLimit()) return false;
+    firstStageRuntime.attackSlots.add(enemy.id);
+    enemy.attackSlotUntil = 1.6;
+    return true;
+  }
+
+  function returnEnemyHome(enemy, dt) {
+    releaseEnemyAttackSlot(enemy);
+    enemy.mode = 'idle';
+    enemy.vx = enemy.vy = 0;
+    var dx = enemy.homeX - enemy.x;
+    var dy = enemy.homeY - enemy.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 3) {
+      var speed = Math.min(110, 34 + d * 0.7);
+      moveWithCollision(enemy, dx / d * speed * dt, dy / d * speed * dt);
+      setAnimationState(enemy, 'walk');
+    } else {
+      setAnimationState(enemy, 'idle');
+    }
+  }
+
+  function tutorialControlLabel(action) {
+    if (touchCapable) {
+      return action === 'move' ? 'drag the left movement area' :
+        action === 'interact' ? 'tap TALK' :
+        action === 'attack' ? 'tap STRIKE' :
+        action === 'dodge' ? 'tap DODGE' :
+        action === 'block' ? 'hold BLOCK' :
+        action === 'heal' ? 'tap HEAL' : 'tap ODIN';
+    }
+    return action === 'move' ? 'use WASD or the arrow keys' :
+      action === 'interact' ? 'press E' :
+      action === 'attack' ? 'press Space or J' :
+      action === 'dodge' ? 'press Shift or K' :
+      action === 'block' ? 'hold F' :
+      action === 'heal' ? 'press H' : 'press R';
+  }
+
+  function updateFirstStageBalance(dt) {
+    if (state.stage !== 1) {
+      firstStageRuntime.safe = false;
+      firstStageRuntime.zone = 'final';
+      firstStageRuntime.attackSlots.clear();
+      return;
+    }
+    firstStageRuntime.safe = isFirstStageProtected(player);
+    firstStageRuntime.zone = firstStageZoneAt(player);
+    firstStageRuntime.respawnGrace = Math.max(0, firstStageRuntime.respawnGrace - dt);
+    firstStageRuntime.healingDropCooldown = Math.max(0, firstStageRuntime.healingDropCooldown - dt);
+    if (firstStageRuntime.graceRemaining > 0) {
+      firstStageRuntime.graceRemaining = Math.max(0, firstStageRuntime.graceRemaining - dt);
+      state.firstStageOnboarding.graceRemaining = firstStageRuntime.graceRemaining;
+      if (!firstStageRuntime.safe || firstStageRuntime.graceRemaining <= 0) {
+        firstStageRuntime.graceRemaining = 0;
+        state.firstStageOnboarding.graceRemaining = 0;
+        state.firstStageOnboarding.graceConsumed = true;
+        if (!firstStageRuntime.safe) showToast('FIRST COMBAT AREA', 'One attacker at a time while you find the beat.', '#7df7a1', 2.7);
+      }
+    }
+    var tutorialMoveX = player.x - firstStageRuntime.movementStartX;
+    var tutorialMoveY = player.y - firstStageRuntime.movementStartY;
+    if (tutorialMoveX * tutorialMoveX + tutorialMoveY * tutorialMoveY > 2500) {
+      recordFirstStageTutorial('move');
+    }
+    if (player.health <= Math.max(1, Math.floor(player.maxHealth * 0.35))) {
+      if (!firstStageRuntime.lowHealthLatch) {
+        firstStageRuntime.lowHealthLatch = true;
+        state.firstStageOnboarding.struggle = clamp(state.firstStageOnboarding.struggle + 0.45, 0, 10);
+      }
+    } else if (player.health >= Math.ceil(player.maxHealth * 0.7)) {
+      firstStageRuntime.lowHealthLatch = false;
+    }
+    firstStageRuntime.attackSlots.forEach(function (id) {
+      var enemy = null;
+      for (var i = 0; i < enemies.length; i++) if (enemies[i].id === id) { enemy = enemies[i]; break; }
+      if (!enemy || enemy.dead || enemy.stun > 0 || enemy.attackSlotUntil <= 0 ||
+          distanceSquared(enemy, player) > 230400 || firstStageHostilesSuspended()) {
+        firstStageRuntime.attackSlots.delete(id);
+        if (enemy) enemy.attackSlotUntil = 0;
+      } else {
+        enemy.attackSlotUntil -= dt;
+      }
+    });
+    firstStageRuntime.tutorialPromptCooldown -= dt;
+    if (firstStageRuntime.safe && firstStageRuntime.tutorialPromptCooldown <= 0 && toastTimer <= 0.2) {
+      var sequence = ['move','interact','attack','dodge','block','heal'];
+      if (state.odinRecruited) sequence.push('odin');
+      var next = null;
+      for (var sequenceIndex = 0; sequenceIndex < sequence.length; sequenceIndex++) {
+        if (state.firstStageOnboarding.tutorialFlags.indexOf(sequence[sequenceIndex]) < 0) {
+          next = sequence[sequenceIndex];
+          break;
+        }
+      }
+      if (next) {
+        var titles = {move:'MOVEMENT',interact:'INTERACTION',attack:'BASIC ATTACK',dodge:'DODGE',block:'BLOCK',heal:'HEALING',odin:'ODIN COMMAND'};
+        showToast(titles[next], tutorialControlLabel(next) + '.', '#7df7a1', 2.8);
+      }
+      firstStageRuntime.tutorialPromptCooldown = 7;
+    }
+    var debugSignature = [firstStageRuntime.zone,Math.ceil(firstStageRuntime.graceRemaining),
+      Math.ceil(firstStageRuntime.respawnGrace),firstStageRuntime.attackSlots.size].join('|');
+    if (debugSignature !== firstStageRuntime.debugSignature) {
+      firstStageRuntime.debugSignature = debugSignature;
+      var protectedHostiles = 0;
+      var closestEnemyDistance = Infinity;
+      for (var debugEnemyIndex = 0; debugEnemyIndex < enemies.length; debugEnemyIndex++) {
+        var debugEnemy = enemies[debugEnemyIndex];
+        if (debugEnemy.dead || debugEnemy.progressionLocked) continue;
+        if (isFirstStageProtected(debugEnemy,debugEnemy.r || 0)) protectedHostiles++;
+        closestEnemyDistance = Math.min(closestEnemyDistance,Math.sqrt(distanceSquared(debugEnemy,player)));
+      }
+      canvas.dataset.firstStageZone = firstStageRuntime.zone;
+      canvas.dataset.firstStageGrace = String(Math.ceil(firstStageRuntime.graceRemaining));
+      canvas.dataset.firstStageAttackers = String(firstStageRuntime.attackSlots.size);
+      canvas.dataset.firstStageSafe = String(firstStageRuntime.safe);
+      canvas.dataset.firstStageProtectedHostiles = String(protectedHostiles);
+      canvas.dataset.closestEnemyDistance = isFinite(closestEnemyDistance) ? String(Math.round(closestEnemyDistance)) : 'none';
+    }
+  }
+
   function gateBossArena() {
     var dx = player.x - BOSS_CENTER.x;
     var dy = player.y - BOSS_CENTER.y;
@@ -2341,9 +2771,44 @@
     }
   }
 
-  function performAttack(charged) {
+  function hasClearAttackLine(target) {
+    var steps = 7;
+    for (var step = 1; step < steps; step++) {
+      var t = step / steps;
+      if (circleHitsObstacle(lerp(player.x,target.x,t),lerp(player.y,target.y,t),4)) return false;
+    }
+    return true;
+  }
+
+  function applyMobileAimAssist() {
+    if (!touchCapable && !contactUsesAction('attack')) return;
+    var best = null;
+    var bestScore = Infinity;
+    for (var enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
+      var enemy = enemies[enemyIndex];
+      if (enemy.dead || enemy.progressionLocked) continue;
+      var dx = enemy.x - player.x;
+      var dy = enemy.y - player.y;
+      var d2 = dx * dx + dy * dy;
+      if (d2 > 25600 || !hasClearAttackLine(enemy)) continue;
+      var angle = Math.atan2(dy,dx);
+      var delta = Math.abs(angleDelta(angle,player.facing));
+      var score = d2 * (1 + delta * 0.8);
+      if (delta < 0.9 && score < bestScore) { best = enemy; bestScore = score; }
+    }
+    if (best) player.facing = Math.atan2(best.y-player.y,best.x-player.x);
+  }
+
+  function performAttack(charged, fromBuffer) {
     if (player.blocking || player.guardBroken > 0) return;
-    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue || player.attackCooldown > 0) return;
+    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    if (player.attackCooldown > 0) {
+      if (!charged && !fromBuffer) inputBuffer.attack = FIRST_STAGE_BALANCE.inputBufferSeconds;
+      return;
+    }
+    applyMobileAimAssist();
+    inputBuffer.attack = 0;
+    recordFirstStageTutorial('attack');
     state.statistics.attacksSwung++;
     registerRhythmAttack();
     var instrument = equippedInstrument();
@@ -2370,8 +2835,14 @@
     }
   }
 
-  function doDash() {
-    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue || player.dashCooldown > 0) return;
+  function doDash(fromBuffer) {
+    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    if (player.dashCooldown > 0 || player.guardBroken > 0) {
+      if (!fromBuffer) inputBuffer.dodge = FIRST_STAGE_BALANCE.inputBufferSeconds;
+      return;
+    }
+    inputBuffer.dodge = 0;
+    recordFirstStageTutorial('dodge');
     state.statistics.dashes++;
     var dx = player.moveX;
     var dy = player.moveY;
@@ -2385,7 +2856,7 @@
     player.dashTimer = 0.19;
     player.dashCooldown = state.skills.indexOf('fleet-foot') >= 0 ? 0.56 : 0.72;
     if (activeResonance('conductor')) player.dashCooldown *= 0.8;
-    player.invuln = Math.max(player.invuln, 0.27);
+    player.invuln = Math.max(player.invuln, 0.27 + (touchCapable ? FIRST_STAGE_BALANCE.mobileDodgeForgivenessSeconds : 0));
     if (state.skills.indexOf('shield-harmony') >= 0) {
       player.invuln = Math.max(player.invuln, 0.55);
     }
@@ -2537,14 +3008,18 @@
     return best;
   }
 
-  function interact() {
+  function interact(fromBuffer) {
     if (dialogue) { advanceDialogue(); return; }
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
     var near = nearestInteractable();
     if (!near) {
+      if (!fromBuffer) inputBuffer.interact = FIRST_STAGE_BALANCE.inputBufferSeconds;
+      if (fromBuffer) return;
       showToast('LISTEN…', 'Nothing nearby wants to talk.', '#7ce4d1', 1.5);
       return;
     }
+    inputBuffer.interact = 0;
+    recordFirstStageTutorial('interact');
     if (near.type === 'npc') talkToNpc(near.item.npc||near.item);
     else if (near.type === 'portal') enterStage(near.item);
     else if (near.type === 'world-event') resolveWorldEvent(near.item);
@@ -2575,16 +3050,22 @@
       resetOdinVisuals();
     }
     attacks=[];pulses=[];particles=[];projectiles=[];hazards=[];boss=null;bossPadLatch=null;
+    resetFirstStageRuntime('travel');
     spawnStageHeartblooms(state.stage);
     audioCall('sfx','unlock');
     showToast('ENTERING '+portal.name.toUpperCase(),'New terrain, enemies, and local quests await.','#62c7ff',4);
     saveGame(true);updateHUD(true);
   }
 
-  function beginBlock() {
+  function beginBlock(fromBuffer) {
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
-    if (player.guardBroken > 0 || player.dashTimer > 0 || player.blockStamina <= 0) return;
+    if (player.guardBroken > 0 || player.dashTimer > 0 || player.blockStamina <= 0) {
+      if (!fromBuffer) inputBuffer.block = FIRST_STAGE_BALANCE.inputBufferSeconds;
+      return;
+    }
     if (!player.blocking) {
+      inputBuffer.block = 0;
+      recordFirstStageTutorial('block');
       player.blocking = true;
       player.blockStartedAt = nowTime;
       player.attackHeld = false;
@@ -2617,7 +3098,8 @@
   function tryBlockDamage(amount, fromX, fromY) {
     if (!player.blocking || player.guardBroken > 0 || player.blockStamina <= 0) return false;
     var elapsed = nowTime - player.blockStartedAt;
-    var perfectWindow = activeResonance('conductor') ? 0.28 : 0.20;
+    var perfectWindow = (activeResonance('conductor') ? 0.28 : 0.20) +
+      (touchCapable ? FIRST_STAGE_BALANCE.mobileBlockForgivenessSeconds : 0);
     var perfect = elapsed <= perfectWindow;
     var blockedDamage = perfect ? amount : Math.max(1, Math.ceil(amount * 0.75));
     var staminaCost = perfect ? 8 + amount * 3 : 15 + amount * 8;
@@ -2649,6 +3131,7 @@
   }
 
   function damagePlayer(amount, fromX, fromY) {
+    if (firstStageHostilesSuspended()) return;
     if (player.invuln > 0 || player.dashTimer > 0) return;
     if (tryBlockDamage(amount, fromX, fromY)) return;
     if (state.odinRecruited && state.skills.indexOf('odin-guardian') >= 0 &&
@@ -2664,16 +3147,24 @@
       return;
     }
     if (activeBuffs.defenseTimer > 0) amount = Math.max(1, Math.floor(amount * 0.5));
+    if (state.stage === 1) amount = Math.max(1, Math.ceil(amount * FIRST_STAGE_BALANCE.enemyDamageMultiplier));
     if (state.purchases.indexOf('ironbark-plate') >= 0 && amount > 1) amount = Math.max(1, amount - 1);
     if (settings.difficulty === 'story') {
       player.invuln = 1.45;
     } else {
       player.invuln = settings.difficulty === 'hard' ? 0.72 : 1.0;
     }
+    if (state.stage === 1) player.invuln += adaptiveFirstStageStrength() * 0.18;
     if (activeResonance('heavy') && amount > 1) amount = Math.max(1, amount - 1);
     var actualDamage = Math.min(player.health, amount);
     player.health -= amount;
     state.statistics.damageTaken += actualDamage;
+    if (state.stage === 1) {
+      encounterDirector.recentDamage = (encounterDirector.recentDamage || 0) + actualDamage;
+      state.firstStageOnboarding.struggle = clamp(
+        state.firstStageOnboarding.struggle + actualDamage * 0.18, 0, 10
+      );
+    }
     resetCombo('damage');
     var n = normalize(player.x - fromX, player.y - fromY);
     moveWithCollision(player, n.x * 26, n.y * 26);
@@ -2705,6 +3196,10 @@
     }
     player.health = 0;
     state.statistics.deaths++;
+    if (state.stage === 1) {
+      state.firstStageOnboarding.struggle = clamp(state.firstStageOnboarding.struggle + 2,0,10);
+      state.firstStageOnboarding.checkpointReloads++;
+    }
     saveGame(true);
     updateHUD();
     paused = true;
@@ -2717,6 +3212,14 @@
       player.y = currentLevel.spawn.y;
       player.health = player.maxHealth;
       player.invuln = 2;
+      resetFirstStageRuntime('respawn');
+      enemies.forEach(function (enemy) {
+        if (enemy.dead) return;
+        releaseEnemyAttackSlot(enemy);
+        enemy.mode = 'idle';
+        enemy.vx = enemy.vy = 0;
+        enemy.spawnWarmup = state.stage === 1 ? FIRST_STAGE_BALANCE.enemySpawnWarmupSeconds : 0;
+      });
       paused = orientationBlocked || panelIsOpen('pauseScreen');
       if (orientationBlocked) {
         setHidden(byId('pauseScreen'), false);
@@ -2733,7 +3236,7 @@
   }
 
   function hitEnemy(enemy, damage, sourceX, sourceY, lightweightEffects) {
-    if (enemy.dead || enemy.flash > 0 || (enemy.type === 'wisp' && enemy.shielded)) {
+    if (enemy.dead || enemy.progressionLocked || enemy.flash > 0 || (enemy.type === 'wisp' && enemy.shielded)) {
       if (enemy.type === 'wisp' && enemy.shielded) {
         audioCall('sfx', 'error');
         showFloat(enemy.x, enemy.y - 20, 'PULSE FIRST', '#db80ff');
@@ -2765,10 +3268,14 @@
   function killEnemy(enemy, lightweightEffects) {
     if (!enemy || enemy.dead) return;
     enemy.dead = true;
+    releaseEnemyAttackSlot(enemy);
     enemy.deathTimer = 0;
     enemy.deathDuration = enemy.deathDuration || 1.3;
     setAnimationState(enemy, 'death');
     state.totalKills++;
+    if (state.stage === 1) {
+      state.firstStageOnboarding.struggle = Math.max(0,state.firstStageOnboarding.struggle - 0.35);
+    }
     var coinReward = state.skills.indexOf('lucky-leaf') >= 0 ? 3 : 2;
     if (state.skills.indexOf('coin-magnet') >= 0) coinReward += 1;
     if (state.purchases.indexOf('fortune-charm') >= 0) coinReward += 1;
@@ -2794,8 +3301,26 @@
         'Rare drop: ' + enemy.loot + ' · +' + coinReward + ' Beatcoins',enemy.eliteColor || '#f6e36d',3.6);
     }
     var criticalHealth = player.health <= Math.max(1, Math.floor(player.maxHealth / 2));
-    if (criticalHealth || state.weather==='forest-bloom' || Math.random() < 0.32 || state.skills.indexOf('lucky-leaf') >= 0) {
-      healthPickups.push({ x:enemy.x, y:enemy.y, life:18, bob:Math.random()*6.28 });
+    var firstStageDropChance = 0.32 * FIRST_STAGE_BALANCE.healingDropModifier +
+      adaptiveFirstStageStrength() * 0.22;
+    var healingDropAllowed = state.stage !== 1 || firstStageRuntime.healingDropCooldown <= 0;
+    if (healingDropAllowed && (criticalHealth || state.weather==='forest-bloom' ||
+        Math.random() < (state.stage === 1 ? firstStageDropChance : 0.32) ||
+        state.skills.indexOf('lucky-leaf') >= 0)) {
+      var dropPlacement = findValidEnemySpawn(enemy,{
+        radius:8,baseRadius:0,radiusStep:16,enforcePlayerDistance:false,ignoreEnemy:enemy,attempts:8
+      });
+      if (dropPlacement.position) {
+        healthPickups.push({ x:dropPlacement.position.x, y:dropPlacement.position.y, life:18, bob:Math.random()*6.28 });
+        if (state.stage === 1) firstStageRuntime.healingDropCooldown = FIRST_STAGE_BALANCE.healingDropCooldownSeconds;
+      }
+    }
+    if (state.stage === 1 && !enemy.isMiniBoss &&
+        state.firstStageOnboarding.tutorialFlags.indexOf('first-victory') < 0) {
+      recordFirstStageTutorial('first-victory');
+      healPlayer(2);
+      player.invuln = Math.max(player.invuln,1.2);
+      showToast('FIRST ENCORE', 'The grove restores you after your first practice fight.', '#ff9cab', 3);
     }
     if (enemy.id.indexOf('summon_') !== 0 && state.defeated.indexOf(enemy.id) < 0) state.defeated.push(enemy.id);
     audioCall('sfx', 'quest');
@@ -2871,6 +3396,7 @@
         if (state.purchases.indexOf('heartbloom-pouch') >= 0) amount += 1;
     if (activeResonance('nature')) amount += 1;
     state.heartblooms--;
+    recordFirstStageTutorial('heal');
     state.statistics.healingItemsUsed++;
     var restored = healPlayer(amount);
     player.invuln = Math.max(player.invuln, 0.45);
@@ -3987,6 +4513,7 @@
     camera.x = player.x; camera.y = player.y;
     state.x = player.x; state.y = player.y;
     attacks=[]; pulses=[]; particles=[]; projectiles=[]; hazards=[]; boss=null; bossPadLatch=null;
+    resetFirstStageRuntime('fast-travel');
     spawnStageHeartblooms(stage);
     if (state.odinRecruited) {
       odin.x=player.x-40; odin.y=player.y+30; odin.target=null;
@@ -4475,6 +5002,7 @@
     player.blocking = false;
     player.moveX = 0;
     player.moveY = 0;
+    inputBuffer.attack = inputBuffer.dodge = inputBuffer.block = inputBuffer.interact = 0;
     controlContacts.forEach(function (contact) {
       if (contact.button) contact.button.classList.remove('pressed', 'is-pressed');
     });
@@ -4607,7 +5135,7 @@
     if (!contactUsesAction(contact.action)) {
       if (directionActions[contact.action]) keys.delete('touch-' + contact.action);
       if (contact.action === 'attack') releaseAttackIfIdle();
-      if (contact.action === 'block') endBlock();
+      if (contact.action === 'block') { inputBuffer.block = 0; endBlock(); }
     }
   }
 
@@ -4819,7 +5347,7 @@
     if (key === 'space' || key === 'j') {
       releaseAttackIfIdle();
     }
-    if (key === 'f') endBlock();
+    if (key === 'f') { inputBuffer.block = 0; endBlock(); }
   });
   window.addEventListener('blur', pauseForInterruption);
   document.addEventListener('visibilitychange', function () {
@@ -5126,6 +5654,15 @@
     player.guardBroken = Math.max(0, player.guardBroken - dt);
     player.counterWindow = Math.max(0, player.counterWindow - dt);
     player.blockFlash = Math.max(0, player.blockFlash - dt);
+    inputBuffer.attack = Math.max(0, inputBuffer.attack - dt);
+    inputBuffer.dodge = Math.max(0, inputBuffer.dodge - dt);
+    inputBuffer.block = Math.max(0, inputBuffer.block - dt);
+    inputBuffer.interact = Math.max(0, inputBuffer.interact - dt);
+    var bufferedBlockHeld = keys.has('f') || contactUsesAction('block') || gamepadBlockHeld;
+    if (inputBuffer.block > 0 && bufferedBlockHeld && player.guardBroken <= 0 && player.dashTimer <= 0) beginBlock(true);
+    else if (inputBuffer.dodge > 0 && player.dashCooldown <= 0) doDash(true);
+    else if (inputBuffer.attack > 0 && player.attackCooldown <= 0 && !player.blocking) performAttack(false,true);
+    if (inputBuffer.interact > 0) interact(true);
     if (player.blocking) {
       player.blockStamina = Math.max(0, player.blockStamina - 7 * dt);
       if (player.blockStamina <= 0) breakGuard();
@@ -5276,7 +5813,7 @@
   function activeEnemyCount() {
     var count = 0;
     for (var index = 0; index < enemies.length; index++) {
-      if (!enemies[index].dead) count++;
+      if (!enemies[index].dead && !enemies[index].progressionLocked) count++;
     }
     return count;
   }
@@ -5300,30 +5837,53 @@
   }
 
   function spawnDirectedEnemy(elite,index) {
-    if (activeEnemyCount() >= MAX_ACTIVE_ENEMIES) return null;
+    var stageLimit = state.stage === 1 ? FIRST_STAGE_BALANCE.maximumActiveEnemies : MAX_ACTIVE_ENEMIES;
+    if (activeEnemyCount() >= stageLimit || firstStageHostilesSuspended()) return null;
+    if (state.stage === 1 && elite && !firstStageProgressMilestone()) return null;
     var angle=(index||0)*2.1+Math.random()*.7;
-    var radius=130+(index||0)*24;
-    var x=clamp(player.x+Math.cos(angle)*radius,40,WORLD.w-40);
-    var y=clamp(player.y+Math.sin(angle)*radius,40,WORLD.h-40);
+    var offscreenRadius = Math.sqrt(W * W + H * H) * 0.5 + FIRST_STAGE_BALANCE.minimumOffscreenSpawnDistance;
+    var placement = findValidEnemySpawn(player,{
+      radius:18,
+      baseRadius:state.stage === 1 ? Math.max(FIRST_STAGE_BALANCE.minimumEnemyDistance + 120,offscreenRadius) : 130+(index||0)*24,
+      radiusStep:state.stage === 1 ? 38 : 22,
+      angle:angle,
+      playerPosition:state.stage === 1 ? player : null,
+      enforcePlayerDistance:state.stage === 1,
+      minimumPlayerDistance:state.stage === 1 ? Math.max(FIRST_STAGE_BALANCE.minimumEnemyDistance,offscreenRadius) :
+        FIRST_STAGE_BALANCE.minimumEnemyDistance
+    });
+    if (!placement.position) return null;
+    var x=placement.position.x;
+    var y=placement.position.y;
     var enemy=makeEnemy(['event_'+Date.now()+'_'+index,'thorn',x,y,'world-event'],(index||0)%6);
     if(elite){
       var eliteDef=ELITE_VARIANTS[(state.stage+state.totalKills+index)%ELITE_VARIANTS.length];
       enemy.elite=true;enemy.eliteId=eliteDef.id;enemy.eliteName=eliteDef.name;enemy.eliteColor=eliteDef.color;
       enemy.hp=enemy.maxHp+=5;enemy.r+=3;
     }
+    prepareEnemyForSpawn(enemy,{fixed:false,playerPosition:player});
     enemies.push(enemy);
     return enemy;
   }
 
   function triggerWorldEvent(id) {
+    if (state.stage === 1 && (firstStageHostilesSuspended() || dialogue || firstStageRuntime.zone === 'intro' &&
+        (id === 'ambush' || id === 'elite-patrol'))) {
+      encounterDirector.cooldown = FIRST_STAGE_BALANCE.encounterCooldownSeconds;
+      encounterDirector.tension = 0;
+      return;
+    }
     encounterDirector.tension=0;
     encounterDirector.cooldown=32+Math.random()*22;
     if(id==='ambush'){
-      for(var ambusher=0;ambusher<3+Math.min(2,state.stage);ambusher++)spawnDirectedEnemy(false,ambusher);
+      var ambushCount = state.stage === 1 ? (firstStageRuntime.zone === 'standard' ? 2 : 3) : 3+Math.min(2,state.stage);
+      var spawnedAmbushers = 0;
+      for(var ambusher=0;ambusher<ambushCount;ambusher++)if(spawnDirectedEnemy(false,ambusher))spawnedAmbushers++;
+      if (!spawnedAmbushers) return;
       markWorldEvent(id);state.statistics.worldEventsCompleted++;showToast('ENEMY AMBUSH','The director heard your momentum and raised the pressure.','#ff7892',3.2);return;
     }
     if(id==='elite-patrol'){
-      spawnDirectedEnemy(true,0);
+      if (!spawnDirectedEnemy(true,0)) return;
       markWorldEvent(id);state.statistics.worldEventsCompleted++;showToast('ELITE PATROL','A rare echo is stalking this road.','#f6e36d',3.2);return;
     }
     if(['blood-moon','crystal-storm','forest-bloom'].indexOf(id)>=0){
@@ -5391,15 +5951,34 @@
       if(encounterDirector.activeEvent.life<=0)encounterDirector.activeEvent=null;
     }
     if(boss&&!boss.dead)return;
+    if (dialogue || firstStageHostilesSuspended()) {
+      if (state.stage === 1) encounterDirector.cooldown = Math.max(encounterDirector.cooldown, 8);
+      return;
+    }
+    if (state.stage === 1) {
+      var unresolvedEnemies = 0;
+      for (var stageEnemyIndex = 0; stageEnemyIndex < enemies.length; stageEnemyIndex++) {
+        var stageEnemy = enemies[stageEnemyIndex];
+        if (!stageEnemy.dead && !stageEnemy.progressionLocked && distanceSquared(stageEnemy,player) < 176400) unresolvedEnemies++;
+      }
+      if (unresolvedEnemies > 0) {
+        encounterDirector.cooldown = Math.max(encounterDirector.cooldown, 10);
+        return;
+      }
+    }
     encounterDirector.cooldown-=dt;
     var healthPressure=1-player.health/Math.max(1,player.maxHealth);
     var exploration=Math.min(1,distance(player,HUB)/700);
     var performance=comboTier()*.22+instrumentMasteryRecord(state.equippedInstrument).level*.02;
     encounterDirector.tension+=dt*(.7+state.stage*.1+exploration*.35+performance-healthPressure*.28);
-    if(encounterDirector.cooldown>0||encounterDirector.tension<28||encounterDirector.activeEvent)return;
+    var firstStageAssist = adaptiveFirstStageStrength();
+    var requiredTension = state.stage === 1 ? 36 + firstStageAssist * 10 : 28;
+    if(encounterDirector.cooldown>0||encounterDirector.tension<requiredTension||encounterDirector.activeEvent)return;
     var choices;
     if(healthPressure>.55)choices=['campfire','travelling-merchant','lost-explorer'];
     else if(rhythmCombo.count>=25)choices=['elite-patrol','band-rehearsal','treasure-caravan','music-festival'];
+    else if(state.stage===1 && !firstStageProgressMilestone()) choices=['travelling-merchant','band-rehearsal','campfire','lost-explorer','rare-collectible'];
+    else if(state.stage===1 && firstStageRuntime.zone==='standard') choices=['ambush','travelling-merchant','band-rehearsal','campfire','treasure-caravan','lost-explorer','rare-collectible'];
     else choices=['ambush','elite-patrol','travelling-merchant','band-rehearsal','campfire','treasure-caravan','lost-explorer','rare-collectible','secret-cave','meteor-strike','shrine-awakening'];
     if(state.stage===2)choices.push('forest-bloom');
     if(state.stage===3)choices.push('crystal-storm');
@@ -5410,10 +5989,16 @@
   function updateEnemies(dt) {
     var speedScale = difficultySpeed();
     var cooldownScale = stageEnemyScale().cooldown;
+    var firstStageAssist = adaptiveFirstStageStrength();
+    if (state.stage === 1) {
+      speedScale *= FIRST_STAGE_BALANCE.enemyAggressionMultiplier - firstStageAssist * 0.08;
+      cooldownScale *= FIRST_STAGE_BALANCE.attackCooldownMultiplier + firstStageAssist * 0.18;
+    }
     var enemyCount = enemies.length;
     for (var enemyIndex = 0; enemyIndex < enemyCount; enemyIndex++) {
       var e = enemies[enemyIndex];
       if (e.dead) {
+        releaseEnemyAttackSlot(e);
         if (typeof e.deathTimer === 'number') {
           e.deathTimer = Math.min(e.deathDuration || 1.3, e.deathTimer + dt);
           e.animTime = e.deathTimer;
@@ -5442,6 +6027,7 @@
         }
       }
       e.cooldown = Math.max(0, e.cooldown - dt);
+      e.contactCooldown = Math.max(0, (e.contactCooldown || 0) - dt);
       if (e.stun > 0) {
         e.stun -= dt;
         if (e.type === 'wisp' && e.stun <= 0) e.shielded = true;
@@ -5456,7 +6042,47 @@
       var toPlayerX = playerDx * inverseDistance;
       var toPlayerY = playerDy * inverseDistance;
       e.facing = Math.atan2(playerDy, playerDx);
-      if (e.isMiniBoss && e.cooldown <= 0 && d < 430) {
+      if (!e.introduced && d < 460) {
+        e.introduced = true;
+        e.spawnWarmup = state.stage === 1 ? FIRST_STAGE_BALANCE.enemySpawnWarmupSeconds : 0.85;
+        setAnimationState(e, 'spawn', e.spawnWarmup);
+      }
+      if (e.spawnWarmup > 0) {
+        e.spawnWarmup = Math.max(0, e.spawnWarmup - dt);
+        releaseEnemyAttackSlot(e);
+        if (d > 76) moveWithCollision(e,toPlayerX*12*dt,toPlayerY*12*dt);
+        continue;
+      }
+      if (e.progressionLocked && firstStageProgressMilestone()) e.progressionLocked = false;
+      if (state.stage === 1 && firstStageHostilesSuspended()) {
+        e.disengageTimer = FIRST_STAGE_BALANCE.safeZoneDisengageDelaySeconds;
+        returnEnemyHome(e,dt);
+        continue;
+      }
+      if (e.disengageTimer > 0) {
+        e.disengageTimer = Math.max(0,e.disengageTimer-dt);
+        returnEnemyHome(e,dt);
+        continue;
+      }
+      var homeDx = e.x - e.homeX;
+      var homeDy = e.y - e.homeY;
+      if ((state.stage === 1 && e.progressionLocked) ||
+          (!e.isMiniBoss && d > (e.encounterZone === 'intro' ? 300 : e.encounterZone === 'standard' ? 390 : 480) &&
+           homeDx * homeDx + homeDy * homeDy > 48400)) {
+        returnEnemyHome(e,dt);
+        continue;
+      }
+      if (state.stage === 1 && !e.isMiniBoss && !firstStageRuntime.attackSlots.has(e.id) &&
+          firstStageRuntime.attackSlots.size >= firstStageAttackerLimit()) {
+        if (d < 132) {
+          moveWithCollision(e,-toPlayerX*46*dt,-toPlayerY*46*dt);
+          setAnimationState(e,'walk');
+        } else {
+          setAnimationState(e,'idle');
+        }
+        continue;
+      }
+      if (e.isMiniBoss && e.cooldown <= 0 && d < 430 && claimEnemyAttackSlot(e)) {
         var rays=e.miniPattern==='storm'?10:e.miniPattern==='spores'?12:8;
         var projectileColor=e.miniColor||'#ffc857';
         if(e.miniPattern==='notes'){
@@ -5475,7 +6101,7 @@
         e.angle+=.37;
         setAnimationState(e, 'special', 0.62);
         showFloat(e.x,e.y-e.r-16,e.miniPattern.toUpperCase(),projectileColor);
-      } else if (e.ai === 'support' && e.cooldown <= 0 && d < 340) {
+      } else if (e.ai === 'support' && e.cooldown <= 0 && d < 340 && claimEnemyAttackSlot(e)) {
         var ally = null;
         for (var allyIndex = 0; allyIndex < enemies.length; allyIndex++) {
           var candidate = enemies[allyIndex];
@@ -5492,14 +6118,14 @@
         }
         e.cooldown = 2.8 * cooldownScale;
         setAnimationState(e, 'special', 0.58);
-      } else if (e.ai === 'storm' && e.cooldown <= 0 && d < 320) {
+      } else if (e.ai === 'storm' && e.cooldown <= 0 && d < 320 && claimEnemyAttackSlot(e)) {
         for (var stormRay=0;stormRay<6;stormRay++) {
           var stormAngle = stormRay * Math.PI / 3 + e.angle;
           fireProjectile(e.x,e.y,Math.cos(stormAngle)*135,Math.sin(stormAngle)*135,'#86e8ff',6,3.5);
         }
         e.cooldown = 2.5 * cooldownScale;
         setAnimationState(e, 'special', 0.58);
-      } else if (e.ai === 'ambusher' && e.cooldown <= 0 && d > 100 && d < 260) {
+      } else if (e.ai === 'ambusher' && e.cooldown <= 0 && d > 100 && d < 260 && claimEnemyAttackSlot(e)) {
         e.x = clamp(player.x - toPlayerX * 92 + -toPlayerY * 34,30,WORLD.w-30);
         e.y = clamp(player.y - toPlayerY * 92 + toPlayerX * 34,30,WORLD.h-30);
         e.mode = 'windup';
@@ -5512,13 +6138,24 @@
         // Split children are terminal. At 1 max HP they otherwise satisfy the
         // half-health check immediately and double the enemy list every frame.
         e.splitTriggered = true;
-        var splitRoom = Math.max(0, MAX_ACTIVE_ENEMIES - activeEnemyCount());
+        var splitLimit = state.stage === 1 ? FIRST_STAGE_BALANCE.maximumActiveEnemies : MAX_ACTIVE_ENEMIES;
+        var splitRoom = Math.max(0, splitLimit - activeEnemyCount());
         var splitChildCount = Math.min(2, splitRoom);
         var splitSpeciesIndex = typeof e.speciesIndex === 'number' ? e.speciesIndex : 4;
         for (var splitIndex = 0; splitIndex < splitChildCount; splitIndex++) {
           var side = splitIndex === 0 ? -1 : 1;
+          var splitPlacement = findValidEnemySpawn(e,{
+            radius:Math.max(10,e.r-5),
+            baseRadius:28,
+            radiusStep:18,
+            angle:side < 0 ? Math.PI : 0,
+            playerPosition:player,
+            minimumPlayerDistance:state.stage === 1 ? 90 : 0,
+            ignoreEnemy:e
+          });
+          if (!splitPlacement.position) continue;
           var spawn = makeEnemy(
-            ['summon_' + e.id + '_' + splitIndex,'slime',e.x + side*26,e.y+18,e.group],
+            ['summon_' + e.id + '_' + splitIndex,'slime',splitPlacement.position.x,splitPlacement.position.y,e.group],
             splitSpeciesIndex
           );
           spawn.hp = spawn.maxHp = Math.max(1,Math.floor(e.maxHp/3));
@@ -5526,6 +6163,7 @@
           spawn.elite = false;
           spawn.splitGeneration = 1;
           spawn.splitTriggered = true;
+          prepareEnemyForSpawn(spawn,{fixed:false,playerPosition:player});
           enemies.push(spawn);
         }
         if (splitChildCount > 0) showFloat(e.x,e.y-24,'SPLIT!','#7df7a1');
@@ -5546,10 +6184,10 @@
           e.timer -= dt;
           if (e.timer <= 0) { e.mode = 'idle'; e.cooldown = 1.1 * cooldownScale; }
         } else if (d < 250) {
-          if (d < 72 && e.cooldown <= 0) {
+          if (d < 72 && e.cooldown <= 0 && claimEnemyAttackSlot(e)) {
             e.mode = 'windup';
-            e.timer = 0.42;
-            setAnimationState(e, 'attack_a', 0.42);
+            e.timer = 0.42 * (state.stage === 1 ? FIRST_STAGE_BALANCE.attackTelegraphMultiplier + firstStageAssist * 0.18 : 1);
+            setAnimationState(e, 'attack_a', e.timer);
           } else {
             var stalkSpeed = e.ai === 'guardian' ? 42 : e.ai === 'skirmisher' ? 76 : 58;
             moveWithCollision(e,
@@ -5569,7 +6207,7 @@
           var orbitY = player.y + Math.sin(e.angle) * 76;
           e.x += clamp(orbitX - e.x, -100, 100) * dt * speedScale * (e.stageScale || 1);
           e.y += clamp(orbitY - e.y, -100, 100) * dt * speedScale * (e.stageScale || 1);
-          if (e.cooldown <= 0 && d < 150) {
+          if (e.cooldown <= 0 && d < 150 && claimEnemyAttackSlot(e)) {
             e.mode = 'dive';
             e.timer = 0.58;
             e.vx = toPlayerX * 225 * speedScale * (e.stageScale || 1);
@@ -5578,8 +6216,9 @@
           }
         }
       } else if (e.type === 'slime') {
-        if (d < 310 && e.cooldown <= 0) {
-          fireProjectile(e.x, e.y, toPlayerX * 135 * speedScale * (e.projectileScale || 1), toPlayerY * 135 * speedScale * (e.projectileScale || 1), '#e86edf', 8, 4);
+        if (d < 310 && e.cooldown <= 0 && claimEnemyAttackSlot(e)) {
+          var slimeProjectileScale = state.stage === 1 ? FIRST_STAGE_BALANCE.projectileSpeedMultiplier : 1;
+          fireProjectile(e.x, e.y, toPlayerX * 135 * speedScale * (e.projectileScale || 1) * slimeProjectileScale, toPlayerY * 135 * speedScale * (e.projectileScale || 1) * slimeProjectileScale, '#e86edf', 8, 4);
           e.cooldown = (settings.difficulty === 'hard' ? 1.45 : 1.9) * cooldownScale;
           setAnimationState(e, 'special', 0.48);
         }
@@ -5590,10 +6229,11 @@
         e.angle += dt * 1.8;
         e.x = e.homeX + Math.cos(e.angle) * 28;
         e.y = e.homeY + Math.sin(e.angle * 1.3) * 24;
-        if (d < 330 && e.cooldown <= 0) {
+        if (d < 330 && e.cooldown <= 0 && claimEnemyAttackSlot(e)) {
+          var wispProjectileScale = state.stage === 1 ? FIRST_STAGE_BALANCE.projectileSpeedMultiplier : 1;
           for (var s = -1; s <= 1; s++) {
             var base = e.facing + s * 0.22;
-            fireProjectile(e.x, e.y, Math.cos(base) * 155 * speedScale * (e.projectileScale || 1), Math.sin(base) * 155 * speedScale * (e.projectileScale || 1), '#82aaff', 6, 4);
+            fireProjectile(e.x, e.y, Math.cos(base) * 155 * speedScale * (e.projectileScale || 1) * wispProjectileScale, Math.sin(base) * 155 * speedScale * (e.projectileScale || 1) * wispProjectileScale, '#82aaff', 6, 4);
           }
           e.cooldown = 2.25 * cooldownScale;
           setAnimationState(e, 'special', 0.58);
@@ -5601,6 +6241,16 @@
       }
       e.x = clamp(e.x, 30, WORLD.w - 30);
       e.y = clamp(e.y, 30, WORLD.h - 30);
+      if (state.stage === 1 && isFirstStageProtected(e,e.r + 8)) {
+        var safeSpawn = firstStageSpawnPoint();
+        var safeDirection = normalize(e.x-safeSpawn.x || 1,e.y-safeSpawn.y || 0);
+        e.x = safeSpawn.x + safeDirection.x * (FIRST_STAGE_BALANCE.safeZoneRadius + e.r + 10);
+        e.y = safeSpawn.y + safeDirection.y * (FIRST_STAGE_BALANCE.safeZoneRadius + e.r + 10);
+        e.mode = 'idle';
+        e.vx = e.vy = 0;
+        releaseEnemyAttackSlot(e);
+        continue;
+      }
       if (e.animLock <= 0) {
         var movedSq = (e.x - previousX) * (e.x - previousX) + (e.y - previousY) * (e.y - previousY);
         setAnimationState(e, movedSq > 0.08 ? (e.mode === 'lunge' || e.mode === 'dive' ? 'run' : 'walk') : 'idle');
@@ -5608,14 +6258,18 @@
       var contactDx = e.x - player.x;
       var contactDy = e.y - player.y;
       var contactRange = e.r + player.r + 2;
-      if (contactDx * contactDx + contactDy * contactDy < contactRange * contactRange) {
+      if (e.contactCooldown <= 0 &&
+          contactDx * contactDx + contactDy * contactDy < contactRange * contactRange &&
+          claimEnemyAttackSlot(e)) {
         damagePlayer(e.power || 1, e.x, e.y);
+        e.contactCooldown = state.stage === 1 ? 1.35 : 0.75;
       }
     }
   }
 
   function fireProjectile(x, y, vx, vy, color, r, life, damage) {
     if (projectiles.length >= MAX_ENEMY_PROJECTILES) return;
+    if (state.stage === 1 && (firstStageHostilesSuspended() || isFirstStageProtected({x:x,y:y},r || 0))) return;
     var projectile = projectilePool.pop() || {};
     projectile.x = x;
     projectile.y = y;
@@ -5641,6 +6295,10 @@
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
+      if (state.stage === 1 && isFirstStageProtected(p,p.r || 0)) {
+        recycleProjectile(projectileIndex);
+        continue;
+      }
       var projectileDx = p.x - player.x;
       var projectileDy = p.y - player.y;
       var projectileHitRadius = p.r + player.r;
@@ -5684,6 +6342,7 @@
       return;
     }
     var index = ODIN_COMMANDS.indexOf(odin.command);
+    recordFirstStageTutorial('odin');
     odin.command = ODIN_COMMANDS[(index + 1) % ODIN_COMMANDS.length];
     odin.target = null;
     odin.targetScanTimer = 0;
@@ -5699,11 +6358,12 @@
   }
 
   function nearestOdinEnemy(range) {
+    if (firstStageHostilesSuspended()) return null;
     var best = null;
     var bestDistanceSq = range * range;
     for (var enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
       var enemy = enemies[enemyIndex];
-      if (enemy.dead) continue;
+      if (enemy.dead || enemy.progressionLocked || (state.stage === 1 && isFirstStageProtected(enemy,48))) continue;
       var dx = odin.x - enemy.x;
       var dy = odin.y - enemy.y;
       var distanceSq = dx * dx + dy * dy;
@@ -5716,7 +6376,7 @@
   }
 
   function odinTargetInRange(target, range) {
-    if (!target || target.dead) return false;
+    if (!target || target.dead || target.progressionLocked || firstStageHostilesSuspended()) return false;
     var dx = odin.x - target.x;
     var dy = odin.y - target.y;
     return dx * dx + dy * dy < range * range;
@@ -5918,6 +6578,7 @@
     syncExpansionQuests(dt);
     updateRhythmCombo(dt);
     updatePlayer(dt);
+    updateFirstStageBalance(dt);
     updateOdin(dt);
     updateAttacks(dt);
     updatePulses(dt);
@@ -6882,7 +7543,8 @@
   }
 
   function drawEnemy(e) {
-    if ((e.dead && (typeof e.deathTimer !== 'number' || e.deathTimer >= (e.deathDuration || 1.3))) ||
+    if (e.progressionLocked ||
+        (e.dead && (typeof e.deathTimer !== 'number' || e.deathTimer >= (e.deathDuration || 1.3))) ||
         !isVisible(e.x, e.y, 145)) return;
     ctx.save();
     ctx.translate(e.x, e.y);
@@ -7037,7 +7699,7 @@
 
   function drawMiniBossArenas() {
     enemies.forEach(function(enemy){
-      if(!enemy.isMiniBoss||enemy.dead||!isVisible(enemy.homeX,enemy.homeY,190))return;
+      if(!enemy.isMiniBoss||enemy.dead||enemy.progressionLocked||!isVisible(enemy.homeX,enemy.homeY,190))return;
       ctx.save();
       ctx.translate(enemy.homeX,enemy.homeY);
       ctx.strokeStyle=enemy.miniColor||'#ffc857';
@@ -7632,6 +8294,26 @@
     ctx.fillRect(0, 0, W, H);
   }
 
+  function drawFirstStageSafeZone() {
+    if (state.stage !== 1 || (state.firstStageOnboarding.graceConsumed && firstStageRuntime.respawnGrace <= 0)) return;
+    var spawn = firstStageSpawnPoint();
+    ctx.save();
+    ctx.globalAlpha = settings.reducedMotion ? 0.18 : 0.14 + Math.sin(state.playSeconds * 2) * 0.025;
+    ctx.strokeStyle = '#7df7a1';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([12,18]);
+    ctx.beginPath();
+    ctx.arc(spawn.x,spawn.y,FIRST_STAGE_BALANCE.safeZoneRadius,0,Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#d8ffe4';
+    ctx.font = '700 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('MOSSVALE REST AREA',spawn.x,spawn.y-FIRST_STAGE_BALANCE.safeZoneRadius+22);
+    ctx.restore();
+  }
+
   function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -7642,6 +8324,7 @@
     ctx.save();
     ctx.translate(Math.round(W / 2 - camera.x + shakeX), Math.round(H / 2 - camera.y + shakeY));
     drawGround();
+    drawFirstStageSafeZone();
     drawWater();
     drawDecorations();
     drawAmbientWildlife();
@@ -7717,7 +8400,7 @@
   }
 
   window.__HIGH_NOTES__ = {
-    version: 11,
+    version: 12,
     startNew: newGame,
     continueGame: continueGame,
     snapshot: function () {
@@ -7761,7 +8444,11 @@
           totalEnemyRecords: enemies.length,
           floatingText: floatingTextCount,
           projectiles: projectiles.length,
-          healthPickups: healthPickups.length
+          healthPickups: healthPickups.length,
+          firstStageZone: firstStageRuntime.zone,
+          firstStageSafe: firstStageRuntime.safe,
+          firstStageGrace: firstStageRuntime.graceRemaining,
+          firstStageAttackers: firstStageRuntime.attackSlots.size
         }
       }));
     },
