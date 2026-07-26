@@ -548,9 +548,12 @@
   var pulses = [];
   var particles = [];
   var particlePool = [];
+  var floatingTextCount = 0;
   var projectiles = [];
   var projectilePool = [];
   var hazards = [];
+  var MAX_ACTIVE_ENEMIES = 72;
+  var MAX_FLOATING_TEXT = 48;
   var MAX_ENEMY_PROJECTILES = 180;
   var MAX_PROJECTILE_POOL = 180;
   var ENEMY_ROWS = { thorn: 0, slime: 1, buzz: 2, wisp: 3 };
@@ -968,6 +971,7 @@
       eliteId: eliteDef && eliteDef.id, eliteName: eliteDef && eliteDef.name, eliteColor: eliteDef && eliteDef.color,
       eliteAssetId: eliteDef && (eliteDef.assetId || eliteDef.id),
       speciesId: species.id, name: species.name, ai: species.ai, weakness: species.weakness, loot: species.loot,
+      speciesIndex:speciesIndex, splitGeneration:0, splitTriggered:false,
       atlasRow: state.stage - 1, atlasCol: speciesIndex, armorBroken:0, bleedTimer:0, bleedTick:0,
       facing:0, animState:'spawn', animTime:0, animLock:0.72, deathTimer:null, deathDuration:1.3
     };
@@ -1456,6 +1460,7 @@
     hazards = [];
     healthPickups = [];
     particles = [];
+    floatingTextCount = 0;
     boss = null;
     bossPadLatch = null;
     dialogue = null;
@@ -2273,10 +2278,12 @@
     particles.push(particle);
   }
   function showFloat(x, y, text, color) {
+    if (particles.length >= 480 || floatingTextCount >= MAX_FLOATING_TEXT) return;
     var particle = particlePool.pop() || {};
     particle.x = x; particle.y = y; particle.vx = 0; particle.vy = -22;
     particle.life = 1.1; particle.maxLife = 1.1; particle.color = color;
     particle.size = 11; particle.text = text;
+    floatingTextCount++;
     particles.push(particle);
   }
 
@@ -5266,6 +5273,14 @@
     return speed;
   }
 
+  function activeEnemyCount() {
+    var count = 0;
+    for (var index = 0; index < enemies.length; index++) {
+      if (!enemies[index].dead) count++;
+    }
+    return count;
+  }
+
   var WORLD_EVENT_DEFS = {
     'travelling-merchant':{name:'Travelling Merchant',color:'#f6e36d',icon:'B',text:'A road trader offers one emergency purchase.'},
     'band-rehearsal':{name:'Band Rehearsal',color:'#d77cff',icon:'♪',text:'Join the groove for mastery XP and a combo blessing.'},
@@ -5285,6 +5300,7 @@
   }
 
   function spawnDirectedEnemy(elite,index) {
+    if (activeEnemyCount() >= MAX_ACTIVE_ENEMIES) return null;
     var angle=(index||0)*2.1+Math.random()*.7;
     var radius=130+(index||0)*24;
     var x=clamp(player.x+Math.cos(angle)*radius,40,WORLD.w-40);
@@ -5296,6 +5312,7 @@
       enemy.hp=enemy.maxHp+=5;enemy.r+=3;
     }
     enemies.push(enemy);
+    return enemy;
   }
 
   function triggerWorldEvent(id) {
@@ -5490,16 +5507,28 @@
         e.cooldown = 2.9;
         setAnimationState(e, 'spawn', 0.44);
         for (var ambushSpark=0;ambushSpark<9;ambushSpark++) spawnParticle(e.x,e.y,enemyColor(e),58,3);
-      } else if (e.ai === 'splitter' && !e.splitTriggered && e.hp <= Math.ceil(e.maxHp/2)) {
+      } else if (e.ai === 'splitter' && !e.splitTriggered &&
+          (e.splitGeneration || 0) === 0 && e.hp <= Math.ceil(e.maxHp/2)) {
+        // Split children are terminal. At 1 max HP they otherwise satisfy the
+        // half-health check immediately and double the enemy list every frame.
         e.splitTriggered = true;
-        [-1,1].forEach(function (side,index) {
-          var spawn = makeEnemy(['summon_' + e.id + '_' + index,'slime',e.x + side*26,e.y+18,e.group],4);
+        var splitRoom = Math.max(0, MAX_ACTIVE_ENEMIES - activeEnemyCount());
+        var splitChildCount = Math.min(2, splitRoom);
+        var splitSpeciesIndex = typeof e.speciesIndex === 'number' ? e.speciesIndex : 4;
+        for (var splitIndex = 0; splitIndex < splitChildCount; splitIndex++) {
+          var side = splitIndex === 0 ? -1 : 1;
+          var spawn = makeEnemy(
+            ['summon_' + e.id + '_' + splitIndex,'slime',e.x + side*26,e.y+18,e.group],
+            splitSpeciesIndex
+          );
           spawn.hp = spawn.maxHp = Math.max(1,Math.floor(e.maxHp/3));
           spawn.r = Math.max(10,e.r-5);
           spawn.elite = false;
+          spawn.splitGeneration = 1;
+          spawn.splitTriggered = true;
           enemies.push(spawn);
-        });
-        showFloat(e.x,e.y-24,'SPLIT!','#7df7a1');
+        }
+        if (splitChildCount > 0) showFloat(e.x,e.y-24,'SPLIT!','#7df7a1');
       }
       if (e.type === 'thorn') {
         if (e.mode === 'windup') {
@@ -5633,6 +5662,7 @@
       if (!p.text) p.vy += 34 * dt;
       p.life -= dt;
       if (p.life <= 0) {
+        if (p.text) floatingTextCount = Math.max(0, floatingTextCount - 1);
         particles.splice(index, 1);
         if (particlePool.length < 180) particlePool.push(p);
       }
@@ -7727,6 +7757,9 @@
           activeWorldEvent: encounterDirector.activeEvent && encounterDirector.activeEvent.id,
           dialogueOpen: !!dialogue,
           attacks: attacks.length,
+          activeEnemies: activeEnemyCount(),
+          totalEnemyRecords: enemies.length,
+          floatingText: floatingTextCount,
           projectiles: projectiles.length,
           healthPickups: healthPickups.length
         }
