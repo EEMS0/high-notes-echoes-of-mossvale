@@ -45,6 +45,26 @@ The composer opens when you interact with EEMS after finding four notes. Use a m
 
 Open **Statistics** from the title screen or pause menu to see completion, combat, exploration, economy, and boss-clear records.
 
+## Version 1.0 hub
+
+Open **Version 1.0 Hub** from the pause menu to access the connected production systems:
+
+- 84 regional guild contracts layered onto the 18 existing story and side quests, for 102 quest/contract definitions in total.
+- Ten activity-driven professions, regional reputation, NPC relationships, five material families, and twelve workshop/kitchen recipes.
+- Dream Encore, a post-campaign five-wave combat set with its own rank and Echo Core rewards.
+- Echo Network private room codes, presence snapshots, chat, emotes, ping display, reconnect handling, and deterministic host migration.
+- Echo Arena training plus six selectable PvP rulesets. Arena rating and tokens are deliberately separate from PvE equipment and progression.
+
+Private rooms work between browser tabs through `BroadcastChannel`. Internet-wide rooms require a compatible secure WebSocket relay because GitHub Pages serves static files and cannot host a persistent matchmaking server. Configure a relay in **Version 1.0 Hub → Online** or before loading the game:
+
+```html
+<script>
+  window.HIGH_NOTES_ONLINE_SERVER = "wss://your-relay.example";
+</script>
+```
+
+The relay must forward the versioned JSON room protocol without rewriting `v`, `type`, `from`, `room`, `payload`, or `ts`. Public lobby creation remains disabled when no secure relay is connected, so the UI never presents a local-only room as internet-hosted.
+
 ## What is inside
 
 - Six playable instruments: Electric Guitar, Bass, Synth, Drumsticks, Microphone, and Violin. Each has distinct attack geometry, charged attacks, a special, an ultimate, mastery XP, four mastery unlocks, and a legendary appearance.
@@ -70,11 +90,13 @@ Open **Statistics** from the title screen or pause menu to see completion, comba
 - `index.html` — canvas, HUD, menus, overlays, composer, map, dialogue, and touch controls.
 - `styles.css` — responsive presentation and accessibility states.
 - `game.js` — world, story, input, combat, rendering, save state, and UI behavior.
+- `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, Echo Network client, and Echo Arena rules.
 - `sprite-runtime.js` — manifest-driven production sprite loading, animation timing, and frame rendering.
 - `audio.js` — music and sound synthesis.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
 - `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
 - `assets/mossvale-key-art.png` — original generated title/menu artwork made for this project.
+- `assets/echo-arena-background.webp` — original moonlit Echo Arena environment used by the hub and competitive canvas.
 
 - `Sprites/` — the active production library: 102 transparent character sheets, 612 portraits, Odin actions, combat effects, UI art, and per-sheet animation manifests.
 - `Sprites/UI/Brad Shop/brad-shop-items-sheet.png` — dedicated 5×4 icon atlas for every item sold in Brad's shop.

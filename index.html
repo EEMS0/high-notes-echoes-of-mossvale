@@ -15,10 +15,11 @@
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="description" content="HIGH NOTES: Echoes of Mossvale — an original musical woodland action-adventure.">
   <title>HIGH NOTES: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=13">
+  <link rel="stylesheet" href="styles.css?v=14">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
-  <script src="game.js?v=14" defer></script>
+  <script src="game.js?v=15" defer></script>
+  <script src="v1-expansion.js?v=1" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -295,6 +296,7 @@
           <button id="pauseInstrumentsButton" class="game-button button-secondary" type="button">Instruments</button>
           <button id="pauseSkillsButton" class="game-button button-secondary" type="button">Skills</button>
           <button id="pauseHomeButton" class="game-button button-secondary" type="button">Player Home</button>
+          <button id="pauseProductionButton" class="game-button button-secondary production-launch" type="button">Version 1.0 Hub</button>
           <button id="pauseStatisticsButton" class="game-button button-secondary" type="button">Statistics</button>
           <button id="pauseSettingsButton" class="game-button button-ghost" type="button">Settings</button>
         </div>
@@ -502,6 +504,37 @@
               </div>
               <ul id="questList" aria-live="polite"></ul>
             </section>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="productionHub" class="overlay feature-screen production-hub" role="dialog" aria-modal="true" aria-labelledby="productionHubTitle" hidden>
+      <div class="feature-card production-hub-card">
+        <header class="production-hub-heading">
+          <div>
+            <p class="panel-kicker">VERSION 1.0 · THE WORLD PLAYS BACK</p>
+            <h2 id="productionHubTitle">Mossvale Guild &amp; Echo Network</h2>
+          </div>
+          <div id="productionProfileSummary" class="production-profile-summary" aria-live="polite"></div>
+          <button id="closeProductionHub" class="icon-button" type="button" aria-label="Close Version 1.0 hub">&times;</button>
+        </header>
+        <nav id="productionTabs" class="production-tabs" role="tablist" aria-label="Version 1.0 systems">
+          <button class="active" type="button" role="tab" aria-selected="true" data-production-tab="guild">Guild</button>
+          <button type="button" role="tab" aria-selected="false" data-production-tab="crafting">Crafting</button>
+          <button type="button" role="tab" aria-selected="false" data-production-tab="mastery">Mastery</button>
+          <button type="button" role="tab" aria-selected="false" data-production-tab="social">Social</button>
+          <button type="button" role="tab" aria-selected="false" data-production-tab="online">Online</button>
+          <button type="button" role="tab" aria-selected="false" data-production-tab="arena">Echo Arena</button>
+        </nav>
+        <div class="production-layout">
+          <main id="productionHubContent" class="production-hub-content" role="tabpanel" aria-live="polite"></main>
+          <aside class="production-sidebar" aria-label="Adventure production status">
+            <div id="productionStatusCard"></div>
+            <div class="production-release-note">
+              <strong>ONE WORLD, TWO RULESETS</strong>
+              <p>Co-op uses adventure progression. Echo Arena ratings and rewards stay separate from PvE balance.</p>
+            </div>
           </aside>
         </div>
       </div>

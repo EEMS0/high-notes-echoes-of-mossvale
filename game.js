@@ -405,7 +405,7 @@
 
   function freshState() {
     return {
-      version: 12,
+      version: 13,
       chapter: 1,
       odinRecruited: false,
       metMara: false,
@@ -489,6 +489,24 @@
         tutorialFlags: [],
         struggle: 0,
         checkpointReloads: 0
+      },
+      professions: {
+        crafting:{xp:0,level:1}, fishing:{xp:0,level:1}, cooking:{xp:0,level:1},
+        gardening:{xp:0,level:1}, exploration:{xp:0,level:1}, blocking:{xp:0,level:1},
+        dodging:{xp:0,level:1}, bossHunting:{xp:0,level:1}, questing:{xp:0,level:1},
+        trading:{xp:0,level:1}
+      },
+      craftingMaterials: {heartwood:0,sporeSilk:0,prismDust:0,tidePearl:0,echoCore:0},
+      craftedItems: {},
+      knownRecipes: ['field-stew','mossguard-charm','tempo-tea'],
+      relationships: {},
+      regionalReputation: {mossvale:0,rootsong:0,skyglass:0,moonwake:0},
+      activeContracts: [],
+      completedContracts: [],
+      dreamEncore: {unlocked:false,rank:1,bestWave:0,runs:0,active:false},
+      onlineProfile: {
+        displayName:'Mossvale Player',cosmetic:'grove',rating:1000,wins:0,losses:0,
+        seasonalTokens:0
       },
       x: HUB.x,
       y: HUB.y + 115
@@ -608,6 +626,13 @@
     debugSignature: ''
   };
   var inputBuffer = { attack:0, dodge:0, block:0, interact:0 };
+  var PROFESSION_IDS = ['crafting','fishing','cooking','gardening','exploration','blocking','dodging','bossHunting','questing','trading'];
+  var PRODUCTION_RECIPE_IDS = [
+    'field-stew','mossguard-charm','tempo-tea','heartwood-pickup','spore-tonic','prism-coil',
+    'tideglass-brooch','echo-core-mod','odin-trail-mix','festival-lantern','legendary-bridge','encore-crown'
+  ];
+  var onlineRemotePlayers = [];
+  var onlineWorldPings = [];
   var ENEMY_ROWS = { thorn: 0, slime: 1, buzz: 2, wisp: 3 };
   var ENEMY_DRAW_OPTIONS = {};
   var WISP_ENEMY_DRAW_OPTIONS = { alpha: 0.94 };
@@ -1365,6 +1390,65 @@
     clean.firstStageOnboarding.checkpointReloads = clamp(
       Math.floor(Number(rawOnboarding.checkpointReloads) || 0), 0, 999
     );
+    var rawProfessions = raw.professions && typeof raw.professions === 'object' ? raw.professions : {};
+    PROFESSION_IDS.forEach(function (professionId) {
+      var record = rawProfessions[professionId] && typeof rawProfessions[professionId] === 'object' ?
+        rawProfessions[professionId] : {};
+      clean.professions[professionId] = {
+        xp:clamp(Math.floor(Number(record.xp) || 0),0,999999),
+        level:clamp(Math.floor(Number(record.level) || 1),1,25)
+      };
+    });
+    var rawMaterials = raw.craftingMaterials && typeof raw.craftingMaterials === 'object' ?
+      raw.craftingMaterials : {};
+    Object.keys(clean.craftingMaterials).forEach(function (materialId) {
+      clean.craftingMaterials[materialId] = clamp(Math.floor(Number(rawMaterials[materialId]) || 0),0,9999);
+    });
+    clean.knownRecipes = validUnique(raw.knownRecipes,PRODUCTION_RECIPE_IDS);
+    ['field-stew','mossguard-charm','tempo-tea'].forEach(function (recipeId) {
+      if (clean.knownRecipes.indexOf(recipeId) < 0) clean.knownRecipes.push(recipeId);
+    });
+    clean.craftedItems = {};
+    if (raw.craftedItems && typeof raw.craftedItems === 'object') {
+      PRODUCTION_RECIPE_IDS.forEach(function (recipeId) {
+        var amount = clamp(Math.floor(Number(raw.craftedItems[recipeId]) || 0),0,999);
+        if (amount) clean.craftedItems[recipeId] = amount;
+      });
+    }
+    var validNpcIds = allLevelItems('npcs').map(function (npc) { return npc.id; });
+    clean.relationships = {};
+    if (raw.relationships && typeof raw.relationships === 'object') {
+      validNpcIds.forEach(function (npcId) {
+        var value = clamp(Math.floor(Number(raw.relationships[npcId]) || 0),0,100);
+        if (value) clean.relationships[npcId] = value;
+      });
+    }
+    var rawReputation = raw.regionalReputation && typeof raw.regionalReputation === 'object' ?
+      raw.regionalReputation : {};
+    Object.keys(clean.regionalReputation).forEach(function (regionId) {
+      clean.regionalReputation[regionId] = clamp(Math.floor(Number(rawReputation[regionId]) || 0),0,100);
+    });
+    clean.activeContracts = Array.from(new Set(Array.isArray(raw.activeContracts) ? raw.activeContracts : []))
+      .filter(function (id) { return typeof id === 'string' && /^contract-[a-z0-9-]{1,48}$/.test(id); }).slice(0,3);
+    clean.completedContracts = Array.from(new Set(Array.isArray(raw.completedContracts) ? raw.completedContracts : []))
+      .filter(function (id) { return typeof id === 'string' && /^contract-[a-z0-9-]{1,48}$/.test(id); }).slice(0,200);
+    var rawDreamEncore = raw.dreamEncore && typeof raw.dreamEncore === 'object' ? raw.dreamEncore : {};
+    clean.dreamEncore.unlocked = !!rawDreamEncore.unlocked;
+    clean.dreamEncore.rank = clamp(Math.floor(Number(rawDreamEncore.rank) || 1),1,25);
+    clean.dreamEncore.bestWave = clamp(Math.floor(Number(rawDreamEncore.bestWave) || 0),0,999);
+    clean.dreamEncore.runs = clamp(Math.floor(Number(rawDreamEncore.runs) || 0),0,99999);
+    clean.dreamEncore.active = false;
+    var rawOnlineProfile = raw.onlineProfile && typeof raw.onlineProfile === 'object' ? raw.onlineProfile : {};
+    clean.onlineProfile.displayName = typeof rawOnlineProfile.displayName === 'string' ?
+      rawOnlineProfile.displayName.replace(/[^\w \-']/g,'').trim().slice(0,18) || 'Mossvale Player' : 'Mossvale Player';
+    var legacyCosmetics = {root:'rootsong',prism:'skyglass',tide:'moonwake',static:'grove',dream:'moonwake'};
+    var restoredCosmetic = legacyCosmetics[rawOnlineProfile.cosmetic] || rawOnlineProfile.cosmetic;
+    clean.onlineProfile.cosmetic = ['grove','rootsong','skyglass','moonwake'].indexOf(restoredCosmetic) >= 0 ?
+      restoredCosmetic : 'grove';
+    clean.onlineProfile.rating = clamp(Math.floor(Number(rawOnlineProfile.rating) || 1000),100,5000);
+    clean.onlineProfile.wins = clamp(Math.floor(Number(rawOnlineProfile.wins) || 0),0,999999);
+    clean.onlineProfile.losses = clamp(Math.floor(Number(rawOnlineProfile.losses) || 0),0,999999);
+    clean.onlineProfile.seasonalTokens = clamp(Math.floor(Number(rawOnlineProfile.seasonalTokens) || 0),0,999999);
     clean.chapter = clamp(Math.floor(Number(raw.chapter) || (raw.bossDefeated ? 2 : 1)), 1, 4);
     // V2/V3 stored placeholder relics before the extra stages existed, so only V4
     // records may restore them as genuine stage completion.
@@ -1454,6 +1538,320 @@
   function refreshContinue() {
     var button = byId('continueButton');
     if (button) setHidden(button, !hasSave());
+  }
+
+  var relationshipLastGain = {};
+  var fishingLastCast = -999;
+  var dreamEncoreRuntime = {wave:0,waveCooldown:0,activeEnemyIds:new Set(),completedWaves:0};
+  var PRODUCTION_RECIPES = [
+    {id:'field-stew',name:"Mara's Field Stew",profession:'cooking',level:1,cost:{heartwood:1,beatcoins:3},effect:'Full heal and a short defence boost.'},
+    {id:'mossguard-charm',name:'Mossguard Charm',profession:'crafting',level:1,cost:{heartwood:3,beatcoins:8},effect:'Craft the permanent Ironbark Plate effect.'},
+    {id:'tempo-tea',name:'Tempo Tea',profession:'cooking',level:1,cost:{sporeSilk:1,beatcoins:3},effect:'Speed and attack tempo rise for twenty seconds.'},
+    {id:'heartwood-pickup',name:'Heartwood Pickup',profession:'crafting',level:3,cost:{heartwood:4,echoCore:1,beatcoins:10},effect:'Add 24 mastery XP to the equipped instrument.'},
+    {id:'spore-tonic',name:'Luminous Spore Tonic',profession:'cooking',level:3,cost:{sporeSilk:3,beatcoins:6},effect:'Store two Heartblooms and gain recovery protection.'},
+    {id:'prism-coil',name:'Skyglass Prism Coil',profession:'crafting',level:5,cost:{prismDust:4,echoCore:1,beatcoins:14},effect:'Permanently unlock the Pulse Coil upgrade.'},
+    {id:'tideglass-brooch',name:'Tideglass Brooch',profession:'crafting',level:5,cost:{tidePearl:4,prismDust:2,beatcoins:16},effect:'Permanently unlock the Fortune Charm effect.'},
+    {id:'echo-core-mod',name:'Resonant Echo Mod',profession:'crafting',level:7,cost:{echoCore:3,prismDust:3,beatcoins:20},effect:'Add 50 mastery XP and fully charge the instrument ultimate.'},
+    {id:'odin-trail-mix',name:"Odin's Trail Mix",profession:'cooking',level:5,cost:{sporeSilk:2,heartwood:2,beatcoins:8},effect:'Increase Odin friendship and reset care fatigue.'},
+    {id:'festival-lantern',name:'Festival Resonance Lantern',profession:'crafting',level:8,cost:{tidePearl:3,prismDust:3,heartwood:3,beatcoins:24},effect:'Craft a permanent home decoration.'},
+    {id:'legendary-bridge',name:'Legendary Instrument Bridge',profession:'crafting',level:12,cost:{echoCore:6,prismDust:5,tidePearl:5,beatcoins:40},effect:"Learn the equipped instrument's legendary mastery node."},
+    {id:'encore-crown',name:'Dream Encore Crown',profession:'crafting',level:15,cost:{echoCore:10,heartwood:8,sporeSilk:8,prismDust:8,tidePearl:8,beatcoins:75},effect:'A release-tier trophy and permanent Encore skill.'}
+  ];
+
+  function professionThreshold(level) {
+    return 28 + level * 18;
+  }
+
+  function gainProfessionXp(id, amount, reason) {
+    if (PROFESSION_IDS.indexOf(id) < 0) return false;
+    var record = state.professions[id] || (state.professions[id] = {xp:0,level:1});
+    record.xp += Math.max(1,Math.floor(Number(amount) || 1));
+    var levelled = false;
+    while (record.level < 25 && record.xp >= professionThreshold(record.level)) {
+      record.xp -= professionThreshold(record.level);
+      record.level++;
+      levelled = true;
+      state.beatcoins += 2 + Math.floor(record.level / 3);
+    }
+    if (levelled) {
+      showToast(id.replace(/([A-Z])/g,' $1').toUpperCase() + ' ' + record.level,
+        (reason || 'Practice') + ' unlocked new recipes, titles and rewards.','#ffc857',3.1);
+      audioCall('sfx','unlock');
+    }
+    return levelled;
+  }
+
+  function regionIdForStage(stage) {
+    return ['mossvale','rootsong','skyglass','moonwake'][clamp(Number(stage) || 1,1,4)-1];
+  }
+
+  function gainRelationship(npcId, amount) {
+    if (!npcId || !/^[a-z0-9-]{1,40}$/.test(npcId)) return 0;
+    var last = relationshipLastGain[npcId] || -999;
+    if (state.playSeconds - last < 45) return state.relationships[npcId] || 0;
+    relationshipLastGain[npcId] = state.playSeconds;
+    var previous = state.relationships[npcId] || 0;
+    var next = clamp(previous + Math.max(1,Math.floor(amount || 1)),0,100);
+    state.relationships[npcId] = next;
+    var regionId = regionIdForStage(state.stage);
+    state.regionalReputation[regionId] = clamp(state.regionalReputation[regionId] + 1,0,100);
+    if (Math.floor(previous / 25) !== Math.floor(next / 25)) {
+      showToast('FRIENDSHIP DEEPENED',npcId.replace(/-/g,' ').toUpperCase() + ' now shares more personal dialogue.','#ff91d5',2.8);
+    }
+    return next;
+  }
+
+  function addCraftingMaterial(id, amount) {
+    if (!Object.prototype.hasOwnProperty.call(state.craftingMaterials,id)) return 0;
+    state.craftingMaterials[id] = clamp(state.craftingMaterials[id] + Math.max(1,Math.floor(amount || 1)),0,9999);
+    return state.craftingMaterials[id];
+  }
+
+  function nearFishableWater() {
+    for (var waterIndex = 0; waterIndex < waterPools.length; waterIndex++) {
+      var pool = waterPools[waterIndex];
+      var normalX = (player.x-pool.x)/Math.max(1,pool.rx);
+      var normalY = (player.y-pool.y)/Math.max(1,pool.ry);
+      var edgeDistance = Math.abs(Math.sqrt(normalX*normalX+normalY*normalY)-1) * Math.min(pool.rx,pool.ry);
+      if (edgeDistance <= 58) return true;
+    }
+    return false;
+  }
+
+  function tryFishing() {
+    var cooldown = Math.max(0,14-(state.playSeconds-fishingLastCast));
+    if (!started || paused || dialogue) return {ok:false,reason:'unavailable'};
+    if (!nearFishableWater()) {
+      showToast('NO WATER IN REACH','Stand near a pond, river, or Moonwake pool before casting.','#9de8ff',2.8);
+      return {ok:false,reason:'not_near_water'};
+    }
+    if (cooldown > 0) return {ok:false,reason:'cooldown',seconds:Math.ceil(cooldown)};
+    fishingLastCast = state.playSeconds;
+    var catchMaterial = ['heartwood','sporeSilk','prismDust','tidePearl'][clamp(state.stage,1,4)-1];
+    var catchAmount = Math.random() < 0.18 ? 2 : 1;
+    addCraftingMaterial(catchMaterial,catchAmount);
+    gainProfessionXp('fishing',6 + state.stage * 2,'Landing a regional catch');
+    if (Math.random() < 0.14) addCraftingMaterial('echoCore',1);
+    audioCall('sfx','note');
+    for (var splash = 0; splash < 12; splash++) spawnParticle(player.x,player.y,'#9de8ff',65,3);
+    showToast('RESONANT CATCH','+' + catchAmount + ' ' + catchMaterial.replace(/([A-Z])/g,' $1') + ' · Fishing mastery XP','#9de8ff',2.9);
+    saveGame(true);
+    return {ok:true,material:catchMaterial,amount:catchAmount};
+  }
+
+  function recipeById(id) {
+    return PRODUCTION_RECIPES.find(function (recipe) { return recipe.id === id; });
+  }
+
+  function canAffordRecipe(recipe) {
+    if (!recipe) return false;
+    return Object.keys(recipe.cost).every(function (key) {
+      if (key === 'beatcoins') return state.beatcoins >= recipe.cost[key];
+      return (state.craftingMaterials[key] || 0) >= recipe.cost[key];
+    });
+  }
+
+  function applyRecipeEffect(recipe) {
+    if (recipe.id === 'field-stew') {
+      healPlayer(999);
+      activeBuffs.defenseTimer = Math.max(activeBuffs.defenseTimer,18);
+    } else if (recipe.id === 'mossguard-charm' && state.purchases.indexOf('ironbark-plate') < 0) {
+      state.purchases.push('ironbark-plate');
+    } else if (recipe.id === 'tempo-tea') {
+      activeBuffs.speedTimer = Math.max(activeBuffs.speedTimer,22);
+      player.attackCooldown = 0;
+    } else if (recipe.id === 'heartwood-pickup') {
+      gainInstrumentMastery(24);
+    } else if (recipe.id === 'spore-tonic') {
+      state.heartblooms = Math.min(HEARTBLOOM_CAPACITY,state.heartblooms + 2);
+      player.invuln = Math.max(player.invuln,1.5);
+    } else if (recipe.id === 'prism-coil' && state.purchases.indexOf('pulse-coil') < 0) {
+      state.purchases.push('pulse-coil');
+    } else if (recipe.id === 'tideglass-brooch' && state.purchases.indexOf('fortune-charm') < 0) {
+      state.purchases.push('fortune-charm');
+    } else if (recipe.id === 'echo-core-mod') {
+      gainInstrumentMastery(50);
+      instrumentUltimateCharge = 100;
+    } else if (recipe.id === 'odin-trail-mix') {
+      state.home.odinFriendship = Math.min(100,state.home.odinFriendship + 12);
+      state.home.odinFedAt = Math.max(0,state.playSeconds - 90);
+    } else if (recipe.id === 'festival-lantern' && state.home.decorations.indexOf('festival-lights') < 0) {
+      state.home.decorations.push('festival-lights');
+    } else if (recipe.id === 'legendary-bridge') {
+      var legendaryNode = state.equippedInstrument + '-legendary';
+      if (state.masteryNodes.indexOf(legendaryNode) < 0) state.masteryNodes.push(legendaryNode);
+    } else if (recipe.id === 'encore-crown') {
+      if (state.skills.indexOf('encore') < 0) state.skills.push('encore');
+      if (state.home.decorations.indexOf('golden-bloom') < 0) state.home.decorations.push('golden-bloom');
+    }
+  }
+
+  function craftProductionRecipe(id) {
+    var recipe = recipeById(id);
+    if (!recipe || state.knownRecipes.indexOf(id) < 0) return {ok:false,reason:'recipe_locked'};
+    var profession = state.professions[recipe.profession];
+    if (!profession || profession.level < recipe.level) return {ok:false,reason:'mastery_too_low'};
+    if (!canAffordRecipe(recipe)) return {ok:false,reason:'missing_materials'};
+    Object.keys(recipe.cost).forEach(function (key) {
+      if (key === 'beatcoins') {
+        state.beatcoins -= recipe.cost[key];
+        state.statistics.beatcoinsSpent += recipe.cost[key];
+      } else {
+        state.craftingMaterials[key] -= recipe.cost[key];
+      }
+    });
+    state.craftedItems[id] = (state.craftedItems[id] || 0) + 1;
+    applyRecipeEffect(recipe);
+    gainProfessionXp(recipe.profession,12 + recipe.level * 2,'Crafting ' + recipe.name);
+    audioCall('sfx','unlock');
+    showToast('CRAFTED · ' + recipe.name.toUpperCase(),recipe.effect,'#ffc857',3.4);
+    saveGame(true);
+    updateHUD(true);
+    return {ok:true,crafted:state.craftedItems[id]};
+  }
+
+  function updateProductionRecipeUnlocks() {
+    if (state.stageBosses.length >= 4) state.dreamEncore.unlocked = true;
+    var unlocks = [
+      ['heartwood-pickup',state.professions.crafting.level >= 3],
+      ['spore-tonic',state.chapter >= 2],
+      ['prism-coil',state.chapter >= 3],
+      ['tideglass-brooch',state.chapter >= 4],
+      ['echo-core-mod',state.professions.crafting.level >= 7],
+      ['odin-trail-mix',state.odinRecruited && state.professions.cooking.level >= 5],
+      ['festival-lantern',state.completedQuests.indexOf('luma-festival') >= 0],
+      ['legendary-bridge',state.professions.crafting.level >= 12 && state.miniBossesDefeated.length >= 3],
+      ['encore-crown',state.dreamEncore.bestWave >= 5]
+    ];
+    unlocks.forEach(function (entry) {
+      if (entry[1] && state.knownRecipes.indexOf(entry[0]) < 0) state.knownRecipes.push(entry[0]);
+    });
+  }
+
+  function finishDreamEncore(completed) {
+    if (!state.dreamEncore.active && !dreamEncoreRuntime.wave) return;
+    var clearedWaves = dreamEncoreRuntime.completedWaves;
+    state.dreamEncore.active = false;
+    state.dreamEncore.bestWave = Math.max(state.dreamEncore.bestWave,clearedWaves);
+    if (!completed) {
+      enemies.forEach(function (enemy) {
+        if (!dreamEncoreRuntime.activeEnemyIds.has(enemy.id) || enemy.dead) return;
+        releaseEnemyAttackSlot(enemy);
+        enemy.dead = true;
+        enemy.deathTimer = enemy.deathDuration || 1.3;
+      });
+    }
+    dreamEncoreRuntime.activeEnemyIds.clear();
+    dreamEncoreRuntime.wave = 0;
+    dreamEncoreRuntime.waveCooldown = 0;
+    if (completed) {
+      var encoreReward = 20 + state.dreamEncore.rank * 5;
+      state.beatcoins += encoreReward;
+      state.statistics.beatcoinsEarned += encoreReward;
+      state.dreamEncore.rank = clamp(state.dreamEncore.rank + 1,1,25);
+      addCraftingMaterial('echoCore',2);
+      gainProfessionXp('bossHunting',24,'Clearing a Dream Encore set');
+      showToast('DREAM ENCORE CLEARED',
+        '+' + encoreReward + ' Beatcoins · 2 Echo Cores · Encore rank ' + state.dreamEncore.rank,
+        '#d77cff',4.2);
+      audioCall('sfx','win');
+    } else if (clearedWaves > 0) {
+      showToast('ENCORE SET ENDED','Best cleared wave: ' + clearedWaves + '. Return when the band is ready.','#b7a0ff',3.2);
+    }
+    saveGame(true);
+    updateHUD(true);
+  }
+
+  function startDreamEncore() {
+    updateProductionRecipeUnlocks();
+    if (!state.dreamEncore.unlocked) {
+      showToast('DREAM ENCORE LOCKED','Defeat all four region bosses first.','#ff7892',2.8);
+      return {ok:false,reason:'story_locked'};
+    }
+    if (!started || dialogue || paused || boss || state.dreamEncore.active) return {ok:false,reason:'unavailable'};
+    if (state.stage === 1 && firstStageRuntime.safe) {
+      showToast('ENCORE NEEDS A STAGE','Leave the protected tutorial area before starting the set.','#ff7892',2.8);
+      return {ok:false,reason:'safe_zone'};
+    }
+    var nearbyHostiles = enemies.some(function (enemy) {
+      return !enemy.dead && !enemy.progressionLocked && distanceSquared(enemy,player) < 122500;
+    });
+    if (nearbyHostiles) {
+      showToast('FINISH THE CURRENT VERSE','Clear nearby enemies before beginning Dream Encore.','#ffc857',2.8);
+      return {ok:false,reason:'encounter_active'};
+    }
+    state.dreamEncore.active = true;
+    state.dreamEncore.runs++;
+    dreamEncoreRuntime.wave = 0;
+    dreamEncoreRuntime.completedWaves = 0;
+    dreamEncoreRuntime.waveCooldown = 1.2;
+    dreamEncoreRuntime.activeEnemyIds.clear();
+    encounterDirector.activeEvent = null;
+    encounterDirector.cooldown = 60;
+    showToast('DREAM ENCORE','Five escalating waves. No procedural encounters can interrupt the set.','#d77cff',3.8);
+    return {ok:true,rank:state.dreamEncore.rank};
+  }
+
+  function spawnDreamEncoreEnemy(index,wave) {
+    var angle = index * 2.25 + wave * 0.61;
+    var placement = findValidEnemySpawn(player,{
+      radius:20,baseRadius:175 + index * 18,radiusStep:26,angle:angle,
+      playerPosition:player,enforcePlayerDistance:true,minimumPlayerDistance:145,attempts:18
+    });
+    if (!placement.position) return null;
+    var enemy = makeEnemy([
+      'dream_' + Date.now() + '_' + wave + '_' + index,
+      'thorn',placement.position.x,placement.position.y,'dream-encore'
+    ],(wave + index + state.stage) % 10);
+    if (wave === 5 && index === 0) {
+      var eliteDef = ELITE_VARIANTS[(state.stage + state.dreamEncore.rank) % ELITE_VARIANTS.length];
+      enemy.elite = true;
+      enemy.eliteId = eliteDef.id;
+      enemy.eliteName = eliteDef.name;
+      enemy.eliteColor = eliteDef.color;
+      enemy.hp = enemy.maxHp += 7 + Math.floor(state.dreamEncore.rank / 3);
+      enemy.r += 4;
+    }
+    prepareEnemyForSpawn(enemy,{fixed:false,playerPosition:player});
+    enemy.spawnWarmup = Math.max(enemy.spawnWarmup || 0,1.15);
+    enemies.push(enemy);
+    return enemy;
+  }
+
+  function updateDreamEncore(dt) {
+    if (!state.dreamEncore.active) return;
+    dreamEncoreRuntime.activeEnemyIds.forEach(function (enemyId) {
+      var live = enemies.some(function (enemy) { return enemy.id === enemyId && !enemy.dead; });
+      if (!live) dreamEncoreRuntime.activeEnemyIds.delete(enemyId);
+    });
+    if (dreamEncoreRuntime.activeEnemyIds.size) return;
+    if (dreamEncoreRuntime.wave > dreamEncoreRuntime.completedWaves) {
+      dreamEncoreRuntime.completedWaves = dreamEncoreRuntime.wave;
+      dreamEncoreRuntime.waveCooldown = 2.4;
+      if (dreamEncoreRuntime.completedWaves >= 5) {
+        finishDreamEncore(true);
+        return;
+      }
+    }
+    dreamEncoreRuntime.waveCooldown -= dt;
+    if (dreamEncoreRuntime.waveCooldown > 0) return;
+    var nextWave = dreamEncoreRuntime.completedWaves + 1;
+    var count = Math.min(5,1 + nextWave + Math.floor(state.dreamEncore.rank / 6));
+    var spawned = 0;
+    for (var index = 0; index < count; index++) {
+      var enemy = spawnDreamEncoreEnemy(index,nextWave);
+      if (!enemy) continue;
+      dreamEncoreRuntime.activeEnemyIds.add(enemy.id);
+      spawned++;
+    }
+    if (!spawned) {
+      dreamEncoreRuntime.waveCooldown = 1.4;
+      return;
+    }
+    dreamEncoreRuntime.wave = nextWave;
+    showToast('ENCORE WAVE ' + nextWave + ' / 5',
+      nextWave === 5 ? 'The headliner has entered the dream.' : spawned + ' echoes join the arrangement.',
+      nextWave === 5 ? '#ffc857' : '#b7a0ff',2.8);
   }
 
   function applySettings() {
@@ -1801,6 +2199,10 @@
     state.completedQuests.push(quest.id);
     state.questStates[quest.id]=quest.goal;
     state.statistics.questsCompleted++;
+    gainProfessionXp('questing',quest.category === 'main' ? 20 : 12,'Completing ' + quest.name);
+    var questRegion = regionIdForStage(quest.stage);
+    state.regionalReputation[questRegion] = clamp(state.regionalReputation[questRegion] +
+      (quest.category === 'main' ? 5 : 3),0,100);
     var coins=quest.category==='main'?8:4;
     var skillReward=['ancient-speakers','corrupted-resonance','luma-festival'].indexOf(quest.id)>=0?1:0;
     if(quest.id==='corrupted-resonance')skillReward=2;
@@ -2079,6 +2481,7 @@
   }
 
   function talkToNpc(npc) {
+    gainRelationship(npc.id,npc.ambient ? 1 : 2);
     if (npc.id === 'brad') {
       var bradLines=['Brad. Dealer in premium field goods, rare vinyl, and absolutely legitimate moss accessories.',
         'Preferred customer contract: '+Math.min(5,state.statistics.shopPurchases||0)+'/5 purchases. Beatcoins spend anywhere my rug is open.'];
@@ -2331,6 +2734,11 @@
     var rewardCoins = 3 + (state.skills.indexOf('relic-hunter') >= 0 ? 2 : 0) + (state.purchases.indexOf('fortune-charm') >= 0 ? 2 : 0);
     state.beatcoins += rewardCoins;
     state.statistics.beatcoinsEarned += rewardCoins;
+    gainProfessionXp('exploration',10,'Recovering ' + item.label);
+    if (item.set === 'rootsong') addCraftingMaterial('heartwood',1);
+    else if (item.set === 'skyglass') addCraftingMaterial('prismDust',1);
+    else if (item.set === 'moonwake') addCraftingMaterial('tidePearl',1);
+    else addCraftingMaterial('sporeSilk',1);
     audioCall('sfx','note');
     for (var i=0;i<16;i++) spawnParticle(item.x,item.y,set.color,85,4);
     showFloat(item.x,item.y-20,'+ '+item.label.toUpperCase(),set.color);
@@ -2844,6 +3252,7 @@
     inputBuffer.dodge = 0;
     recordFirstStageTutorial('dodge');
     state.statistics.dashes++;
+    if (state.statistics.dashes % 4 === 0) gainProfessionXp('dodging',1,'Field movement');
     var dx = player.moveX;
     var dy = player.moveY;
     if (!dx && !dy) {
@@ -3106,6 +3515,7 @@
     player.blockStamina = Math.max(0, player.blockStamina - staminaCost);
     state.statistics.blocksPerformed = (state.statistics.blocksPerformed || 0) + 1;
     state.statistics.damageBlocked = (state.statistics.damageBlocked || 0) + blockedDamage;
+    gainProfessionXp('blocking',perfect ? 4 : 2,perfect ? 'Perfect block' : 'Guarding damage');
     player.blockFlash = perfect ? 0.38 : 0.22;
     player.invuln = perfect ? 0.32 : 0.16;
     var n = normalize(player.x - fromX, player.y - fromY);
@@ -3195,6 +3605,7 @@
       return;
     }
     player.health = 0;
+    if (state.dreamEncore.active) finishDreamEncore(false);
     state.statistics.deaths++;
     if (state.stage === 1) {
       state.firstStageOnboarding.struggle = clamp(state.firstStageOnboarding.struggle + 2,0,10);
@@ -3285,6 +3696,14 @@
     if (state.weather==='blood-moon') coinReward += 2;
     state.beatcoins += coinReward;
     state.statistics.beatcoinsEarned += coinReward;
+    var stageMaterial = ['heartwood','sporeSilk','prismDust','tidePearl'][clamp(state.stage,1,4)-1];
+    var materialChance = enemy.elite || enemy.isMiniBoss ? 1 : 0.2;
+    if (Math.random() < materialChance) addCraftingMaterial(stageMaterial,enemy.isMiniBoss ? 3 : enemy.elite ? 2 : 1);
+    if (enemy.elite || enemy.isMiniBoss) {
+      addCraftingMaterial('echoCore',enemy.isMiniBoss ? 2 : 1);
+      gainProfessionXp('bossHunting',enemy.isMiniBoss ? 18 : 8,
+        enemy.isMiniBoss ? 'Defeating a mini boss' : 'Defeating an elite');
+    }
     if (state.totalKills % 5 === 0) state.skillPoints++;
     gainInstrumentMastery(enemy.elite ? 12 : 4);
     if (enemy.isMiniBoss && enemy.miniBossId) {
@@ -3900,6 +4319,7 @@
         state.beatcoins -= item.price;
         state.statistics.beatcoinsSpent += item.price;
         state.statistics.shopPurchases++;
+        gainProfessionXp('trading',Math.max(2,Math.ceil(item.price / 3)),'Trading with Brad');
         applyShopItem(item);
         audioCall('sfx', 'unlock');
         saveGame(true);
@@ -4213,11 +4633,14 @@
       if (!state.home.greenhouseCrop) {
         state.home.greenhouseCrop = state.chapter >= 4 ? 'moon-orchid' : state.weeds.length >= 14 ? 'heartbloom' : 'glowweed';
         state.home.greenhousePlantedAt = state.playSeconds;
+        gainProfessionXp('gardening',2,'Planting the greenhouse');
         showToast('GREENHOUSE PLANTED',state.home.greenhouseCrop + ' will grow while you adventure.','#7df7a1',2.8);
       } else if (plantedAge >= 90) {
         if (state.home.greenhouseCrop === 'heartbloom') state.heartblooms = Math.min(HEARTBLOOM_CAPACITY,state.heartblooms+2);
         else state.beatcoins += state.home.greenhouseCrop === 'moon-orchid' ? 12 : 5;
         state.home.greenhouseHarvests++;
+        gainProfessionXp('gardening',14,'Harvesting the greenhouse');
+        addCraftingMaterial(state.chapter >= 3 ? 'sporeSilk' : 'heartwood',2);
         state.home.greenhouseCrop = '';
         state.home.greenhousePlantedAt = 0;
         showToast('GREENHOUSE HARVEST','The adventure kept growing at home.','#7df7a1',3);
@@ -5951,6 +6374,10 @@
       if(encounterDirector.activeEvent.life<=0)encounterDirector.activeEvent=null;
     }
     if(boss&&!boss.dead)return;
+    if (state.dreamEncore.active) {
+      encounterDirector.cooldown = Math.max(encounterDirector.cooldown,10);
+      return;
+    }
     if (dialogue || firstStageHostilesSuspended()) {
       if (state.stage === 1) encounterDirector.cooldown = Math.max(encounterDirector.cooldown, 8);
       return;
@@ -6588,6 +7015,7 @@
     updateHazards(dt);
     updateBoss(dt);
     updateEncounterDirector(dt);
+    updateDreamEncore(dt);
     updateParticles(dt);
     updateCamera(dt);
     updateHUD();
@@ -7006,6 +7434,10 @@
     state.beatcoins += 8;
     state.statistics.beatcoinsEarned += 8;
     gainInstrumentMastery(28);
+    gainProfessionXp('bossHunting',32,'Defeating ' + def.name);
+    addCraftingMaterial('echoCore',3);
+    state.regionalReputation[regionIdForStage(defeatedStage)] =
+      clamp(state.regionalReputation[regionIdForStage(defeatedStage)] + 12,0,100);
     if(defeatedStage===1){
       state.home.unlocked=true;
       if(state.discoveredLocations.indexOf('player-home')<0)state.discoveredLocations.push('player-home');
@@ -7718,6 +8150,74 @@
     });
   }
 
+  function drawOnlineRemotePlayers() {
+    for (var remoteIndex = 0; remoteIndex < onlineRemotePlayers.length; remoteIndex++) {
+      var remote = onlineRemotePlayers[remoteIndex];
+      if (remote.stage !== state.stage || !isVisible(remote.x,remote.y,90)) continue;
+      ctx.save();
+      ctx.translate(remote.x,remote.y);
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = 'rgba(2,8,10,.42)';
+      ctx.beginPath();
+      ctx.ellipse(0,15,15,6,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = remote.cosmetic === 'moonwake' ? '#86e8ff' :
+        remote.cosmetic === 'skyglass' ? '#9de8ff' :
+        remote.cosmetic === 'rootsong' ? '#ff9d57' : '#7df7a1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0,0,25,0,Math.PI*2);
+      ctx.stroke();
+      var remoteRow = remote.attacking ? 2 : (remote.moving ? 1 : 0);
+      var drewRemote = drawSpriteCell('hero',remoteRow,facingColumn(remote.facing),0,20,76,0.73);
+      if (drewRemote) {
+        var remoteInstrument = instrumentById(remote.instrument) || INSTRUMENTS[0];
+        ctx.save();
+        ctx.rotate(remote.facing + 0.12);
+        drawAtlasCell('instrument-mastery',6,2,0,remoteInstrument.index,18,9,36,36,.55,.92);
+        ctx.restore();
+      }
+      if (remote.odin) {
+        drawProductionSprite('odin',(remote.moving ? 'walk_' : 'idle_') + spriteDirection(remote.facing),
+          nowTime,remote.facing < 0 ? 28 : -28,22,46,{direction:spriteDirection(remote.facing),alpha:.82});
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#f1f7f4';
+      ctx.font = '700 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(remote.name,0,-36);
+      ctx.fillStyle = remote.ping < 90 ? '#7df7a1' : remote.ping < 180 ? '#ffc857' : '#ff7892';
+      ctx.font = '700 7px monospace';
+      ctx.fillText(remote.ping + 'ms',0,-27);
+      ctx.restore();
+    }
+  }
+
+  function drawOnlineWorldPings() {
+    for (var pingIndex = 0; pingIndex < onlineWorldPings.length; pingIndex++) {
+      var ping = onlineWorldPings[pingIndex];
+      if (ping.stage !== state.stage || !isVisible(ping.x,ping.y,110)) continue;
+      ctx.save();
+      ctx.translate(ping.x,ping.y);
+      var pulse = settings.reducedMotion ? 0 : Math.sin(nowTime*7+pingIndex)*7;
+      ctx.strokeStyle = ping.color;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = ping.color;
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.arc(0,0,22+pulse,0,Math.PI*2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0,-10);ctx.lineTo(0,10);ctx.moveTo(-10,0);ctx.lineTo(10,0);ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#f1f7f4';
+      ctx.font = '800 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(ping.label,0,-35);
+      ctx.restore();
+    }
+  }
+
   function drawPlayer() {
     var blink = player.invuln > 0 && Math.floor(nowTime * 14) % 2 === 0;
     if (blink) ctx.globalAlpha = 0.35;
@@ -8344,6 +8844,8 @@
     drawProjectiles();
     drawBoss();
     drawOdin();
+    drawOnlineWorldPings();
+    drawOnlineRemotePlayers();
     drawPlayer();
     drawAttacks();
     drawPulses();
@@ -8399,14 +8901,106 @@
     requestAnimationFrame(frame);
   }
 
+  function acceptProductionContract(id) {
+    if (!/^contract-[a-z0-9-]{2,70}$/.test(String(id || ''))) return {ok:false,reason:'invalid_contract'};
+    if (state.completedContracts.indexOf(id) >= 0) return {ok:false,reason:'already_completed'};
+    if (state.activeContracts.indexOf(id) >= 0) return {ok:true,reason:'already_active'};
+    if (state.activeContracts.length >= 3) return {ok:false,reason:'contract_limit'};
+    state.activeContracts.push(id);
+    saveGame(true);
+    return {ok:true};
+  }
+
+  function claimProductionContract(id,reward) {
+    var activeIndex = state.activeContracts.indexOf(id);
+    if (activeIndex < 0 || state.completedContracts.indexOf(id) >= 0) {
+      return {ok:false,reason:'contract_not_active'};
+    }
+    reward = reward && typeof reward === 'object' ? reward : {};
+    var beatcoins = clamp(Math.floor(Number(reward.beatcoins) || 0),0,100);
+    var skillPoints = clamp(Math.floor(Number(reward.skillPoints) || 0),0,2);
+    var reputation = clamp(Math.floor(Number(reward.reputation) || 0),0,10);
+    state.beatcoins += beatcoins;
+    state.skillPoints = clamp(state.skillPoints + skillPoints,0,99);
+    state.statistics.beatcoinsEarned += beatcoins;
+    state.regionalReputation[regionIdForStage(reward.stage)] =
+      clamp(state.regionalReputation[regionIdForStage(reward.stage)] + reputation,0,100);
+    if (PROFESSION_IDS.indexOf(reward.profession) >= 0) {
+      gainProfessionXp(reward.profession,clamp(Math.floor(Number(reward.xp) || 12),1,40),'Guild contract');
+    }
+    if (Object.prototype.hasOwnProperty.call(state.craftingMaterials,reward.material)) {
+      addCraftingMaterial(reward.material,clamp(Math.floor(Number(reward.materialAmount) || 1),1,5));
+    }
+    state.activeContracts.splice(activeIndex,1);
+    state.completedContracts.push(id);
+    showToast('GUILD CONTRACT COMPLETE',
+      '+' + beatcoins + ' Beatcoins' + (skillPoints ? ' · +' + skillPoints + ' Skill Point' : ''),
+      '#ffc857',3.2);
+    audioCall('sfx','quest');
+    saveGame(true);
+    updateHUD(true);
+    return {ok:true};
+  }
+
+  function updateOnlineProfile(profile) {
+    profile = profile && typeof profile === 'object' ? profile : {};
+    if (typeof profile.displayName === 'string') {
+      state.onlineProfile.displayName = profile.displayName.replace(/[^\w \-']/g,'').trim().slice(0,20) || 'Mossvale Player';
+    }
+    if (['grove','rootsong','skyglass','moonwake'].indexOf(profile.cosmetic) >= 0) {
+      state.onlineProfile.cosmetic = profile.cosmetic;
+    }
+    saveGame(true);
+    return JSON.parse(JSON.stringify(state.onlineProfile));
+  }
+
+  function setOnlineRemotePlayers(remotes) {
+    if (!Array.isArray(remotes)) remotes = [];
+    onlineRemotePlayers = remotes.slice(0,3).map(function (remote,index) {
+      remote = remote && typeof remote === 'object' ? remote : {};
+      return {
+        id:String(remote.id || ('remote-' + index)).replace(/[^a-zA-Z0-9-]/g,'').slice(0,40),
+        name:String(remote.name || 'Guest').replace(/[^\w \-']/g,'').trim().slice(0,20) || 'Guest',
+        x:clamp(Number(remote.x) || HUB.x,20,WORLD.w-20),
+        y:clamp(Number(remote.y) || HUB.y,20,WORLD.h-20),
+        facing:Number.isFinite(Number(remote.facing)) ? Number(remote.facing) : 0,
+        moving:!!remote.moving,
+        attacking:!!remote.attacking,
+        odin:!!remote.odin,
+        stage:clamp(Math.floor(Number(remote.stage) || 1),1,4),
+        instrument:instrumentById(remote.instrument) ? remote.instrument : 'guitar',
+        cosmetic:['grove','rootsong','skyglass','moonwake'].indexOf(remote.cosmetic) >= 0 ? remote.cosmetic : 'grove',
+        ping:clamp(Math.floor(Number(remote.ping) || 0),0,999)
+      };
+    });
+    canvasDirty = true;
+    return onlineRemotePlayers.length;
+  }
+
+  function setOnlineWorldPings(pings) {
+    if (!Array.isArray(pings)) pings = [];
+    onlineWorldPings = pings.slice(0,8).map(function (ping) {
+      ping = ping && typeof ping === 'object' ? ping : {};
+      return {
+        x:clamp(Number(ping.x) || HUB.x,20,WORLD.w-20),
+        y:clamp(Number(ping.y) || HUB.y,20,WORLD.h-20),
+        stage:clamp(Math.floor(Number(ping.stage) || 1),1,4),
+        label:String(ping.label || 'PLAYER PING').replace(/[^\w \-!]/g,'').trim().slice(0,24) || 'PLAYER PING',
+        color:/^#[0-9a-f]{6}$/i.test(ping.color || '') ? ping.color : '#ffc857'
+      };
+    });
+    canvasDirty = true;
+    return onlineWorldPings.length;
+  }
+
   window.__HIGH_NOTES__ = {
-    version: 12,
+    version: 13,
     startNew: newGame,
     continueGame: continueGame,
     snapshot: function () {
       return JSON.parse(JSON.stringify({
         state: state,
-        player: { x: player.x, y: player.y, health: player.health, maxHealth: player.maxHealth },
+        player: { x: player.x, y: player.y, facing: player.facing, health: player.health, maxHealth: player.maxHealth },
         boss: boss && {
           stage: boss.stage,
           defId: boss.defId,
@@ -8448,9 +9042,56 @@
           firstStageZone: firstStageRuntime.zone,
           firstStageSafe: firstStageRuntime.safe,
           firstStageGrace: firstStageRuntime.graceRemaining,
-          firstStageAttackers: firstStageRuntime.attackSlots.size
+          firstStageAttackers: firstStageRuntime.attackSlots.size,
+          nearFishableWater: nearFishableWater(),
+          fishingCooldown: Math.max(0,14-(state.playSeconds-fishingLastCast))
         }
       }));
+    },
+    production: {
+      catalog: function () {
+        updateProductionRecipeUnlocks();
+        return JSON.parse(JSON.stringify({
+          recipes:PRODUCTION_RECIPES,
+          professionIds:PROFESSION_IDS,
+          recipeIds:PRODUCTION_RECIPE_IDS
+        }));
+      },
+      craft: craftProductionRecipe,
+      acceptContract: acceptProductionContract,
+      claimContract: claimProductionContract,
+      setProfile: updateOnlineProfile,
+      setRemotePlayers: setOnlineRemotePlayers,
+      setWorldPings: setOnlineWorldPings,
+      fish: tryFishing,
+      setHubOpen: function (open) {
+        var productionPanel = byId('productionHub');
+        if (!productionPanel || !paused) return false;
+        if (open) {
+          setOverlayIsolation('pause','pauseScreen',false);
+          setOverlayIsolation('production','productionHub',true);
+        } else {
+          setOverlayIsolation('production','productionHub',false);
+          setOverlayIsolation('pause','pauseScreen',true);
+        }
+        return true;
+      },
+      startDreamEncore: startDreamEncore,
+      endDreamEncore: function () { finishDreamEncore(false); return true; },
+      recordArenaResult: function (won) {
+        if (won) {
+          state.onlineProfile.wins++;
+          state.onlineProfile.rating = clamp(state.onlineProfile.rating + 18,100,3000);
+          state.onlineProfile.seasonalTokens = clamp(state.onlineProfile.seasonalTokens + 3,0,9999);
+        } else {
+          state.onlineProfile.losses++;
+          state.onlineProfile.rating = clamp(state.onlineProfile.rating - 12,100,3000);
+          state.onlineProfile.seasonalTokens = clamp(state.onlineProfile.seasonalTokens + 1,0,9999);
+        }
+        saveGame(true);
+        return JSON.parse(JSON.stringify(state.onlineProfile));
+      },
+      save: function () { saveGame(true); return true; }
     },
     debug: {
       teleport: function (x, y) {
