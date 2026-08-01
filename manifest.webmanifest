@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "HIGH NOTES: Echoes of Mossvale",
-  "short_name": "HIGH NOTES",
-  "description": "An original musical woodland action-adventure.",
+  "name": "HIGH NOTES V2: Echoes of Mossvale",
+  "short_name": "HIGH NOTES V2",
+  "description": "An original musical action RPG with local and private online platform-fighter battles.",
   "lang": "en",
   "start_url": "./",
   "scope": "./",

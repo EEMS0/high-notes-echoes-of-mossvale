@@ -1,9 +1,22 @@
 (function () {
   'use strict';
 
-  var PROTOCOL_VERSION = 1;
+  var PROTOCOL_VERSION = 2;
   var MAX_ROOM_PLAYERS = 4;
   var CONTRACTS_PER_REGION = 21;
+  var DEFAULT_RELAY_URL = typeof window.HIGH_NOTES_DEFAULT_RELAY === 'string' ?
+    window.HIGH_NOTES_DEFAULT_RELAY.trim() : 'wss://high-notes-v2-relay.jl-bmfx.workers.dev';
+  var MULTIPLAYER_CONFIG = Object.freeze({
+    protocolVersion:PROTOCOL_VERSION,
+    defaultRelayUrl:DEFAULT_RELAY_URL,
+    connectionTimeoutMs:10000,
+    reconnectWindowMs:30000,
+    heartbeatIntervalMs:10000,
+    networkTickRate:20,
+    snapshotRate:10,
+    maxReconnectAttempts:5
+  });
+  var RELAY_RESUME_KEY = 'highNotesRelayResumeV2';
   var REGION_DATA = [
     {id:'mossvale',stage:1,name:'Mossvale Grove',accent:'#7df7a1',material:'heartwood',prefix:'Verdant'},
     {id:'rootsong',stage:2,name:'Rootsong Hollows',accent:'#ff9d57',material:'sporeSilk',prefix:'Hollow'},
@@ -69,6 +82,66 @@
   function cleanText(value,maxLength) {
     return String(value == null ? '' : value)
       .replace(/[<>]/g,'').replace(/\s+/g,' ').trim().slice(0,maxLength || 120);
+  }
+
+  var EQUIPMENT_NETWORK_IDS = Object.freeze(['guitar','bass','synth','drums','microphone','violin']);
+  var EQUIPMENT_NETWORK_STATES = Object.freeze([
+    'idle','walk','run','attack','charged','special','block','dash',
+    'dodge','hurt','stun','death','respawn','switch','victory','defeat'
+  ]);
+  var EQUIPMENT_NETWORK_DIRECTIONS = Object.freeze(['north','south','east','west']);
+
+  function knownNetworkValue(value,allowed,fallback) {
+    return allowed.indexOf(value) >= 0 ? value : fallback;
+  }
+
+  function networkDirectionFromFacing(facing) {
+    var angle = Number(facing) || 0;
+    var x = Math.cos(angle);
+    var y = Math.sin(angle);
+    if (Math.abs(x) > Math.abs(y)) return x < 0 ? 'west' : 'east';
+    return y < 0 ? 'north' : 'south';
+  }
+
+  function sanitizeEquipmentNetworkSnapshot(value,fallbackInstrument,fallbackFacing,fallbackState) {
+    var raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    var fallbackId = knownNetworkValue(fallbackInstrument,EQUIPMENT_NETWORK_IDS,'guitar');
+    var equipmentId = knownNetworkValue(raw.equipmentId,EQUIPMENT_NETWORK_IDS,fallbackId);
+    var animationState = knownNetworkValue(raw.animationState,EQUIPMENT_NETWORK_STATES,
+      knownNetworkValue(fallbackState,EQUIPMENT_NETWORK_STATES,'idle'));
+    var facingDirection = knownNetworkValue(raw.facingDirection,EQUIPMENT_NETWORK_DIRECTIONS,
+      networkDirectionFromFacing(fallbackFacing));
+    var switching = raw.switching === true;
+    var switchFrom = knownNetworkValue(raw.switchFrom,EQUIPMENT_NETWORK_IDS,equipmentId);
+    var switchTo = knownNetworkValue(raw.switchTo,EQUIPMENT_NETWORK_IDS,fallbackId);
+    var switchProgress = clamp(Number(raw.switchProgress) || 0,0,1);
+    var switchDuration = clamp(Number(raw.switchDuration) || 0.58,0.2,2);
+    if (switching) {
+      animationState = 'switch';
+      equipmentId = switchProgress < 0.5 ? switchFrom : switchTo;
+    } else {
+      if (animationState === 'switch') animationState = 'idle';
+      switchFrom = equipmentId;
+      switchTo = equipmentId;
+      switchProgress = 1;
+    }
+    return {
+      equipmentId:equipmentId,
+      animationState:animationState,
+      animationFrame:clamp(Math.floor(Number(raw.animationFrame) || 0),0,15),
+      animationElapsed:clamp(Number(raw.animationElapsed) || 0,0,86400),
+      animationTimestamp:clamp(Math.floor(Number(raw.animationTimestamp) || Date.now()),0,9999999999999),
+      facingDirection:facingDirection,
+      networkStateId:clamp(Math.floor(Number(raw.networkStateId) || 0),0,15),
+      cosmeticVariant:raw.cosmeticVariant === 'standard' ? 'standard' : 'standard',
+      schemaVersion:clamp(Math.floor(Number(raw.schemaVersion) || 0),0,1),
+      legendary:raw.legendary === true,
+      switching:switching,
+      switchFrom:switchFrom,
+      switchTo:switchTo,
+      switchProgress:switchProgress,
+      switchDuration:switchDuration
+    };
   }
 
   function titleCase(value) {
@@ -165,6 +238,10 @@
 
   function setActiveTab(tab) {
     if (!/^(guild|crafting|mastery|social|online|arena)$/.test(tab)) return;
+    if (activeTab === 'arena' && tab !== 'arena' && window.HighNotesV2Arena &&
+        typeof window.HighNotesV2Arena.stop === 'function') {
+      window.HighNotesV2Arena.stop('tab-changed');
+    }
     activeTab = tab;
     Array.prototype.forEach.call(tabs.querySelectorAll('[data-production-tab]'),function (button) {
       var active = button.dataset.productionTab === tab;
@@ -391,10 +468,14 @@
     this.remoteSnapshots = new Map();
     this.remoteVisuals = new Map();
     this.worldPings = [];
+    this.seenMessages = new Map();
+    this.messageSequence = 0;
     this.channel = null;
     this.socket = null;
+    this.pendingRelayMessages = [];
     this.socketStatus = 'offline';
     this.reconnectTimer = 0;
+    this.reconnectAttempts = 0;
     this.lastSnapshot = null;
     this.lastSnapshotSent = 0;
     this.lastAdvertised = 0;
@@ -404,21 +485,87 @@
     this.lastSidebarRender = 0;
     this.lastRemoteCount = 0;
     this.lastWorldPingCount = 0;
+    this.lastRoomWelcome = null;
     this.relayUrl = '';
+    this.relayIntent = '';
+    this.relayReconnectToken = '';
+    this.relayHealthStatus = 'untested';
+    this.relayHealthCheckedAt = 0;
+    this.relayHealthPromise = null;
+    this.connectionTimer = 0;
+    this.lastSocketCloseCode = 0;
+    this.lastSocketCloseReason = '';
+    this.lastSafeError = '';
+    this.permanentRelayFailure = false;
     try {
       if ('BroadcastChannel' in window) {
-        this.channel = new BroadcastChannel('high-notes-echo-network-v1');
+        this.channel = new BroadcastChannel('high-notes-echo-network-v2');
         this.channel.onmessage = this.receive.bind(this);
       }
     } catch (error) {
       this.channel = null;
     }
     try {
-      this.relayUrl = cleanText(window.HIGH_NOTES_ONLINE_SERVER || localStorage.getItem('highNotesOnlineServer') || '',240);
+      this.relayUrl = cleanText(window.HIGH_NOTES_ONLINE_SERVER || localStorage.getItem('highNotesOnlineServer') || DEFAULT_RELAY_URL,240);
     } catch (error) {}
-    if (this.relayUrl) this.connectSocket();
+    if (this.relayUrl) this.socketStatus = 'configured';
+    this.restoreResumeState();
     this.loopTimer = window.setInterval(this.tick.bind(this),100);
   }
+
+  NetworkSession.prototype.restoreResumeState = function () {
+    if (!this.relayUrl) return false;
+    var saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(RELAY_RESUME_KEY) || 'null'); }
+    catch (error) { saved = null; }
+    if (!saved || saved.v !== PROTOCOL_VERSION || saved.playerId !== this.id ||
+        !/^[A-HJ-NP-Z2-9]{6}$/.test(saved.room || '') ||
+        !/^[A-Za-z0-9_-]{20,128}$/.test(saved.token || '') ||
+        Number(saved.expiresAt) <= Date.now()) {
+      try { sessionStorage.removeItem(RELAY_RESUME_KEY); } catch (error) {}
+      return false;
+    }
+    this.room = saved.room;
+    this.host = /^[A-Z0-9]{12}$/.test(saved.host || '') ? saved.host : '';
+    this.joinedAt = Number(saved.joinedAt) || Date.now();
+    this.relayReconnectToken = saved.token;
+    this.relayIntent = saved.intent === 'create' ? 'create' : 'join';
+    this.peers.set(this.id,{id:this.id,profile:this.profile(),lastSeen:performance.now(),ping:0,connected:true});
+    this.socketStatus = 'configured';
+    var self = this;
+    window.setTimeout(function () {
+      if (self.room && self.relayReconnectToken) self.connectSocket('reconnect');
+    },0);
+    return true;
+  };
+
+  NetworkSession.prototype.persistResumeState = function () {
+    if (!this.relayUrl || !this.room || !/^[A-Za-z0-9_-]{20,128}$/.test(this.relayReconnectToken || '')) {
+      return false;
+    }
+    try {
+      sessionStorage.setItem(RELAY_RESUME_KEY,JSON.stringify({
+        v:PROTOCOL_VERSION,playerId:this.id,room:this.room,host:this.host,
+        token:this.relayReconnectToken,intent:this.relayIntent === 'create' ? 'create' : 'join',
+        joinedAt:this.joinedAt,expiresAt:Date.now()+MULTIPLAYER_CONFIG.reconnectWindowMs+5000
+      }));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  NetworkSession.prototype.clearResumeState = function () {
+    try { sessionStorage.removeItem(RELAY_RESUME_KEY); } catch (error) {}
+  };
+
+  NetworkSession.prototype.prepareForUnload = function () {
+    if (this.relayUrl && this.relayReconnectToken) {
+      this.persistResumeState();
+      return;
+    }
+    if (this.room) this.send('room-leave',{reason:'page-unload'});
+  };
 
   NetworkSession.prototype.profile = function () {
     var current = snapshot();
@@ -428,18 +575,129 @@
   NetworkSession.prototype.statusLabel = function () {
     if (this.room) return 'Room ' + this.room + ' · ' + this.peers.size + '/' + MAX_ROOM_PLAYERS + ' players';
     if (this.socketStatus === 'connected') return 'Internet relay connected';
+    if (this.socketStatus === 'connecting') return 'Connecting to secure relay';
+    if (this.socketStatus === 'configured') return 'Secure relay configured';
+    if (this.socketStatus === 'protocol-mismatch') return 'Relay protocol mismatch';
+    if (this.socketStatus === 'rejected') return 'Relay rejected connection';
+    if (this.socketStatus === 'unavailable' || this.socketStatus === 'error') return 'Relay unavailable';
     if (this.channel) return 'Private local peer transport ready';
     return 'Network transport unavailable';
   };
 
   NetworkSession.prototype.validRelay = function (url) {
-    return /^wss:\/\/[a-z0-9.-]+(?::\d+)?(?:\/.*)?$/i.test(url) ||
+    if (/^wss:\/\/[a-z0-9.-]+(?::\d+)?(?:\/.*)?$/i.test(url)) return true;
+    return window.location.protocol !== 'https:' &&
       /^ws:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/.*)?$/i.test(url);
+  };
+
+  NetworkSession.prototype.relayRoomUrl = function (intent) {
+    if (!this.validRelay(this.relayUrl) || !/^[A-HJ-NP-Z2-9]{6}$/.test(this.room)) return '';
+    try {
+      var configured = new URL(this.relayUrl);
+      configured.pathname = '/v2/rooms/' + this.room;
+      configured.search = '';
+      configured.hash = '';
+      configured.searchParams.set('intent',intent);
+      configured.searchParams.set('playerId',this.id);
+      if (intent === 'reconnect' && this.relayReconnectToken) {
+        configured.searchParams.set('token',this.relayReconnectToken);
+      }
+      return configured.toString();
+    } catch (error) {
+      return '';
+    }
+  };
+
+  NetworkSession.prototype.relayHealthUrl = function () {
+    if (!this.validRelay(this.relayUrl)) return '';
+    try {
+      var health = new URL(this.relayUrl);
+      health.protocol = health.protocol === 'wss:' ? 'https:' : 'http:';
+      health.pathname = '/health';
+      health.search = '';
+      health.hash = '';
+      return health.toString();
+    } catch (error) {
+      return '';
+    }
+  };
+
+  NetworkSession.prototype.probeRelayHealth = function (force) {
+    var self = this;
+    var healthUrl = this.relayHealthUrl();
+    if (!healthUrl) return Promise.resolve(false);
+    if (!force && this.relayHealthStatus === 'ok' && Date.now()-this.relayHealthCheckedAt < 60000) {
+      return Promise.resolve(true);
+    }
+    if (this.relayHealthPromise) return this.relayHealthPromise;
+    this.relayHealthStatus = 'checking';
+    this.lastSafeError = '';
+    this.permanentRelayFailure = false;
+    queueOnlineRender();
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timeout = window.setTimeout(function () {
+      if (controller) controller.abort();
+    },MULTIPLAYER_CONFIG.connectionTimeoutMs);
+    this.relayHealthPromise = fetch(healthUrl,{method:'GET',cache:'no-store',signal:controller ? controller.signal : undefined})
+      .then(function (response) {
+        if (!response.ok) throw new Error('Relay health returned HTTP ' + response.status + '.');
+        return response.json();
+      }).then(function (payload) {
+        if (!payload || payload.ok !== true || Number(payload.protocolVersion) !== PROTOCOL_VERSION) {
+          throw new Error('Relay protocol does not match this game build.');
+        }
+        self.relayHealthStatus = 'ok';
+        self.relayHealthCheckedAt = Date.now();
+        self.socketStatus = self.socketStatus === 'connected' ? 'connected' : 'configured';
+        return true;
+      }).catch(function (error) {
+        self.relayHealthStatus = 'failed';
+        self.socketStatus = 'unavailable';
+        self.lastSafeError = cleanText(error && error.message || 'Relay health check failed.',100);
+        return false;
+      }).then(function (healthy) {
+        window.clearTimeout(timeout);
+        self.relayHealthPromise = null;
+        queueOnlineRender();
+        return healthy;
+      });
+    return this.relayHealthPromise;
+  };
+
+  NetworkSession.prototype.diagnostics = function () {
+    var self = this;
+    var latestMatch = this.lastRoomWelcome && this.lastRoomWelcome.payload &&
+      this.lastRoomWelcome.payload.match && typeof this.lastRoomWelcome.payload.match === 'object' ?
+      this.lastRoomWelcome.payload.match : null;
+    var remotePings = Array.from(this.peers.values()).filter(function (peer) { return peer.id !== self.id; })
+      .map(function (peer) { return Math.round(Number(peer.ping)||0); });
+    return {
+      relay:this.relayUrl || 'not configured',protocol:PROTOCOL_VERSION,
+      connection:this.socketStatus,health:this.relayHealthStatus,
+      ping:remotePings.length ? Math.min.apply(Math,remotePings) + ' ms' : 'n/a',
+      reconnectAttempts:this.reconnectAttempts,room:this.room || 'none',players:this.peers.size,
+      roomState:latestMatch ? cleanText(latestMatch.phase || 'unknown',16) +
+        (latestMatch.matchId ? ' · ' + cleanText(latestMatch.matchId,48) : '') : 'unreported',
+      networkTick: MULTIPLAYER_CONFIG.networkTickRate + ' Hz',snapshotRate:MULTIPLAYER_CONFIG.snapshotRate + ' Hz',
+      lastClose:this.lastSocketCloseCode ? String(this.lastSocketCloseCode) : 'none',
+      lastError:this.lastSafeError || 'none'
+    };
+  };
+
+  NetworkSession.prototype.diagnosticsText = function () {
+    var report = this.diagnostics();
+    return ['HIGH NOTES V2 multiplayer diagnostics','Relay: ' + report.relay,'Protocol: ' + report.protocol,
+      'Connection: ' + report.connection,'Health: ' + report.health,'Ping: ' + report.ping,
+      'Reconnect attempts: ' + report.reconnectAttempts,'Room: ' + report.room,'Players: ' + report.players,
+      'Room state: ' + report.roomState,
+      'Network tick: ' + report.networkTick,'Snapshot rate: ' + report.snapshotRate,
+      'Last close code: ' + report.lastClose,'Last safe error: ' + report.lastError].join('\n');
   };
 
   NetworkSession.prototype.configureRelay = function (url) {
     url = cleanText(url,240);
     if (url && !this.validRelay(url)) return false;
+    var relayChanged = url !== this.relayUrl;
     this.relayUrl = url;
     try {
       if (url) localStorage.setItem('highNotesOnlineServer',url);
@@ -450,69 +708,155 @@
       this.socket.close();
       this.socket = null;
     }
-    this.socketStatus = url ? 'connecting' : 'offline';
-    if (url) this.connectSocket();
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    if (this.connectionTimer) window.clearTimeout(this.connectionTimer);
+    this.reconnectTimer = 0;
+    this.connectionTimer = 0;
+    this.relayHealthStatus = url ? 'untested' : 'offline';
+    this.relayHealthCheckedAt = 0;
+    this.lastSafeError = '';
+    this.socketStatus = url ? 'configured' : 'offline';
+    this.reconnectAttempts = 0;
+    if (relayChanged) {
+      this.relayReconnectToken = '';
+      this.clearResumeState();
+    }
+    if (url && this.room) this.connectSocket(this.host === this.id ? 'create' : 'join');
     queueOnlineRender();
     return true;
   };
 
-  NetworkSession.prototype.connectSocket = function () {
-    if (!this.validRelay(this.relayUrl) || this.socketStatus === 'connecting' || this.socketStatus === 'connected') return;
+  NetworkSession.prototype.connectSocket = function (intent,healthVerified) {
+    intent = intent === 'create' || intent === 'join' || intent === 'reconnect' ? intent : 'join';
+    if (intent === 'reconnect' && !this.relayReconnectToken) {
+      intent = this.relayIntent || (this.host === this.id ? 'create' : 'join');
+    }
+    if (!healthVerified && this.relayHealthStatus !== 'ok') {
+      var selfHealth = this;
+      this.probeRelayHealth(false).then(function (healthy) {
+        if (healthy && selfHealth.room) selfHealth.connectSocket(intent,true);
+      });
+      return;
+    }
+    var socketUrl = this.relayRoomUrl(intent);
+    if (!socketUrl || this.socketStatus === 'connecting' || this.socketStatus === 'connected') return;
     var self = this;
     try {
       this.socketStatus = 'connecting';
-      this.socket = new WebSocket(this.relayUrl);
+      this.relayIntent = intent === 'reconnect' ? (this.relayIntent || 'join') : intent;
+      this.socket = new WebSocket(socketUrl);
+      this.connectionTimer = window.setTimeout(function () {
+        self.connectionTimer = 0;
+        self.lastSafeError = 'Relay connection timed out.';
+        if (self.socket && self.socket.readyState < WebSocket.CLOSING) self.socket.close(4000,'connection_timeout');
+      },MULTIPLAYER_CONFIG.connectionTimeoutMs);
       this.socket.onopen = function () {
+        window.clearTimeout(self.connectionTimer);
+        self.connectionTimer = 0;
         self.socketStatus = 'connected';
+        self.permanentRelayFailure = false;
         self.reconnectTimer = 0;
-        self.send('hello',{profile:self.profile()},'');
+        self.reconnectAttempts = 0;
+        var queued = self.pendingRelayMessages.splice(0,16);
+        queued.forEach(function (message) { self.sendRelayMessage(message); });
         queueOnlineRender();
       };
       this.socket.onmessage = function (event) {
         if (typeof event.data !== 'string' || event.data.length > 16384) return;
-        try { self.receive({data:JSON.parse(event.data)}); } catch (error) {}
+        try { self.receive({data:JSON.parse(event.data)}); }
+        catch (error) { self.lastSafeError = 'Relay sent an invalid response.'; }
       };
       this.socket.onerror = function () {
         self.socketStatus = 'error';
+        self.lastSafeError = 'The secure relay connection failed.';
         queueOnlineRender();
       };
-      this.socket.onclose = function () {
+      this.socket.onclose = function (event) {
+        window.clearTimeout(self.connectionTimer);
+        self.connectionTimer = 0;
+        self.lastSocketCloseCode = Number(event && event.code) || 0;
+        self.lastSocketCloseReason = cleanText(event && event.reason,64);
+        if (self.lastSocketCloseCode && self.lastSocketCloseCode !== 1000 && !self.lastSafeError) {
+          self.lastSafeError = 'Relay closed the connection (' + self.lastSocketCloseCode + ').';
+        }
         self.socket = null;
-        self.socketStatus = 'offline';
-        self.scheduleReconnect();
+        self.socketStatus = self.permanentRelayFailure ? 'rejected' : (self.relayUrl ? 'configured' : 'offline');
+        if (self.room && !self.permanentRelayFailure) {
+          self.persistResumeState();
+          self.scheduleReconnect();
+        }
         queueOnlineRender();
       };
     } catch (error) {
       this.socket = null;
       this.socketStatus = 'error';
+      this.lastSafeError = cleanText(error && error.message || 'Could not open the secure relay.',100);
       this.scheduleReconnect();
     }
   };
 
   NetworkSession.prototype.scheduleReconnect = function () {
-    if (!this.relayUrl || this.reconnectTimer) return;
+    if (!this.relayUrl || !this.room || this.reconnectTimer || this.permanentRelayFailure) return;
+    if (this.reconnectAttempts >= MULTIPLAYER_CONFIG.maxReconnectAttempts) {
+      this.socketStatus = 'unavailable';
+      queueOnlineRender();
+      return;
+    }
     var self = this;
-    var delay = 1500 + Math.floor(Math.random()*750);
+    var delay = Math.min(30000,1200*Math.pow(2,this.reconnectAttempts)) + Math.floor(Math.random()*650);
+    this.reconnectAttempts++;
     this.reconnectTimer = window.setTimeout(function () {
       self.reconnectTimer = 0;
-      self.connectSocket();
+      self.connectSocket('reconnect');
     },delay);
   };
 
   NetworkSession.prototype.message = function (type,payload,room) {
+    this.messageSequence = (this.messageSequence + 1) % 2147483647;
     return {v:PROTOCOL_VERSION,type:type,from:this.id,room:room == null ? this.room : room,
-      payload:payload || {},ts:Date.now()};
+      payload:payload || {},ts:Date.now(),seq:this.messageSequence,
+      id:this.id + '-' + this.messageSequence + '-' + Date.now().toString(36)};
+  };
+
+  NetworkSession.prototype.sendRelayMessage = function (message) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    try {
+      var relayMessage = Object.assign({},message);
+      delete relayMessage.id;
+      this.socket.send(JSON.stringify(relayMessage));
+      return true;
+    } catch (error) {
+      return false;
+    }
   };
 
   NetworkSession.prototype.send = function (type,payload,room) {
     var message = this.message(type,payload,room);
-    if (this.channel) {
-      try { this.channel.postMessage(message); } catch (error) {}
+    var delivered = false;
+    // A configured internet room has one authority path. Sending the same
+    // control packet through BroadcastChannel first could let same-origin tabs
+    // bypass relay validation and begin a match the server rejected.
+    if (!this.relayUrl && this.channel) {
+      try { this.channel.postMessage(message); delivered = true; } catch (error) {}
     }
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      try { this.socket.send(JSON.stringify(message)); } catch (error) {}
+    if (this.relayUrl) {
+      delivered = this.sendRelayMessage(message);
+      if (!delivered &&
+          ['profile','select-instrument','player-ready','room-sync'].indexOf(type) >= 0) {
+        this.pendingRelayMessages = this.pendingRelayMessages.filter(function (queued) {
+          return queued.type !== type;
+        });
+        this.pendingRelayMessages.push(message);
+        if (this.pendingRelayMessages.length > 16) this.pendingRelayMessages.shift();
+        delivered = true;
+      }
     }
-    return message;
+    return delivered;
+  };
+
+  NetworkSession.prototype.requestRoomSync = function () {
+    if (!this.relayUrl || !this.room) return false;
+    return this.send('room-sync',{});
   };
 
   NetworkSession.prototype.createRoom = function (makePublic) {
@@ -520,29 +864,31 @@
     this.room = randomId(6);
     this.host = this.id;
     this.joinedAt = Date.now();
-    this.isPublic = !!makePublic && this.socketStatus === 'connected';
+    this.isPublic = false;
     this.peers.set(this.id,{id:this.id,profile:this.profile(),lastSeen:performance.now(),ping:0});
     this.send('room-create',{public:this.isPublic,profile:this.profile(),limit:MAX_ROOM_PLAYERS});
+    if (this.relayUrl) this.connectSocket('create');
     this.advertise();
     queueOnlineRender();
     return this.room;
   };
 
   NetworkSession.prototype.joinRoom = function (code) {
-    code = cleanText(code,6).toUpperCase().replace(/[^A-Z0-9]/g,'');
-    if (code.length !== 6) return false;
+    code = cleanText(code,6).toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g,'');
+    if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) return false;
     this.leave();
     this.room = code;
     this.host = '';
     this.joinedAt = Date.now();
     this.peers.set(this.id,{id:this.id,profile:this.profile(),lastSeen:performance.now(),ping:0});
     this.send('room-join',{profile:this.profile()});
+    if (this.relayUrl) this.connectSocket('join');
     queueOnlineRender();
     return true;
   };
 
-  NetworkSession.prototype.leave = function () {
-    if (this.room) this.send('room-leave',{});
+  NetworkSession.prototype.leave = function (reason) {
+    if (this.room) this.send('room-leave',{reason:cleanText(reason || 'left',32)});
     this.room = '';
     this.host = '';
     this.joinedAt = 0;
@@ -553,6 +899,21 @@
     this.worldPings = [];
     this.lastRemoteCount = 0;
     this.lastWorldPingCount = 0;
+    this.relayReconnectToken = '';
+    this.relayIntent = '';
+    this.pendingRelayMessages = [];
+    this.lastRoomWelcome = null;
+    this.clearResumeState();
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    if (this.connectionTimer) window.clearTimeout(this.connectionTimer);
+    this.reconnectTimer = 0;
+    this.connectionTimer = 0;
+    if (this.socket) {
+      this.socket.onclose = null;
+      this.socket.close(1000,'left_room');
+      this.socket = null;
+      this.socketStatus = this.relayUrl ? 'configured' : 'offline';
+    }
     gameApi().production.setRemotePlayers([]);
     gameApi().production.setWorldPings([]);
     queueOnlineRender();
@@ -568,7 +929,9 @@
   };
 
   NetworkSession.prototype.migrateHost = function () {
-    if (!this.room) return;
+    // The production relay is the sole authority for internet host migration.
+    // Local election is only valid for the offline BroadcastChannel transport.
+    if (!this.room || this.relayUrl) return;
     var ids = Array.from(this.peers.keys()).sort();
     var next = ids[0] || this.id;
     if (next !== this.host) {
@@ -616,11 +979,25 @@
 
   NetworkSession.prototype.receive = function (event) {
     var message = event && event.data;
+    var selfControlEcho = message && message.from === this.id &&
+      ['room-welcome','host-migrate','match-start','rematch'].indexOf(message.type) >= 0;
     if (!message || typeof message !== 'object' || message.v !== PROTOCOL_VERSION ||
-        message.from === this.id || typeof message.type !== 'string') return;
+        (message.from === this.id && !selfControlEcho) || typeof message.type !== 'string') return;
     if (!/^[A-Z0-9]{12}$/.test(String(message.from || ''))) return;
+    var messageId = Number.isInteger(message.seq) ?
+      cleanText(message.from,12) + ':' + cleanText(message.type,32) + ':' + message.seq : cleanText(message.id,80);
+    if (messageId) {
+      if (this.seenMessages.has(messageId)) return;
+      this.seenMessages.set(messageId,performance.now());
+      if (this.seenMessages.size > 512) {
+        var oldestMessageId = this.seenMessages.keys().next().value;
+        this.seenMessages.delete(oldestMessageId);
+      }
+    }
     var allowedTypes = ['room-advertise','room-join','room-welcome','room-reject','room-leave','host-migrate',
-      'profile','snapshot','world-ping','chat','emote','ping','pong','arena-state','arena-hit'];
+      'profile','snapshot','world-ping','chat','emote','ping','pong','arena-state','arena-hit',
+      'player-ready','select-instrument','select-team','select-stage','match-start','arena-input',
+      'arena-snapshot','match-end','rematch','state-correction','relay-error','welcome','error'];
     if (allowedTypes.indexOf(message.type) < 0) return;
     if (message.type === 'room-advertise') {
       if (message.payload && message.payload.public && /^[A-Z0-9]{6}$/.test(message.room || '')) {
@@ -634,6 +1011,32 @@
     }
     if (!this.room || message.room !== this.room) return;
     var payload = message.payload && typeof message.payload === 'object' ? message.payload : {};
+    if (message.type === 'welcome') {
+      if (message.from !== 'RELAY0000000') return;
+      if (typeof payload.reconnectToken === 'string' && /^[A-Za-z0-9_-]{20,128}$/.test(payload.reconnectToken)) {
+        this.relayReconnectToken = payload.reconnectToken;
+      }
+      if (/^[A-Z0-9]{12}$/.test(payload.host || '')) this.host = payload.host;
+      this.socketStatus = 'connected';
+      this.persistResumeState();
+      this.send('profile',{profile:this.profile()});
+      queueOnlineRender();
+      return;
+    }
+    if (message.type === 'error') {
+      if (message.from !== 'RELAY0000000') return;
+      var socketErrorCode = cleanText(payload.code,40);
+      this.socketStatus = socketErrorCode === 'protocol_mismatch' ? 'protocol-mismatch' :
+        payload.fatal ? 'rejected' :
+        (this.socket && this.socket.readyState === WebSocket.OPEN ? 'connected' : 'error');
+      this.permanentRelayFailure = !!payload.fatal;
+      if (payload.fatal) this.clearResumeState();
+      this.pushChat('SYSTEM',cleanText(payload.message || 'The secure relay rejected that request.',100),'system');
+      if (window.HighNotesV2Arena && typeof window.HighNotesV2Arena.receiveNetwork === 'function') {
+        window.HighNotesV2Arena.receiveNetwork(message,null);
+      }
+      return;
+    }
     var knownPeer = this.peers.get(message.from);
     if (!knownPeer && ['room-join','room-welcome','room-reject'].indexOf(message.type) < 0) return;
     var peer = knownPeer || {id:message.from,profile:payload.profile || {},ping:0};
@@ -642,6 +1045,8 @@
     if (payload.profile) peer.profile = payload.profile;
     this.peers.set(message.from,peer);
     if (message.type === 'room-join') {
+      peer.connected = true;
+      peer.reconnectUntil = 0;
       if (this.peers.size > MAX_ROOM_PLAYERS) {
         this.peers.delete(message.from);
         this.send('room-reject',{target:message.from,reason:'full'});
@@ -655,32 +1060,66 @@
       }
       this.pushChat('SYSTEM',cleanText((peer.profile || {}).displayName || 'A player',20) + ' joined the lobby.','system');
     } else if (message.type === 'room-welcome') {
+      // Preserve the latest authoritative room state in case the reconnect
+      // completes before the deferred arena script has registered its handler.
+      this.lastRoomWelcome = {
+        v:message.v,type:message.type,from:message.from,room:message.room,
+        payload:payload,ts:message.ts,seq:message.seq,id:message.id
+      };
       if (payload.target && payload.target !== this.id) return;
       this.host = /^[A-Z0-9]{12}$/.test(payload.host || '') ? payload.host : message.from;
       this.joinedAt = 0;
       this.isPublic = !!payload.public;
       (Array.isArray(payload.peers) ? payload.peers : []).slice(0,4).forEach(function (item) {
         if (item && /^[A-Z0-9]{12}$/.test(item.id || '')) {
-          network.peers.set(item.id,{id:item.id,profile:item.profile || {},lastSeen:performance.now(),ping:0});
+          network.peers.set(item.id,{
+            id:item.id,profile:item.profile || {},lastSeen:performance.now(),ping:0,
+            ready:item.ready === true,
+            instrument:knownNetworkValue(cleanText(item.instrument,16),EQUIPMENT_NETWORK_IDS,'guitar'),
+            connected:item.connected !== false
+          });
         }
       });
+      this.persistResumeState();
     } else if (message.type === 'room-reject') {
       if (payload.target === this.id) {
         this.pushChat('SYSTEM','That lobby is full.','system');
         this.leave();
       }
     } else if (message.type === 'room-leave') {
-      this.peers.delete(message.from);
-      this.remoteSnapshots.delete(message.from);
-      this.remoteVisuals.delete(message.from);
-      this.migrateHost();
+      if (payload.temporary === true) {
+        peer.connected = false;
+        peer.reconnectUntil = clamp(Number(payload.reconnectUntil) || 0,0,9999999999999);
+        this.peers.set(message.from,peer);
+      } else {
+        this.peers.delete(message.from);
+        this.remoteSnapshots.delete(message.from);
+        this.remoteVisuals.delete(message.from);
+        if (!this.relayUrl) this.migrateHost();
+      }
     } else if (message.type === 'host-migrate') {
       if (/^[A-Z0-9]{12}$/.test(payload.host || '')) this.host = payload.host;
+    } else if (message.type === 'profile') {
+      var incomingProfile = payload.profile && typeof payload.profile === 'object' ? payload.profile : payload;
+      peer.profile = {
+        displayName:cleanText(incomingProfile.displayName || 'Mossvale Player',20),
+        cosmetic:['grove','rootsong','skyglass','moonwake'].indexOf(incomingProfile.cosmetic) >= 0 ? incomingProfile.cosmetic : 'grove',
+        rating:clamp(Math.floor(Number(incomingProfile.rating)||1000),0,5000)
+      };
     } else if (message.type === 'snapshot') {
       var previousRemote = this.remoteSnapshots.get(message.from);
       var receivedAt = performance.now();
       var remoteX = Number(payload.x) || 0;
       var remoteY = Number(payload.y) || 0;
+      var remoteFacingValue = Number(payload.facing);
+      var remoteFacing = Number.isFinite(remoteFacingValue) ? clamp(remoteFacingValue,-7,7) : 0;
+      var remoteMoving = !!payload.moving;
+      var remoteAttacking = !!payload.attacking;
+      var remoteInstrument = knownNetworkValue(cleanText(payload.instrument,16),EQUIPMENT_NETWORK_IDS,'guitar');
+      var remoteEquipment = sanitizeEquipmentNetworkSnapshot(
+        payload.equipment,remoteInstrument,remoteFacing,
+        remoteAttacking ? 'attack' : (remoteMoving ? 'walk' : 'idle')
+      );
       var remoteDelta = previousRemote ? Math.max(0.016,(receivedAt-previousRemote.updated)/1000) : 0.1;
       this.remoteSnapshots.set(message.from,{
         id:message.from,name:cleanText((peer.profile || {}).displayName || 'Guest',20),
@@ -688,11 +1127,11 @@
         x:remoteX,y:remoteY,
         vx:previousRemote ? (remoteX-previousRemote.x)/remoteDelta : 0,
         vy:previousRemote ? (remoteY-previousRemote.y)/remoteDelta : 0,
-        facing:Number(payload.facing) || 0,
-        moving:!!payload.moving,attacking:!!payload.attacking,
+        facing:remoteFacing,
+        moving:remoteMoving,attacking:remoteAttacking,
         odin:!!payload.odin,
         stage:clamp(Math.floor(Number(payload.stage)||1),1,4),
-        instrument:cleanText(payload.instrument,16),resonance:cleanText(payload.resonance,16),
+        instrument:remoteInstrument,equipment:remoteEquipment,resonance:cleanText(payload.resonance,16),
         quests:clamp(Math.floor(Number(payload.quests)||0),0,999),
         bosses:clamp(Math.floor(Number(payload.bosses)||0),0,99),
         ping:peer.ping,updated:receivedAt
@@ -719,10 +1158,28 @@
       this.send('pong',{target:message.from,stamp:payload.stamp});
     } else if (message.type === 'pong' && payload.target === this.id) {
       peer.ping = clamp(Date.now() - Number(payload.stamp || Date.now()),0,999);
+    } else if (message.type === 'select-instrument') {
+      peer.instrument = knownNetworkValue(cleanText(payload.instrument,16),EQUIPMENT_NETWORK_IDS,'guitar');
+      peer.ready = false;
+    } else if (message.type === 'player-ready') {
+      peer.ready = payload.ready === true;
+      if (payload.instrument !== undefined) {
+        peer.instrument = knownNetworkValue(cleanText(payload.instrument,16),EQUIPMENT_NETWORK_IDS,'guitar');
+      }
     } else if (message.type === 'arena-state') {
       arena.receiveState(message.from,payload,peer);
     } else if (message.type === 'arena-hit') {
       arena.receiveHit(message.from,payload);
+    } else if (message.type === 'relay-error') {
+      var relayCode = cleanText(payload.code,40);
+      this.socketStatus = relayCode === 'protocol_mismatch' ? 'protocol-mismatch' :
+        relayCode === 'rejected' ? 'rejected' : 'error';
+      this.pushChat('SYSTEM',cleanText(payload.message || 'The secure relay rejected that request.',100),'system');
+    }
+    if (window.HighNotesV2Arena && typeof window.HighNotesV2Arena.receiveNetwork === 'function' &&
+        ['room-join','room-welcome','room-leave','host-migrate','select-instrument','player-ready',
+          'match-start','arena-input','arena-snapshot','match-end','rematch'].indexOf(message.type) >= 0) {
+      window.HighNotesV2Arena.receiveNetwork(message,peer);
     }
     if (['snapshot','arena-state','ping','pong'].indexOf(message.type) < 0) queueOnlineRender();
   };
@@ -733,14 +1190,21 @@
     if (!current || !current.runtime.started) return;
     var previous = this.lastSnapshot;
     var moving = !!previous && (Math.abs(previous.x-current.player.x)>0.2 || Math.abs(previous.y-current.player.y)>0.2);
+    var equipment = sanitizeEquipmentNetworkSnapshot(
+      current.player.equipment,current.state.equippedInstrument,current.player.facing,
+      current.runtime.attacks > 0 ? 'attack' : (moving ? 'walk' : 'idle')
+    );
     this.lastSnapshot = {x:current.player.x,y:current.player.y};
-    this.send('snapshot',{
+    var worldSnapshot = {
       x:Math.round(current.player.x*10)/10,y:Math.round(current.player.y*10)/10,
       facing:current.player.facing,moving:moving,attacking:current.runtime.attacks>0,
       stage:current.state.stage,instrument:current.state.equippedInstrument,
-      odin:!!current.state.odinRecruited,resonance:current.state.activeResonance || '',
+      equipment:equipment,
+      odin:!!current.state.odinRecruited,
       quests:(current.state.completedQuests || []).length,bosses:(current.state.stageBosses || []).length
-    });
+    };
+    if (current.state.activeResonance) worldSnapshot.resonance = current.state.activeResonance;
+    this.send('snapshot',worldSnapshot);
   };
 
   NetworkSession.prototype.tick = function () {
@@ -752,29 +1216,33 @@
       this.knownRooms.forEach(function (room,code) {
         if (now-room.lastSeen > 6500) self.knownRooms.delete(code);
       });
+      this.seenMessages.forEach(function (seenAt,id) {
+        if (now-seenAt > 15000) self.seenMessages.delete(id);
+      });
     }
     if (this.room) {
       if (maintenanceDue) {
         this.peers.forEach(function (peer,id) {
-          if (id !== self.id && now-(peer.lastSeen || 0) > 8500) {
+          if (!self.relayUrl && id !== self.id &&
+              now-(peer.lastSeen || 0) > MULTIPLAYER_CONFIG.heartbeatIntervalMs * 2.5) {
             self.peers.delete(id);
             self.remoteSnapshots.delete(id);
             self.remoteVisuals.delete(id);
           }
         });
-        if (this.host && !this.peers.has(this.host)) this.migrateHost();
+        if (!this.relayUrl && this.host && !this.peers.has(this.host)) this.migrateHost();
         if (!this.host && this.joinedAt && Date.now()-this.joinedAt > 4500) {
           this.pushChat('SYSTEM','No host answered that room code.','system');
           this.leave();
           return;
         }
         if (this.host === this.id && Date.now()-this.lastAdvertised > 1800) this.advertise();
-        if (Date.now()-this.lastPingSent > 2500) {
+        if (Date.now()-this.lastPingSent > MULTIPLAYER_CONFIG.heartbeatIntervalMs) {
           this.lastPingSent = Date.now();
           this.send('ping',{stamp:this.lastPingSent});
         }
       }
-      if (Date.now()-this.lastSnapshotSent >= 100) {
+      if (Date.now()-this.lastSnapshotSent >= 1000/MULTIPLAYER_CONFIG.snapshotRate) {
         this.lastSnapshotSent = Date.now();
         this.sendSnapshot();
       }
@@ -791,6 +1259,14 @@
       visual.y += (targetY-visual.y)*0.42;
       ['name','cosmetic','facing','moving','attacking','odin','stage','instrument','ping'].forEach(function (key) {
         visual[key] = remote[key];
+      });
+      // Advance only from the last validated packet and cap extrapolation to
+      // the same short window used by position prediction. Layers, pivots and
+      // origins are deliberately re-derived by the receiving equipment rig.
+      visual.equipment = Object.assign({},remote.equipment,{
+        animationElapsed:clamp(remote.equipment.animationElapsed + predictionSeconds,0,86400),
+        switchProgress:remote.equipment.switching ?
+          clamp(remote.equipment.switchProgress + predictionSeconds / remote.equipment.switchDuration,0,1) : 1
       });
       self.remoteVisuals.set(remote.id,visual);
       remotes.push(visual);
@@ -824,10 +1300,14 @@
     var rooms = Array.from(network.knownRooms.values());
     var peers = Array.from(network.peers.values());
     var relayConfigured = !!network.relayUrl;
+    var diagnostics = network.diagnostics();
     content.innerHTML =
       '<div class="production-section-heading"><div><p class="panel-kicker">2–4 PLAYER SESSION LAYER</p>' +
-      '<h3>Echo Network</h3><p>Private room codes work between tabs now. Internet-wide lobbies activate when a compatible secure relay is configured.</p></div>' +
-      '<span class="transport-badge ' + network.socketStatus + '">' + escapeHtml(network.socketStatus === 'connected' ? 'WSS CONNECTED' : 'LOCAL PEER MODE') + '</span></div>' +
+      '<h3>Echo Network</h3><p>Private room codes connect through the secure production relay across different networks. Public matchmaking remains a labelled future foundation.</p></div>' +
+      '<span class="transport-badge ' + network.socketStatus + '">' + escapeHtml(network.socketStatus === 'connected' ? 'WSS CONNECTED' :
+        network.socketStatus === 'connecting' ? 'CONNECTING RELAY' : network.socketStatus === 'configured' ? 'WSS CONFIGURED' :
+        network.socketStatus === 'protocol-mismatch' ? 'PROTOCOL MISMATCH' : network.socketStatus === 'rejected' ? 'REJECTED' :
+        network.socketStatus === 'unavailable' || network.socketStatus === 'error' ? 'RELAY UNAVAILABLE' : 'LOCAL PEER MODE') + '</span></div>' +
       '<div class="online-grid"><section class="online-card"><h4>Performer profile</h4>' +
       '<label>Display name<input id="onlineDisplayName" maxlength="20" value="' + escapeHtml(profile.displayName || '') + '"></label>' +
       '<label>Trail colour<select id="onlineCosmetic">' +
@@ -835,11 +1315,24 @@
         return '<option value="' + id + '"' + (profile.cosmetic === id ? ' selected' : '') + '>' + titleCase(id) + '</option>';
       }).join('') + '</select></label><button id="saveOnlineProfile" class="game-button button-secondary" type="button">Save profile</button></section>' +
       '<section class="online-card"><h4>Secure internet relay</h4><p class="online-help">' +
-      (relayConfigured ? 'The client will reconnect automatically if the relay drops.' :
-        'GitHub Pages is static hosting, so public matchmaking is disabled until a WSS relay is supplied.') +
-      '</p><label>WSS endpoint<input id="onlineRelayUrl" inputmode="url" placeholder="wss://your-relay.example" value="' +
-      escapeHtml(network.relayUrl) + '"></label><button id="saveRelay" class="game-button button-secondary" type="button">' +
-      (relayConfigured ? 'Reconnect relay' : 'Configure relay') + '</button></section></div>' +
+      (relayConfigured ? escapeHtml(network.statusLabel()) + '. Manual overrides are stored locally and never contain a credential.' :
+        'No production relay is deployed yet. GitHub Pages remains playable locally; public matchmaking stays disabled until the owner deploys the included Worker.') +
+      '</p><label>Advanced WSS host override<input id="onlineRelayUrl" inputmode="url" placeholder="wss://your-worker.workers.dev" value="' +
+      escapeHtml(network.relayUrl) + '"></label><div class="relay-action-row"><button id="testRelay" class="game-button button-primary" type="button">' +
+      (network.socketStatus === 'connecting' ? 'Connecting…' : 'Save relay host') + '</button><button id="resetRelay" class="game-button button-secondary" type="button">Reset ' +
+      (DEFAULT_RELAY_URL ? 'to default' : 'override') + '</button></div></section></div>' +
+      '<details class="multiplayer-diagnostics"><summary>Advanced connection diagnostics</summary><div class="diagnostics-grid">' +
+      '<span>Relay<strong>' + escapeHtml(diagnostics.relay) + '</strong></span><span>Protocol<strong>v' + diagnostics.protocol + '</strong></span>' +
+      '<span>Connection<strong>' + escapeHtml(diagnostics.connection) + '</strong></span><span>Health<strong>' + escapeHtml(diagnostics.health) + '</strong></span>' +
+      '<span>Ping<strong>' + escapeHtml(diagnostics.ping) + '</strong></span><span>Reconnects<strong>' + diagnostics.reconnectAttempts + '</strong></span>' +
+      '<span>Room<strong>' + escapeHtml(diagnostics.room) + '</strong></span><span>Players<strong>' + diagnostics.players + '</strong></span>' +
+      '<span>Room state<strong>' + escapeHtml(diagnostics.roomState) + '</strong></span>' +
+      '<span>Network tick<strong>' + escapeHtml(diagnostics.networkTick) + '</strong></span><span>Snapshots<strong>' + escapeHtml(diagnostics.snapshotRate) + '</strong></span>' +
+      '<span>Last close<strong>' + escapeHtml(diagnostics.lastClose) + '</strong></span><span>Last error<strong>' + escapeHtml(diagnostics.lastError) + '</strong></span>' +
+      '</div><div class="relay-action-row"><button id="checkRelayHealth" class="game-button button-secondary" type="button"' +
+      (!relayConfigured || network.relayHealthStatus === 'checking' ? ' disabled' : '') + '>Check relay health</button>' +
+      '<button id="copyNetworkDiagnostics" class="game-button button-secondary" type="button">Copy diagnostics</button></div>' +
+      '<p class="online-help">Reconnect tokens and credentials are intentionally excluded from this report.</p></details>' +
       (network.room ?
         '<section class="lobby-panel"><div class="lobby-code"><small>ROOM CODE</small><strong>' + network.room + '</strong>' +
         '<span>' + (network.host === network.id ? 'You are host' : 'Host migration ready') + ' · ' + peers.length + '/' + MAX_ROOM_PLAYERS + '</span></div>' +
@@ -856,10 +1349,9 @@
             '</small></div></article>';
         }).join('') + '</div></section>' :
         '<div class="online-grid"><section class="online-card lobby-create"><h4>Create a lobby</h4>' +
-        '<p>Private codes use the local peer channel and any configured relay. Public discovery requires the WSS relay.</p>' +
+        '<p>Private codes use the secure relay when configured and fall back to the local peer channel for offline development. Public discovery remains a clearly labelled foundation.</p>' +
         '<button id="createPrivateRoom" class="game-button button-primary" type="button">Create private room</button>' +
-        '<button id="createPublicRoom" class="game-button button-secondary" type="button"' +
-        (network.socketStatus !== 'connected' ? ' disabled' : '') + '>Create public lobby</button></section>' +
+        '<button id="createPublicRoom" class="game-button button-secondary" type="button" disabled>Public matchmaking · FOUNDATION</button></section>' +
         '<section class="online-card"><h4>Join by code</h4><label>Six-character room code<input id="joinRoomCode" maxlength="6" autocomplete="off" spellcheck="false"></label>' +
         '<button id="joinRoom" class="game-button button-primary" type="button">Join room</button></section></div>') +
       '<section class="public-lobbies"><div class="production-section-heading compact"><div><p class="panel-kicker">PUBLIC LOBBIES</p><h3>Now playing</h3></div><span>' +
@@ -870,8 +1362,7 @@
           room.players + '/' + room.limit + ' · ' + escapeHtml((ARENA_MODES[room.mode] || ARENA_MODES.duel).name) +
           '</span><em>' + room.code + '</em></button>';
       }).join('') : '<p class="production-empty">' +
-        (network.socketStatus === 'connected' ? 'No public rooms are advertising right now.' :
-          'Connect a secure relay to browse internet-wide rooms. Private room codes remain available locally.') + '</p>') + '</section>' +
+        'Public room discovery and ranked matchmaking are not shipped. Private room codes remain available locally and over a configured relay.</p>') + '</section>' +
       (network.room ? '<section class="network-chat"><div class="chat-log" aria-live="polite">' +
         (network.chat.length ? network.chat.slice(-16).map(function (line) {
           return '<p class="' + escapeHtml(line.kind) + '"><strong>' + escapeHtml(line.author) + '</strong><span>' + escapeHtml(line.text) + '</span></p>';
@@ -891,11 +1382,30 @@
       if (network.room) network.send('profile',{profile:network.profile()});
       renderOnline();
     });
-    document.getElementById('saveRelay').addEventListener('click',function () {
+    document.getElementById('testRelay').addEventListener('click',function () {
       var field = document.getElementById('onlineRelayUrl');
       if (!network.configureRelay(field.value)) {
         field.setCustomValidity('Use a secure wss:// endpoint (or ws://localhost for development).');
         field.reportValidity();
+        return;
+      }
+      renderOnline();
+      if (network.relayUrl) network.probeRelayHealth(true);
+    });
+    document.getElementById('resetRelay').addEventListener('click',function () {
+      network.configureRelay(DEFAULT_RELAY_URL);
+      renderOnline();
+      if (network.relayUrl) network.probeRelayHealth(true);
+    });
+    var checkRelayHealth = document.getElementById('checkRelayHealth');
+    if (checkRelayHealth) checkRelayHealth.addEventListener('click',function () { network.probeRelayHealth(true); });
+    var copyDiagnostics = document.getElementById('copyNetworkDiagnostics');
+    if (copyDiagnostics) copyDiagnostics.addEventListener('click',function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(network.diagnosticsText()).then(function () { copyDiagnostics.textContent = 'Copied'; })
+          .catch(function () { copyDiagnostics.textContent = 'Clipboard unavailable'; });
+      } else {
+        copyDiagnostics.textContent = 'Clipboard unavailable';
       }
     });
     var createPrivate = document.getElementById('createPrivateRoom');
@@ -952,7 +1462,8 @@
     this.hero = new Image();
     this.hero.src = 'assets/sprites/runtime/hero-sheet.png';
     this.beat = {x:450,y:250};
-    this.animationFrame = window.requestAnimationFrame(this.frame.bind(this));
+    this.animationFrame = 0;
+    this.boundFrame = this.frame.bind(this);
   }
 
   EchoArena.prototype.resetPerformer = function (x,y,name,cosmetic) {
@@ -971,11 +1482,17 @@
     this.beat = {x:450,y:250};
     if (network.room && !remoteStart) network.send('arena-state',this.serialise(true));
     renderArena();
+    if (!this.animationFrame) {
+      this.lastTime = performance.now();
+      this.animationFrame = window.requestAnimationFrame(this.boundFrame);
+    }
   };
 
   EchoArena.prototype.stop = function () {
     this.active = false;
     this.remote.clear();
+    if (this.animationFrame) window.cancelAnimationFrame(this.animationFrame);
+    this.animationFrame = 0;
   };
 
   EchoArena.prototype.serialise = function (starting) {
@@ -1178,16 +1695,28 @@
   };
 
   EchoArena.prototype.frame = function (time) {
+    this.animationFrame = 0;
+    if (!this.active) return;
     var dt = clamp((time-this.lastTime)/1000,0,0.034);
     this.lastTime = time;
     this.update(dt);
     this.draw();
-    this.animationFrame = window.requestAnimationFrame(this.frame.bind(this));
+    this.animationFrame = window.requestAnimationFrame(this.boundFrame);
   };
 
   var arena = new EchoArena();
 
   function renderArena() {
+    if (window.HighNotesV2Arena && typeof window.HighNotesV2Arena.render === 'function') {
+      window.HighNotesV2Arena.render(content,{
+        network:network,
+        snapshot:snapshot,
+        escapeHtml:escapeHtml,
+        formatNumber:formatNumber,
+        closeHub:closeHub
+      });
+      return;
+    }
     var mode = ARENA_MODES[selectedArenaMode];
     var current = snapshot();
     var profile = current.state.onlineProfile || {};
@@ -1272,6 +1801,9 @@
     if (!hubOpen) return;
     hubOpen = false;
     arena.stop();
+    if (window.HighNotesV2Arena && typeof window.HighNotesV2Arena.stop === 'function') {
+      window.HighNotesV2Arena.stop('hub-closed');
+    }
     hub.hidden = true;
     hub.inert = true;
     document.body.classList.remove('production-hub-open');
@@ -1309,15 +1841,24 @@
   window.addEventListener('keyup',function (event) {
     arena.keys.delete(event.code);
   },true);
-  window.addEventListener('beforeunload',function () { network.leave(); });
+  window.addEventListener('beforeunload',function () { network.prepareForUnload(); });
+  document.addEventListener('visibilitychange',function () {
+    if (!document.hidden && network.room && network.relayUrl && (!network.socket || network.socket.readyState !== WebSocket.OPEN)) {
+      network.connectSocket('reconnect');
+    }
+  });
+  window.addEventListener('online',function () {
+    if (network.room && network.relayUrl) network.connectSocket('reconnect');
+  });
   window.addEventListener('resize',function () {
     if (hubOpen && navigator.maxTouchPoints > 0 && window.innerHeight > window.innerWidth) closeHub();
   });
 
   hub.inert = true;
   window.HighNotesV1 = {
-    version:'1.0',
+    version:'2.0.0',
     protocolVersion:PROTOCOL_VERSION,
+    multiplayerConfig:MULTIPLAYER_CONFIG,
     contractCount:CONTRACTS.length,
     questDefinitionCount:CONTRACTS.length + 18,
     contracts:CONTRACTS.map(function (contract) {

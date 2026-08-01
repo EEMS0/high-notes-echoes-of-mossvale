@@ -1,8 +1,10 @@
-# HIGH NOTES: Echoes of Mossvale
+# HIGH NOTES V2: Echoes of Mossvale
 
 An original, dependency-free browser action-adventure about exploring an enchanted woodland, gathering magical weed, recovering lost musical notes, and arranging them into a melody with Blu, Jimbo, and EEMS.
 
 ## Run it
+
+Play the hosted release at [https://eems0.github.io/high-notes-echoes-of-mossvale/](https://eems0.github.io/high-notes-echoes-of-mossvale/).
 
 From this folder, start a small local server:
 
@@ -45,25 +47,56 @@ The composer opens when you interact with EEMS after finding four notes. Use a m
 
 Open **Statistics** from the title screen or pause menu to see completion, combat, exploration, economy, and boss-clear records.
 
-## Version 1.0 hub
+## Version 2.0 hub and Echo Arena
 
-Open **Version 1.0 Hub** from the pause menu to access the connected production systems:
+Open **Version 2.0 Hub** from the pause menu. It preserves the connected production systems from the first release—84 regional contracts, ten professions, crafting, relationships, reputation, Dream Encore, private rooms, chat, emotes, and adventure presence—while adding a complete, deliberately bounded platform-fighter slice:
 
-- 84 regional guild contracts layered onto the 18 existing story and side quests, for 102 quest/contract definitions in total.
-- Ten activity-driven professions, regional reputation, NPC relationships, five material families, and twelve workshop/kitchen recipes.
-- Dream Encore, a post-campaign five-wave combat set with its own rank and Echo Core rewards.
-- Echo Network private room codes, presence snapshots, chat, emotes, ping display, reconnect handling, and deterministic host migration.
-- Echo Arena training plus six selectable PvP rulesets. Arena rating and tokens are deliberately separate from PvE equipment and progression.
+- **Stock Battle** on the original Mossvale Amphitheatre stage, with fixed-step gravity, solid and drop-through platforms, blast zones, three stocks, respawn protection, hit pause, hitstun, launch scaling, recovery, guard durability, perfect guards, dodges, a match timer, results, and rematches.
+- **Guitar Virtuoso** and **Bass Breaker**, each backed by central move data for grounded directions, aerial directions, dash attacks, charge attacks, specials, recovery, projectiles, and an ultimate.
+- Offline training against a recovery-aware bot, two-player split keyboard, automatic controller ownership, touch controls, and synchronized private-room play.
+- PvP history and cosmetic milestones remain isolated from PvE power. Internet results are explicitly casual and never trusted for currency, ratings, inventory, achievements, or progression.
 
-Private rooms work between browser tabs through `BroadcastChannel`. Internet-wide rooms require a compatible secure WebSocket relay because GitHub Pages serves static files and cannot host a persistent matchmaking server. Configure a relay in **Version 1.0 Hub → Online** or before loading the game:
+Timed Battle, Duet Clash, Capture the Beat, King of the Stage, and Resonance Clash are visible as **FOUNDATION**, not advertised as complete modes.
 
-```html
-<script>
-  window.HIGH_NOTES_ONLINE_SERVER = "wss://your-relay.example";
-</script>
+## Internet multiplayer relay
+
+Same-origin tabs can still use the local peer channel for development. Players on different networks require the included Cloudflare Worker and Durable Object relay under `multiplayer-relay/`; GitHub Pages cannot host persistent WebSockets.
+
+The client validates the relay through `GET /health` before opening a room socket, uses protocol v2 room routes, retries temporary failures, rotates reconnect credentials in memory, and exposes a safe diagnostics panel in **Version 2.0 Hub → Online**. The diagnostics deliberately exclude reconnect tokens and credentials. Public discovery and ranked matchmaking stay disabled.
+
+To validate and deploy the relay with Node.js 22 or newer:
+
+```bash
+cd multiplayer-relay
+npm ci
+npm run check
+npx wrangler login
+npm run deploy
 ```
 
-The relay must forward the versioned JSON room protocol without rewriting `v`, `type`, `from`, `room`, `payload`, or `ts`. Public lobby creation remains disabled when no secure relay is connected, so the UI never presents a local-only room as internet-hosted.
+The production relay is deployed at `wss://high-notes-v2-relay.jl-bmfx.workers.dev` and is the client default. Its public health endpoint is `https://high-notes-v2-relay.jl-bmfx.workers.dev/health`; the Online panel retains an advanced override for local development or future migrations. Never commit Cloudflare tokens, cookies, passwords, or reconnect credentials. Full security, protocol, local-test, deployment, and two-device test instructions are in `multiplayer-relay/README.md`.
+
+## Weapon-aware equipment rendering
+
+The player no longer uses one fixed instrument transform for every pose. `equipment-runtime.js` provides a hybrid layered rig with per-instrument pivots, primary/secondary hand anchors, explicit direction overrides, frame-level motion, front/rear ordering, switch visibility, and attack/projectile/effect origins. The six existing instrument atlas cells remain the active item art, while the hero and complete Guitar/Bass PvP sheets remain the authored body layers.
+
+This is a functional original attachment system, not a claim that six new hand-authored body-and-arm sprite libraries were produced. Its registry intentionally supports future combined attack sheets without changing saves or combat code.
+
+## Release validation
+
+Run the dependency-free client checks from the repository root:
+
+```bash
+node --check game.js
+node --check equipment-runtime.js
+node --check v1-expansion.js
+node --check v2-platform-fighter.js
+node tools/validate-v2-release.cjs
+```
+
+The deeper production-sprite audit uses `sharp` to inspect PNG alpha data. Run `node tools/validate-production-sprites.cjs` in a tooling environment where `sharp` is available; `sharp` is not a browser/runtime dependency and is intentionally not shipped with the static game.
+
+Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between completed V2 gameplay and labelled future foundations is documented in `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md`.
 
 ## What is inside
 
@@ -90,13 +123,19 @@ The relay must forward the versioned JSON room protocol without rewriting `v`, `
 - `index.html` — canvas, HUD, menus, overlays, composer, map, dialogue, and touch controls.
 - `styles.css` — responsive presentation and accessibility states.
 - `game.js` — world, story, input, combat, rendering, save state, and UI behavior.
-- `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, Echo Network client, and Echo Arena rules.
+- `equipment-runtime.js` — central hybrid equipment registry, frame attachments, layer order, and combat origins.
+- `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, protocol-v2 Echo Network client, health checks, and diagnostics (the legacy filename/global is retained for compatibility).
+- `v2-platform-fighter.js` — fixed-step Stock Battle simulation, Guitar/Bass move data, local ownership, bot logic, host snapshots, and arena results.
 - `sprite-runtime.js` — manifest-driven production sprite loading, animation timing, and frame rendering.
 - `audio.js` — music and sound synthesis.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
 - `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
 - `assets/mossvale-key-art.png` — original generated title/menu artwork made for this project.
 - `assets/echo-arena-background.webp` — original moonlit Echo Arena environment used by the hub and competitive canvas.
+- `multiplayer-relay/` — deployable TypeScript Cloudflare Worker and SQLite-backed Durable Object relay with validation, rate limits, reconnect handling, tests, and deployment guide.
+- `docs/HIGH_NOTES_V2_ARCHITECTURE.md` — evidence-based architecture and migration baseline captured before the V2 client work.
+- `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md` — honest completion boundary, save notes, release checks, and external-network playtest checklist.
+- `tools/validate-v2-release.cjs` — dependency-free equipment, integration, and relay-structure regression checks.
 
 - `Sprites/` — the active production library: 102 transparent character sheets, 612 portraits, Odin actions, combat effects, UI art, and per-sheet animation manifests.
 - `Sprites/UI/Brad Shop/brad-shop-items-sheet.png` — dedicated 5×4 icon atlas for every item sold in Brad's shop.

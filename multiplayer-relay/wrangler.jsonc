@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "high-notes-v2-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GAME_ROOMS",
+        "class_name": "GameRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GameRoom"]
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ALLOWED_ORIGINS": "https://eems0.github.io,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787",
+    "REQUIRE_ORIGIN": "true",
+    "MAX_ROOM_PLAYERS": "4",
+    "MAX_MESSAGE_BYTES": "16384",
+    "MAX_MESSAGES_PER_SECOND": "45",
+    "MAX_BYTES_PER_SECOND": "98304",
+    "RECONNECT_GRACE_SECONDS": "30",
+    "ROOM_IDLE_TTL_SECONDS": "300"
+  }
+}

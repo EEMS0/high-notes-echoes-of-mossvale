@@ -17,6 +17,8 @@
   var OLDEST_SAVE_KEY = 'highNotesSaveV4';
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
+  var GAME_VERSION = '2.0.0';
+  var SAVE_SCHEMA_VERSION = 20;
   var NOTE_ORDER = ['C', 'E', 'G', 'B'];
   var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
   var SPRITE_PATH = 'assets/sprites/runtime/';
@@ -405,7 +407,7 @@
 
   function freshState() {
     return {
-      version: 13,
+      version: SAVE_SCHEMA_VERSION,
       chapter: 1,
       odinRecruited: false,
       metMara: false,
@@ -432,6 +434,11 @@
       activeResonance: '',
       equippedInstrument: 'guitar',
       unlockedInstruments: ['guitar'],
+      equipmentVisual: {
+        schemaVersion: 1,
+        cosmeticVariant: 'standard',
+        preferredLoadout: ['guitar']
+      },
       instrumentMastery: {
         guitar: { xp: 0, level: 1 },
         bass: { xp: 0, level: 1 },
@@ -508,6 +515,11 @@
         displayName:'Mossvale Player',cosmetic:'grove',rating:1000,wins:0,losses:0,
         seasonalTokens:0
       },
+      pvpV2: {
+        matches:0,wins:0,losses:0,knockouts:0,falls:0,playSeconds:0,
+        localMatches:0,onlineMatches:0,preferredInstrument:'guitar',
+        cosmetics:['mossvale-standard'],matchHistory:[]
+      },
       x: HUB.x,
       y: HUB.y + 115
     };
@@ -566,7 +578,13 @@
     blockStartedAt: -99,
     guardBroken: 0,
     counterWindow: 0,
-    blockFlash: 0
+    blockFlash: 0,
+    hurtTimer: 0
+  };
+  var equipmentVisualRuntime = {
+    animationState:'idle', animationElapsed:0,
+    switching:false, from:'guitar', to:'guitar', switchElapsed:0, switchDuration:0.58,
+    lastRequestedAt:-99, lastPose:null, diagnosticSignature:''
   };
   var camera = { x: player.x, y: player.y };
   var keys = new Set();
@@ -1298,6 +1316,17 @@
     if (clean.unlockedInstruments.indexOf('guitar') < 0) clean.unlockedInstruments.unshift('guitar');
     clean.equippedInstrument = instrumentIds.indexOf(raw.equippedInstrument) >= 0 &&
       clean.unlockedInstruments.indexOf(raw.equippedInstrument) >= 0 ? raw.equippedInstrument : 'guitar';
+    var rawEquipmentVisual = raw.equipmentVisual && typeof raw.equipmentVisual === 'object' ? raw.equipmentVisual : {};
+    clean.equipmentVisual.schemaVersion = 1;
+    // Only variants backed by connected art are restored. Unknown future or
+    // renamed variants fall back safely without affecting item ownership.
+    clean.equipmentVisual.cosmeticVariant = rawEquipmentVisual.cosmeticVariant === 'standard' ? 'standard' : 'standard';
+    clean.equipmentVisual.preferredLoadout = validUnique(rawEquipmentVisual.preferredLoadout,instrumentIds)
+      .filter(function (id) { return clean.unlockedInstruments.indexOf(id) >= 0; }).slice(0,3);
+    if (clean.equipmentVisual.preferredLoadout.indexOf(clean.equippedInstrument) < 0) {
+      clean.equipmentVisual.preferredLoadout.unshift(clean.equippedInstrument);
+      clean.equipmentVisual.preferredLoadout = clean.equipmentVisual.preferredLoadout.slice(0,3);
+    }
     var rawMastery = raw.instrumentMastery && typeof raw.instrumentMastery === 'object' ? raw.instrumentMastery : {};
     instrumentIds.forEach(function (id) {
       var record = rawMastery[id] && typeof rawMastery[id] === 'object' ? rawMastery[id] : {};
@@ -1449,6 +1478,26 @@
     clean.onlineProfile.wins = clamp(Math.floor(Number(rawOnlineProfile.wins) || 0),0,999999);
     clean.onlineProfile.losses = clamp(Math.floor(Number(rawOnlineProfile.losses) || 0),0,999999);
     clean.onlineProfile.seasonalTokens = clamp(Math.floor(Number(rawOnlineProfile.seasonalTokens) || 0),0,999999);
+    var rawPvpV2 = raw.pvpV2 && typeof raw.pvpV2 === 'object' ? raw.pvpV2 : {};
+    ['matches','wins','losses','knockouts','falls','localMatches','onlineMatches'].forEach(function (key) {
+      clean.pvpV2[key] = clamp(Math.floor(Number(rawPvpV2[key]) || 0),0,999999);
+    });
+    clean.pvpV2.playSeconds = clamp(Number(rawPvpV2.playSeconds) || 0,0,99999999);
+    clean.pvpV2.preferredInstrument = ['guitar','bass'].indexOf(rawPvpV2.preferredInstrument) >= 0 ?
+      rawPvpV2.preferredInstrument : 'guitar';
+    clean.pvpV2.cosmetics = validUnique(rawPvpV2.cosmetics,['mossvale-standard','amphitheatre-banner','golden-headliner']);
+    if (clean.pvpV2.cosmetics.indexOf('mossvale-standard') < 0) clean.pvpV2.cosmetics.unshift('mossvale-standard');
+    clean.pvpV2.matchHistory = (Array.isArray(rawPvpV2.matchHistory) ? rawPvpV2.matchHistory : []).slice(-12).map(function (entry) {
+      entry = entry && typeof entry === 'object' ? entry : {};
+      return {
+        won:!!entry.won,online:!!entry.online,mode:'stock',
+        instrument:['guitar','bass'].indexOf(entry.instrument) >= 0 ? entry.instrument : 'guitar',
+        knockouts:clamp(Math.floor(Number(entry.knockouts)||0),0,99),
+        falls:clamp(Math.floor(Number(entry.falls)||0),0,99),
+        duration:clamp(Number(entry.duration)||0,0,3600),
+        at:clamp(Math.floor(Number(entry.at)||0),0,9999999999999)
+      };
+    });
     clean.chapter = clamp(Math.floor(Number(raw.chapter) || (raw.bossDefeated ? 2 : 1)), 1, 4);
     // V2/V3 stored placeholder relics before the extra stages existed, so only V4
     // records may restore them as genuine stage completion.
@@ -1921,6 +1970,8 @@
     player.attackHeld = false;
     player.attackHold = 0;
     player.chargedThisHold = false;
+    player.hurtTimer = 0;
+    resetEquipmentVisualRuntime(false);
     camera.x = player.x;
     camera.y = player.y;
     if (state.odinRecruited) {
@@ -3208,7 +3259,7 @@
   }
 
   function performAttack(charged, fromBuffer) {
-    if (player.blocking || player.guardBroken > 0) return;
+    if (player.blocking || player.guardBroken > 0 || equipmentVisualRuntime.switching) return;
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     if (player.attackCooldown > 0) {
       if (!charged && !fromBuffer) inputBuffer.attack = FIRST_STAGE_BALANCE.inputBufferSeconds;
@@ -3228,8 +3279,9 @@
       state.statistics.counterAttacks = (state.statistics.counterAttacks || 0) + 1;
       showFloat(player.x, player.y - 34, 'COUNTER!', '#f6e36d');
     }
+    var attackOrigin = equipmentWorldOrigin(instrument.id,charged ? 'charged' : 'attack',player.facing,0,'hitbox',0);
     attacks.push({
-      x: player.x, y: player.y, angle: player.facing, charged: charged, counter: countering,
+      x: attackOrigin.x, y: attackOrigin.y, angle: player.facing, charged: charged, counter: countering,
       life: duration, maxLife: duration, hit: new Set(), instrument: instrument.id, profile: profile, chainTriggered:false
     });
     player.attackCooldown = charged ? Math.max(0.44,profile.cooldown * 1.75) : profile.cooldown;
@@ -3322,7 +3374,7 @@
   }
 
   function doPulse() {
-    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue || player.pulseCooldown > 0) return;
+    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue || player.pulseCooldown > 0 || equipmentVisualRuntime.switching) return;
     if (instrumentUltimateCharge >= 100) {
       state.statistics.pulses++;
       player.pulseCooldown = 1.2;
@@ -3339,7 +3391,9 @@
     state.statistics.pulses++;
     player.pulseCooldown = state.purchases.indexOf('tempo-ring') >= 0 ? 0.98 : 1.15;
     if (activeResonance('conductor')) player.pulseCooldown *= 0.8;
-    pulses.push({ x: player.x, y: player.y, life: 0.55, maxLife: 0.55, r: 0 });
+    equipmentVisualRuntime.specialTimer = 0.58;
+    var pulseOrigin = equipmentWorldOrigin(state.equippedInstrument,'special',player.facing,0.18,'effect',0.34);
+    pulses.push({ x: pulseOrigin.x, y: pulseOrigin.y, life: 0.55, maxLife: 0.55, r: 0 });
     audioCall('sfx', 'pulse');
     applyInstrumentSpecial();
     enemies.forEach(function (e) {
@@ -3467,6 +3521,7 @@
   }
 
   function beginBlock(fromBuffer) {
+    if (equipmentVisualRuntime.switching) return;
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     if (player.guardBroken > 0 || player.dashTimer > 0 || player.blockStamina <= 0) {
       if (!fromBuffer) inputBuffer.block = FIRST_STAGE_BALANCE.inputBufferSeconds;
@@ -3568,6 +3623,9 @@
     if (activeResonance('heavy') && amount > 1) amount = Math.max(1, amount - 1);
     var actualDamage = Math.min(player.health, amount);
     player.health -= amount;
+    player.hurtTimer = 0.32;
+    equipmentVisualRuntime.animationState = player.health <= 0 ? 'death' : 'hurt';
+    equipmentVisualRuntime.animationElapsed = 0;
     state.statistics.damageTaken += actualDamage;
     if (state.stage === 1) {
       encounterDirector.recentDamage = (encounterDirector.recentDamage || 0) + actualDamage;
@@ -3605,6 +3663,9 @@
       return;
     }
     player.health = 0;
+    equipmentVisualRuntime.animationState = 'death';
+    equipmentVisualRuntime.animationElapsed = 0;
+    equipmentVisualRuntime.switching = false;
     if (state.dreamEncore.active) finishDreamEncore(false);
     state.statistics.deaths++;
     if (state.stage === 1) {
@@ -3623,6 +3684,7 @@
       player.y = currentLevel.spawn.y;
       player.health = player.maxHealth;
       player.invuln = 2;
+      resetEquipmentVisualRuntime(true);
       resetFirstStageRuntime('respawn');
       enemies.forEach(function (enemy) {
         if (enemy.dead) return;
@@ -4013,6 +4075,191 @@
     return instrumentById(state.equippedInstrument);
   }
 
+  function equipmentRigAvailable() {
+    return !!(window.MossEquipmentRig && typeof window.MossEquipmentRig.resolvePose === 'function');
+  }
+
+  function resetEquipmentVisualRuntime(respawning) {
+    equipmentVisualRuntime.animationState = respawning ? 'respawn' : 'idle';
+    equipmentVisualRuntime.animationElapsed = 0;
+    equipmentVisualRuntime.switching = false;
+    equipmentVisualRuntime.from = state.equippedInstrument;
+    equipmentVisualRuntime.to = state.equippedInstrument;
+    equipmentVisualRuntime.switchElapsed = 0;
+    equipmentVisualRuntime.specialTimer = 0;
+    equipmentVisualRuntime.respawnTimer = respawning ? 0.34 : 0;
+    equipmentVisualRuntime.lastPose = null;
+    equipmentVisualRuntime.diagnosticSignature = '';
+  }
+
+  function visualEquipmentId() {
+    if (!equipmentVisualRuntime.switching) return state.equippedInstrument;
+    return equipmentVisualRuntime.switchElapsed < equipmentVisualRuntime.switchDuration * 0.5 ?
+      equipmentVisualRuntime.from : equipmentVisualRuntime.to;
+  }
+
+  function requestInstrumentSwitch(id) {
+    var next = instrumentById(id);
+    if (!next || next.id !== id || state.unlockedInstruments.indexOf(id) < 0) return false;
+    if (!started || dialogue || player.health <= 0 || player.guardBroken > 0) {
+      audioCall('sfx','error');
+      return false;
+    }
+    if (!equipmentRigAvailable()) {
+      // The save remains usable even if the optional rig script failed to load.
+      state.equippedInstrument = id;
+      saveGame(true);
+      return true;
+    }
+    if (!equipmentVisualRuntime.switching && state.equippedInstrument === id) return true;
+    if (nowTime - equipmentVisualRuntime.lastRequestedAt < 0.12) return false;
+    equipmentVisualRuntime.lastRequestedAt = nowTime;
+    equipmentVisualRuntime.from = visualEquipmentId();
+    equipmentVisualRuntime.to = id;
+    equipmentVisualRuntime.switchElapsed = 0;
+    equipmentVisualRuntime.switchDuration = settings.reducedMotion ? 0.34 : 0.58;
+    equipmentVisualRuntime.switching = true;
+    equipmentVisualRuntime.animationState = 'switch';
+    equipmentVisualRuntime.animationElapsed = 0;
+    state.equippedInstrument = id;
+    if (state.equipmentVisual.preferredLoadout.indexOf(id) < 0) {
+      state.equipmentVisual.preferredLoadout.unshift(id);
+      state.equipmentVisual.preferredLoadout = state.equipmentVisual.preferredLoadout.slice(0,3);
+    }
+    // Opening the loadout screen is an explicit safe cancel: no old attack
+    // hitbox survives into the item transition and no held input can duplicate it.
+    attacks = [];
+    player.attackHeld = false;
+    player.attackHold = 0;
+    player.chargedThisHold = false;
+    player.blocking = false;
+    inputBuffer.attack = 0;
+    player.attackCooldown = Math.max(player.attackCooldown,equipmentVisualRuntime.switchDuration);
+    audioCall('sfx','unlock');
+    saveGame(true);
+    canvasDirty = true;
+    return true;
+  }
+
+  function deriveEquipmentAnimationState() {
+    if (equipmentVisualRuntime.switching) return 'switch';
+    if (player.health <= 0) return 'death';
+    if (equipmentVisualRuntime.respawnTimer > 0) return 'respawn';
+    if (player.hurtTimer > 0) return 'hurt';
+    if (player.guardBroken > 0) return 'stun';
+    if (player.blocking || player.blockFlash > 0 || player.counterWindow > 0) return 'block';
+    if (player.dashTimer > 0) return 'dash';
+    if (equipmentVisualRuntime.specialTimer > 0) return 'special';
+    if (player.attackHeld && player.chargedThisHold) return 'charged';
+    if (attacks.length) return attacks[attacks.length - 1].charged ? 'charged' : 'attack';
+    if (player.moveX || player.moveY) return 'walk';
+    return 'idle';
+  }
+
+  function updateEquipmentVisual(dt) {
+    player.hurtTimer = Math.max(0,(player.hurtTimer || 0) - dt);
+    equipmentVisualRuntime.specialTimer = Math.max(0,(equipmentVisualRuntime.specialTimer || 0) - dt);
+    equipmentVisualRuntime.respawnTimer = Math.max(0,(equipmentVisualRuntime.respawnTimer || 0) - dt);
+    if (equipmentVisualRuntime.switching) {
+      equipmentVisualRuntime.switchElapsed += dt;
+      if (equipmentVisualRuntime.switchElapsed >= equipmentVisualRuntime.switchDuration) {
+        equipmentVisualRuntime.switching = false;
+        equipmentVisualRuntime.switchElapsed = equipmentVisualRuntime.switchDuration;
+        equipmentVisualRuntime.from = equipmentVisualRuntime.to;
+      }
+    }
+    var nextState = deriveEquipmentAnimationState();
+    if (nextState !== equipmentVisualRuntime.animationState) {
+      equipmentVisualRuntime.animationState = nextState;
+      equipmentVisualRuntime.animationElapsed = 0;
+    } else {
+      equipmentVisualRuntime.animationElapsed += dt;
+    }
+  }
+
+  function resolveEquipmentPose(instrumentId, animationState, facing, elapsed, progress, legendary, direction) {
+    if (!equipmentRigAvailable()) return null;
+    return window.MossEquipmentRig.resolvePose({
+      characterId:'player-default',
+      equipmentId:instrumentById(instrumentId).id,
+      animationId:animationState,
+      facing:facing,
+      direction:direction,
+      elapsed:elapsed,
+      progress:progress,
+      legendary:legendary == null ? state.masteryNodes.indexOf(instrumentId + '-legendary') >= 0 : legendary
+    });
+  }
+
+  function currentEquipmentPose() {
+    var switchProgress = equipmentVisualRuntime.switchDuration > 0 ?
+      clamp(equipmentVisualRuntime.switchElapsed / equipmentVisualRuntime.switchDuration,0,1) : 1;
+    var currentId = visualEquipmentId();
+    return resolveEquipmentPose(
+      currentId,
+      equipmentVisualRuntime.animationState,
+      player.facing,
+      equipmentVisualRuntime.animationElapsed,
+      equipmentVisualRuntime.switching ? switchProgress : undefined
+    );
+  }
+
+  function equipmentWorldOrigin(instrumentId, animationState, facing, elapsed, originName, progress) {
+    var pose = resolveEquipmentPose(instrumentId,animationState,facing,elapsed,progress);
+    return pose ? window.MossEquipmentRig.worldOrigin(player,pose,originName) : {x:player.x,y:player.y};
+  }
+
+  function drawEquipmentLayer(pose, layer, alpha) {
+    if (!pose || !equipmentRigAvailable() || !spriteAvailable('instrument-mastery')) return false;
+    return window.MossEquipmentRig.draw(
+      ctx,spriteImages['instrument-mastery'],pose,layer,
+      {
+        alpha:alpha == null ? 1 : alpha,
+        glow:pose.item.atlasRow ? instrumentById(pose.equipmentId).color : '',
+        glowBlur:pose.item.atlasRow ? 8 : 0
+      }
+    );
+  }
+
+  function equipmentNetworkSnapshot(pose) {
+    if (!pose || !equipmentRigAvailable()) return {
+      equipmentId:state.equippedInstrument,animationState:'idle',animationFrame:0,
+      animationElapsed:0,animationTimestamp:Date.now(),facingDirection:'south',networkStateId:0,
+      cosmeticVariant:'standard',schemaVersion:0,legendary:false,switching:false,
+      switchFrom:state.equippedInstrument,switchTo:state.equippedInstrument,
+      switchProgress:1,switchDuration:equipmentVisualRuntime.switchDuration
+    };
+    var snapshot = window.MossEquipmentRig.networkSnapshot(pose,state.equipmentVisual.cosmeticVariant);
+    // Elapsed time lets remote clients continue the authored pose smoothly
+    // between the 10 Hz world snapshots without trusting their wall clock.
+    snapshot.animationElapsed = clamp(Number(equipmentVisualRuntime.animationElapsed) || 0,0,86400);
+    snapshot.legendary = state.masteryNodes.indexOf(pose.equipmentId + '-legendary') >= 0;
+    snapshot.switching = equipmentVisualRuntime.switching;
+    snapshot.switchFrom = equipmentVisualRuntime.from;
+    snapshot.switchTo = equipmentVisualRuntime.to;
+    snapshot.switchProgress = equipmentVisualRuntime.switchDuration > 0 ?
+      clamp(equipmentVisualRuntime.switchElapsed / equipmentVisualRuntime.switchDuration,0,1) : 1;
+    snapshot.switchDuration = clamp(Number(equipmentVisualRuntime.switchDuration) || 0.58,0.2,2);
+    return snapshot;
+  }
+
+  function updateEquipmentDiagnostics(pose) {
+    if (!pose) return;
+    var signature = [pose.equipmentId,pose.animationId,pose.direction,pose.frameIndex,
+      pose.item.layer,equipmentVisualRuntime.switching ? 1 : 0].join('|');
+    if (signature === equipmentVisualRuntime.diagnosticSignature) return;
+    equipmentVisualRuntime.diagnosticSignature = signature;
+    equipmentVisualRuntime.lastPose = pose;
+    canvas.dataset.equipmentSchema = String(pose.schemaVersion);
+    canvas.dataset.equipmentId = pose.equipmentId;
+    canvas.dataset.equipmentState = pose.animationId;
+    canvas.dataset.equipmentDirection = pose.direction;
+    canvas.dataset.equipmentFrame = String(pose.frameIndex);
+    canvas.dataset.equipmentLayer = pose.item.layer;
+    canvas.dataset.equipmentSwitching = String(equipmentVisualRuntime.switching);
+    canvas.dataset.equipmentHitboxOrigin = Math.round(pose.origins.hitbox.x) + ',' + Math.round(pose.origins.hitbox.y);
+  }
+
   function instrumentMasteryRecord(id) {
     if (!state.instrumentMastery[id]) state.instrumentMastery[id] = {xp:0,level:1};
     return state.instrumentMastery[id];
@@ -4116,6 +4363,7 @@
   function performInstrumentUltimate() {
     if (instrumentUltimateCharge < 100) return false;
     var instrument = equippedInstrument();
+    equipmentVisualRuntime.specialTimer = 0.82;
     instrumentUltimateCharge = 0;
     var radius = instrument.id === 'synth' ? 340 : instrument.id === 'violin' ? 300 : 260;
     var damage = instrument.id === 'bass' ? 7 : instrument.id === 'microphone' ? 3 : 5;
@@ -4531,10 +4779,8 @@
         if (!unlocked) return;
         renderInstrumentDetail(instrument);
         if (event.target && event.target.tagName !== 'BUTTON') return;
-        state.equippedInstrument = instrument.id;
+        if (!requestInstrumentSwitch(instrument.id)) return;
         instrumentSelection = instrument.id;
-        audioCall('sfx','unlock');
-        saveGame(true);
         updateHUD(true);
         renderInstruments();
       };
@@ -6181,9 +6427,13 @@
   function updateAttacks(dt) {
     attacks.forEach(function (a) {
       a.life -= dt;
-      a.x = player.x;
-      a.y = player.y;
-      var progress = 1 - a.life / a.maxLife;
+      var progress = clamp(1 - a.life / a.maxLife,0,1);
+      var origin = equipmentWorldOrigin(
+        a.instrument,a.charged ? 'charged' : 'attack',a.angle,
+        progress * a.maxLife,'hitbox',Math.min(progress,0.999999)
+      );
+      a.x = origin.x;
+      a.y = origin.y;
       enemies.forEach(function (e) {
         if (e.dead || a.hit.has(e.id)) return;
         var d = distance(a, e);
@@ -7005,6 +7255,7 @@
     syncExpansionQuests(dt);
     updateRhythmCombo(dt);
     updatePlayer(dt);
+    updateEquipmentVisual(dt);
     updateFirstStageBalance(dt);
     updateOdin(dt);
     updateAttacks(dt);
@@ -8168,14 +8419,21 @@
       ctx.beginPath();
       ctx.arc(0,0,25,0,Math.PI*2);
       ctx.stroke();
+      var remoteSwitching = remote.switching && remote.animationState === 'switch' && remote.switchProgress < 1;
+      var remoteInstrumentId = remoteSwitching ?
+        (remote.switchProgress < 0.5 ? remote.switchFrom : remote.switchTo) : remote.equipmentId;
+      var remoteAnimation = remoteSwitching ? 'switch' :
+        (remote.animationState || (remote.attacking ? 'attack' : (remote.moving ? 'walk' : 'idle')));
+      var remotePose = resolveEquipmentPose(
+        remoteInstrumentId,remoteAnimation,remote.facing,
+        remote.animationElapsed,
+        remoteSwitching ? remote.switchProgress : undefined,remote.legendary,remote.facingDirection
+      );
+      drawEquipmentLayer(remotePose,'rear',0.92);
       var remoteRow = remote.attacking ? 2 : (remote.moving ? 1 : 0);
       var drewRemote = drawSpriteCell('hero',remoteRow,facingColumn(remote.facing),0,20,76,0.73);
       if (drewRemote) {
-        var remoteInstrument = instrumentById(remote.instrument) || INSTRUMENTS[0];
-        ctx.save();
-        ctx.rotate(remote.facing + 0.12);
-        drawAtlasCell('instrument-mastery',6,2,0,remoteInstrument.index,18,9,36,36,.55,.92);
-        ctx.restore();
+        drawEquipmentLayer(remotePose,'front',0.92);
       }
       if (remote.odin) {
         drawProductionSprite('odin',(remote.moving ? 'walk_' : 'idle_') + spriteDirection(remote.facing),
@@ -8247,14 +8505,14 @@
       ctx.fill();
       ctx.restore();
     }
-    var heroRow = player.dashTimer > 0 ? 3 : (player.attackHeld || player.attackCooldown > 0.22 ? 2 : (walking ? 1 : 0));
+    var equipmentPose = currentEquipmentPose();
+    drawEquipmentLayer(equipmentPose,'rear');
+    var heroRow = player.dashTimer > 0 ? 3 :
+      (equipmentVisualRuntime.animationState === 'attack' || equipmentVisualRuntime.animationState === 'charged' ||
+       equipmentVisualRuntime.animationState === 'special' ? 2 : (walking ? 1 : 0));
     if (drawSpriteCell('hero', heroRow, facingColumn(player.facing), 0, 20, 76, 0.73)) {
-      var heldInstrument=equippedInstrument();
-      ctx.save();
-      ctx.rotate(player.facing+.12);
-      drawAtlasCell('instrument-mastery',6,2,state.masteryNodes.indexOf(heldInstrument.id+'-legendary')>=0?1:0,heldInstrument.index,
-        18,9,36,36,.55,.92);
-      ctx.restore();
+      drawEquipmentLayer(equipmentPose,'front');
+      updateEquipmentDiagnostics(equipmentPose);
       ctx.restore();
       ctx.globalAlpha = 1;
       return;
@@ -8294,6 +8552,8 @@
       ctx.arc(10, -28, 9, Math.PI * 0.1, Math.PI * 1.1);
       ctx.stroke();
     }
+    drawEquipmentLayer(equipmentPose,'front');
+    updateEquipmentDiagnostics(equipmentPose);
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -8954,21 +9214,147 @@
     return JSON.parse(JSON.stringify(state.onlineProfile));
   }
 
+  function updatePvpV2Preferences(preferences) {
+    preferences = preferences && typeof preferences === 'object' ? preferences : {};
+    if (['guitar','bass'].indexOf(preferences.preferredInstrument) >= 0) {
+      state.pvpV2.preferredInstrument = preferences.preferredInstrument;
+    }
+    saveGame(true);
+    return JSON.parse(JSON.stringify(state.pvpV2));
+  }
+
+  function recordPvpV2Result(result) {
+    result = result && typeof result === 'object' ? result : {};
+    var entry = {
+      won:!!result.won,
+      online:!!result.online,
+      mode:'stock',
+      instrument:['guitar','bass'].indexOf(result.instrument) >= 0 ? result.instrument : 'guitar',
+      knockouts:clamp(Math.floor(Number(result.knockouts) || 0),0,99),
+      falls:clamp(Math.floor(Number(result.falls) || 0),0,99),
+      duration:clamp(Number(result.duration) || 0,0,3600),
+      at:Date.now()
+    };
+    state.pvpV2.matches++;
+    if (entry.won) state.pvpV2.wins++;
+    else state.pvpV2.losses++;
+    state.pvpV2.knockouts += entry.knockouts;
+    state.pvpV2.falls += entry.falls;
+    state.pvpV2.playSeconds += entry.duration;
+    if (entry.online) state.pvpV2.onlineMatches++;
+    else state.pvpV2.localMatches++;
+    state.pvpV2.preferredInstrument = entry.instrument;
+    state.pvpV2.matchHistory.push(entry);
+    if (state.pvpV2.matchHistory.length > 12) state.pvpV2.matchHistory.splice(0,state.pvpV2.matchHistory.length-12);
+    if (state.pvpV2.wins >= 1 && state.pvpV2.cosmetics.indexOf('amphitheatre-banner') < 0) {
+      state.pvpV2.cosmetics.push('amphitheatre-banner');
+    }
+    if (state.pvpV2.wins >= 10 && state.pvpV2.cosmetics.indexOf('golden-headliner') < 0) {
+      state.pvpV2.cosmetics.push('golden-headliner');
+    }
+    // Competitive results remain local statistics only. The static client never
+    // awards trusted rating, currency, or progression from an unverified packet.
+    saveGame(true);
+    return JSON.parse(JSON.stringify(state.pvpV2));
+  }
+
+  var ONLINE_EQUIPMENT_ANIMATION_STATES = [
+    'idle','walk','run','attack','charged','special','block','dash',
+    'dodge','hurt','stun','death','respawn','switch','victory','defeat'
+  ];
+  var ONLINE_EQUIPMENT_DIRECTIONS = ['north','south','east','west'];
+
+  function onlineInstrumentId(value,fallback) {
+    if (INSTRUMENTS.some(function (instrument) { return instrument.id === value; })) return value;
+    return INSTRUMENTS.some(function (instrument) { return instrument.id === fallback; }) ? fallback : 'guitar';
+  }
+
+  function onlineEquipmentDirection(value,facing) {
+    if (ONLINE_EQUIPMENT_DIRECTIONS.indexOf(value) >= 0) return value;
+    var angle = Number.isFinite(Number(facing)) ? Number(facing) : 0;
+    var x = Math.cos(angle);
+    var y = Math.sin(angle);
+    if (Math.abs(x) > Math.abs(y)) return x < 0 ? 'west' : 'east';
+    return y < 0 ? 'north' : 'south';
+  }
+
+  function sanitizeOnlineEquipment(remote,instrument,facing,moving,attacking) {
+    var raw = remote.equipment && typeof remote.equipment === 'object' && !Array.isArray(remote.equipment) ?
+      remote.equipment : remote;
+    var equipmentId = onlineInstrumentId(raw.equipmentId,instrument);
+    var fallbackState = attacking ? 'attack' : (moving ? 'walk' : 'idle');
+    var animationState = ONLINE_EQUIPMENT_ANIMATION_STATES.indexOf(raw.animationState) >= 0 ?
+      raw.animationState : fallbackState;
+    var switchFrom = onlineInstrumentId(raw.switchFrom,equipmentId);
+    var switchTo = onlineInstrumentId(raw.switchTo,instrument);
+    var switchProgress = clamp(Number(raw.switchProgress) || 0,0,1);
+    var claimedSwitch = raw.switching === true;
+    var switching = claimedSwitch && switchProgress < 1;
+    if (switching) {
+      animationState = 'switch';
+      equipmentId = switchProgress < 0.5 ? switchFrom : switchTo;
+    } else {
+      if (claimedSwitch) equipmentId = switchTo;
+      if (animationState === 'switch') animationState = 'idle';
+      switchFrom = equipmentId;
+      switchTo = equipmentId;
+      switchProgress = 1;
+    }
+    return {
+      equipmentId:equipmentId,
+      animationState:animationState,
+      animationFrame:clamp(Math.floor(Number(raw.animationFrame) || 0),0,15),
+      animationElapsed:clamp(Number(raw.animationElapsed) || 0,0,86400),
+      animationTimestamp:clamp(Math.floor(Number(raw.animationTimestamp) || Date.now()),0,9999999999999),
+      facingDirection:onlineEquipmentDirection(raw.facingDirection,facing),
+      networkStateId:clamp(Math.floor(Number(raw.networkStateId) || 0),0,15),
+      cosmeticVariant:raw.cosmeticVariant === 'standard' ? 'standard' : 'standard',
+      schemaVersion:clamp(Math.floor(Number(raw.schemaVersion) || 0),0,1),
+      legendary:raw.legendary === true,
+      switching:switching,
+      switchFrom:switchFrom,
+      switchTo:switchTo,
+      switchProgress:switchProgress,
+      switchDuration:clamp(Number(raw.switchDuration) || 0.58,0.2,2)
+    };
+  }
+
   function setOnlineRemotePlayers(remotes) {
     if (!Array.isArray(remotes)) remotes = [];
     onlineRemotePlayers = remotes.slice(0,3).map(function (remote,index) {
       remote = remote && typeof remote === 'object' ? remote : {};
+      var facingValue = Number(remote.facing);
+      var facing = Number.isFinite(facingValue) ? clamp(facingValue,-7,7) : 0;
+      var instrument = onlineInstrumentId(remote.instrument,'guitar');
+      var moving = !!remote.moving;
+      var attacking = !!remote.attacking;
+      var equipment = sanitizeOnlineEquipment(remote,instrument,facing,moving,attacking);
       return {
         id:String(remote.id || ('remote-' + index)).replace(/[^a-zA-Z0-9-]/g,'').slice(0,40),
         name:String(remote.name || 'Guest').replace(/[^\w \-']/g,'').trim().slice(0,20) || 'Guest',
         x:clamp(Number(remote.x) || HUB.x,20,WORLD.w-20),
         y:clamp(Number(remote.y) || HUB.y,20,WORLD.h-20),
-        facing:Number.isFinite(Number(remote.facing)) ? Number(remote.facing) : 0,
-        moving:!!remote.moving,
-        attacking:!!remote.attacking,
+        facing:facing,
+        moving:moving,
+        attacking:attacking,
         odin:!!remote.odin,
         stage:clamp(Math.floor(Number(remote.stage) || 1),1,4),
-        instrument:instrumentById(remote.instrument) ? remote.instrument : 'guitar',
+        instrument:instrument,
+        equipmentId:equipment.equipmentId,
+        animationState:equipment.animationState,
+        animationFrame:equipment.animationFrame,
+        animationElapsed:equipment.animationElapsed,
+        animationTimestamp:equipment.animationTimestamp,
+        facingDirection:equipment.facingDirection,
+        networkStateId:equipment.networkStateId,
+        equipmentSchemaVersion:equipment.schemaVersion,
+        equipmentCosmeticVariant:equipment.cosmeticVariant,
+        legendary:equipment.legendary,
+        switching:equipment.switching,
+        switchFrom:equipment.switchFrom,
+        switchTo:equipment.switchTo,
+        switchProgress:equipment.switchProgress,
+        switchDuration:equipment.switchDuration,
         cosmetic:['grove','rootsong','skyglass','moonwake'].indexOf(remote.cosmetic) >= 0 ? remote.cosmetic : 'grove',
         ping:clamp(Math.floor(Number(remote.ping) || 0),0,999)
       };
@@ -8994,13 +9380,19 @@
   }
 
   window.__HIGH_NOTES__ = {
-    version: 13,
+    version: SAVE_SCHEMA_VERSION,
+    gameVersion: GAME_VERSION,
     startNew: newGame,
     continueGame: continueGame,
     snapshot: function () {
+      var currentEquipmentNetworkSnapshot = equipmentNetworkSnapshot(currentEquipmentPose());
       return JSON.parse(JSON.stringify({
         state: state,
-        player: { x: player.x, y: player.y, facing: player.facing, health: player.health, maxHealth: player.maxHealth },
+        player: {
+          x: player.x, y: player.y, facing: player.facing,
+          health: player.health, maxHealth: player.maxHealth,
+          equipment: currentEquipmentNetworkSnapshot
+        },
         boss: boss && {
           stage: boss.stage,
           defId: boss.defId,
@@ -9061,6 +9453,8 @@
       acceptContract: acceptProductionContract,
       claimContract: claimProductionContract,
       setProfile: updateOnlineProfile,
+      updatePvpV2: updatePvpV2Preferences,
+      recordPvpV2Result: recordPvpV2Result,
       setRemotePlayers: setOnlineRemotePlayers,
       setWorldPings: setOnlineWorldPings,
       fish: tryFishing,

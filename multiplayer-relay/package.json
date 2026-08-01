@@ -1,0 +1,26 @@
+{
+  "name": "high-notes-v2-relay",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secure room relay for HIGH NOTES: Echoes of Mossvale",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test && npm run deploy:dry",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
+    "@cloudflare/workers-types": "^5.20260801.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.118.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
