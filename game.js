@@ -1974,7 +1974,13 @@
       ['promptStyle', 'promptStyle', 'value'],
       ['triggerThreshold', 'triggerThreshold', 'range'],
       ['southpaw', 'southpaw', 'check'],
-      ['swapConfirmCancel', 'swapConfirmCancel', 'check']
+      ['swapConfirmCancel', 'swapConfirmCancel', 'check'],
+      ['viewMode', 'viewMode', 'value'],
+      ['fov', 'fov', 'range'],
+      ['mouseSensitivity', 'mouseSensitivity', 'range'],
+      ['headBob', 'headBob', 'check'],
+      ['cameraEffects', 'cameraEffects', 'check'],
+      ['reticle', 'reticle', 'check']
     ];
     for (var i = 0; i < map.length; i++) {
       var el = byId(map[i][0]);
@@ -1991,9 +1997,36 @@
         : 'No controller detected.';
       status.classList.toggle('is-live', info.connected);
     }
+    /* View mode first: the prompt labels depend on which camera is active. */
+    applyViewMode();
     if (window.MossControllerUI) {
       window.MossControllerUI.refreshPrompts();
       window.MossControllerUI.syncFullscreenLabel();
+    }
+  }
+
+  /*
+   * Push the saved camera choice into the first-person layer. The layer may not
+   * have finished loading (it is an ES module) or may have failed to get a WebGL
+   * context, in which case the game simply stays in its top-down view.
+   */
+  function applyViewMode() {
+    var status = byId('viewModeStatusLine');
+    var input = window.MossInput;
+    var wanted = input && input.settings.viewMode === 'firstPerson';
+    if (!window.MossFP || !window.MossFP.isReady()) {
+      if (status) {
+        status.textContent = wanted
+          ? '3D view unavailable — this browser gave no WebGL context.'
+          : 'Top-down is the classic Mossvale view.';
+      }
+      return;
+    }
+    if (window.MossFP.isActive() !== !!wanted) window.MossFP.setActive(!!wanted);
+    if (status) {
+      status.textContent = wanted
+        ? 'First person: mouse or right stick to look, Space or A to jump.'
+        : 'Top-down is the classic Mossvale view.';
     }
   }
 
@@ -5750,7 +5783,8 @@
   }
 
   function attackSourceIsActive() {
-    return keys.has('space') || keys.has('j') || contactUsesAction('attack');
+    return (keys.has('space') && !firstPersonActive()) || keys.has('j') ||
+      contactUsesAction('attack') || gamepadAttackHeld;
   }
 
   function releaseAttackIfIdle() {
@@ -5775,6 +5809,7 @@
     controlContacts.clear();
     joystickVector.x = 0; joystickVector.y = 0; joystickVector.magnitude = 0; joystickVector.pointerId = null;
     if (window.MossInput) window.MossInput.releaseAll();
+    if (window.MossFP) window.MossFP.clearInput();
     gamepadBlockHeld = false;
     gamepadAttackHeld = false;
     var joystickBase = byId('joystickBase');
@@ -5806,6 +5841,10 @@
    */
   function rumble(strength, duration) {
     if (window.MossInput) window.MossInput.vibrate(strength, duration);
+  }
+
+  function firstPersonActive() {
+    return !!(window.MossFP && window.MossFP.isActive());
   }
 
   /* Drop any pad-held state so a disconnect or menu never leaves input stuck. */
@@ -5852,7 +5891,8 @@
       return;
     }
 
-    if (input.padHeld('attack')) {
+    /* A becomes jump in first person, so the swing lives on RT there instead. */
+    if (input.padHeld(firstPersonActive() ? 'attackAlt' : 'attack')) {
       if (!gamepadAttackHeld && !player.attackHeld) {
         player.attackHeld = true;
         player.attackHold = 0;
@@ -6102,7 +6142,7 @@
     else if (key === 'f') beginBlock();
     else if (key === 'h') useStoredHeartbloom();
     else if (key === 'r') cycleOdinCommand();
-    else if (key === 'space' || key === 'j') {
+    else if ((key === 'space' && !firstPersonActive()) || key === 'j') {
       if (!player.attackHeld) {
         player.attackHeld = true;
         player.attackHold = 0;
@@ -6125,7 +6165,7 @@
   window.addEventListener('keyup', function (event) {
     var key = keyName(event);
     keys.delete(key);
-    if (key === 'space' || key === 'j') {
+    if ((key === 'space' && !firstPersonActive()) || key === 'j') {
       releaseAttackIfIdle();
     }
     if (key === 'f') { inputBuffer.block = 0; endBlock(); }
@@ -6297,6 +6337,12 @@
     bindControllerSetting('triggerThreshold', 'triggerThreshold', 'number');
     bindControllerSetting('southpaw', 'southpaw', 'check');
     bindControllerSetting('swapConfirmCancel', 'swapConfirmCancel', 'check');
+    bindControllerSetting('viewMode', 'viewMode', 'value');
+    bindControllerSetting('fov', 'fov', 'number');
+    bindControllerSetting('mouseSensitivity', 'mouseSensitivity', 'number');
+    bindControllerSetting('headBob', 'headBob', 'check');
+    bindControllerSetting('cameraEffects', 'cameraEffects', 'check');
+    bindControllerSetting('reticle', 'reticle', 'check');
 
     var fullscreenToggle = byId('fullscreenToggle');
     if (fullscreenToggle) {
@@ -6312,6 +6358,8 @@
     /* Entering or leaving fullscreen changes both the box size and the DPR. */
     document.addEventListener('fullscreenchange', queueViewportSync);
     document.addEventListener('webkitfullscreenchange', queueViewportSync);
+    /* The 3D layer is an ES module and finishes loading after boot(). */
+    window.addEventListener('moss-fp-ready', applyViewMode);
 
     if (window.MossInput) {
       /* Refresh the status line and prompt glyphs the moment a pad appears. */
@@ -6448,7 +6496,23 @@
         my = n.y;
       }
     }
-    if (mx || my) player.facing = Math.atan2(my, mx);
+    /*
+     * First person: the raw stick vector is screen-relative, so rotate it into
+     * camera space before it reaches the (unchanged) collision and speed code.
+     * Facing is owned by the camera yaw there, not by the direction of travel,
+     * so strafing does not spin the character.
+     */
+    var firstPerson = window.MossFP && window.MossFP.isActive();
+    if (firstPerson) {
+      if (mx || my) {
+        var basis = window.MossFP.transformMove(mx, my);
+        mx = basis.x;
+        my = basis.y;
+      }
+      player.facing = window.MossFP.facingAngle();
+    } else if (mx || my) {
+      player.facing = Math.atan2(my, mx);
+    }
     player.moveX = mx;
     player.moveY = my;
     var speed = player.speed;
@@ -6459,6 +6523,11 @@
       if (!settings.reducedMotion && Math.random() < 0.55) spawnParticle(player.x, player.y, '#5ab7a7', 28, 3);
     }
     if (player.blocking) speed *= 0.34;
+    /* Sprint exists only in first person, where a fixed walk pace reads slow. */
+    if (firstPerson && !player.blocking && player.dashTimer <= 0 &&
+        window.MossInput && window.MossInput.isHeld('sprint') && (mx || my)) {
+      speed *= 1.55;
+    }
     if (activeBuffs.speedTimer > 0) speed *= 1.3;
     if (state.skills.indexOf('moss-treader') >= 0) speed *= 1.12;
     if (state.purchases.indexOf('moss-boots') >= 0) speed *= 1.12;
@@ -9310,8 +9379,18 @@
     lastFrame = time;
     nowTime = time / 1000;
     update(dt);
+    /*
+     * The first-person layer runs after the simulation so the camera reads the
+     * position the player actually moved to this frame, and outside update()'s
+     * pause/modal early-return so looking around never freezes mid-menu.
+     */
+    var firstPersonActive = !!(window.MossFP && window.MossFP.isActive());
+    if (firstPersonActive) window.MossFP.update(dt);
     if (mapOpen && (settings.reducedMotion ? mapAnimationTime === 0 : nowTime - mapAnimationTime >= 0.033)) drawMap();
-    if (shouldAnimateCanvas() || canvasDirty) {
+    if (firstPersonActive) {
+      /* WebGL clears every frame, so there is no dirty-flag equivalent. */
+      if (!document.hidden) window.MossFP.render();
+    } else if (shouldAnimateCanvas() || canvasDirty) {
       draw();
       canvasDirty = false;
     }
@@ -9574,6 +9653,37 @@
       isStarted: function () { return started; },
       isPaused: function () { return paused; },
       isDialogueOpen: function () { return !!dialogue; }
+    },
+    /*
+     * Read surface for the first-person layer. The 3D view is a presentation
+     * mode over the existing 2D simulation: it reads live entity arrays and
+     * reuses the game's own collision test rather than keeping a second copy of
+     * the world. Arrays are returned by reference deliberately — they are
+     * reassigned by activateLevel and read every frame, so cloning would be
+     * both wrong and expensive.
+     */
+    firstPerson: {
+      getStage: function () { return state.stage; },
+      getLevelData: function () { return LEVELS[state.stage] || LEVELS[1]; },
+      getWorld: function () { return { w: WORLD.w, h: WORLD.h }; },
+      getPlayer: function () { return player; },
+      getEntities: function () {
+        return {
+          npcs: npcs, enemies: enemies, obstacles: obstacles, water: waterPools,
+          shrines: shrines, weeds: weeds, collectibles: collectibles,
+          portals: stagePortals, drums: drums, speakers: speakers
+        };
+      },
+      npcWorldPosition: npcWorldPosition,
+      hitsObstacle: function (x, y, r) { return circleHitsObstacle(x, y, r, player); },
+      nearestInteractable: nearestInteractable,
+      interact: function () { interact(); },
+      isPlaying: function () {
+        return started && !paused && !orientationBlocked && !dialogue && !mapOpen &&
+          !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen &&
+          !statisticsOpen && !instrumentsOpen && !homeOpen;
+      },
+      markDirty: function () { canvasDirty = true; }
     },
     snapshot: function () {
       var currentEquipmentNetworkSnapshot = equipmentNetworkSnapshot(currentEquipmentPose());

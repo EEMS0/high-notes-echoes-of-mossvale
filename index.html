@@ -15,15 +15,18 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=22">
+  <link rel="stylesheet" href="styles.css?v=23">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=2" defer></script>
-  <script src="input-manager.js?v=1" defer></script>
-  <script src="game.js?v=22" defer></script>
-  <script src="controller-ui.js?v=1" defer></script>
+  <script src="input-manager.js?v=2" defer></script>
+  <script src="game.js?v=24" defer></script>
+  <script src="controller-ui.js?v=2" defer></script>
   <script src="v1-expansion.js?v=9" defer></script>
   <script src="v2-platform-fighter.js?v=28" defer></script>
+  <!-- First-person view. ES modules defer by default and load after the classic
+       scripts above, so game.js feature-detects window.MossFP every frame. -->
+  <script type="module" src="fp-controller.js?v=2"></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -37,6 +40,8 @@
       role="img"
       aria-label="Mossvale game world"
     >Your browser needs HTML canvas support to play HIGH NOTES.</canvas>
+
+    <canvas id="fpCanvas" class="fp-canvas" aria-hidden="true"></canvas>
 
     <section class="hud" aria-label="Adventure status">
       <div class="hud-cluster hud-cluster-left">
@@ -312,6 +317,41 @@
               <option value="balanced" selected>Balanced</option>
               <option value="sharp">Sharp</option>
             </select>
+          </label>
+
+          <p class="settings-section-heading">View<small id="viewModeStatusLine">Top-down is the classic Mossvale view.</small></p>
+
+          <label class="setting-row select-row" for="viewMode">
+            <span><strong>Camera</strong><small>Play top-down or from Mossvale eye level.</small></span>
+            <select id="viewMode">
+              <option value="topDown" selected>Top-down (classic)</option>
+              <option value="firstPerson">First person</option>
+            </select>
+          </label>
+
+          <label class="setting-row range-row" for="fov">
+            <span><strong>Field of view</strong><small>Widen the first-person view.</small></span>
+            <input id="fov" type="range" min="55" max="100" value="70" step="1">
+          </label>
+
+          <label class="setting-row range-row" for="mouseSensitivity">
+            <span><strong>Mouse sensitivity</strong><small>First-person mouse look speed.</small></span>
+            <input id="mouseSensitivity" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="headBob">
+            <span><strong>Head bob</strong><small>Gentle walking sway. Turn off for comfort.</small></span>
+            <input id="headBob" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row switch-row" for="cameraEffects">
+            <span><strong>Camera effects</strong><small>Landing dip and sprint field-of-view shift.</small></span>
+            <input id="cameraEffects" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row switch-row" for="reticle">
+            <span><strong>Reticle</strong><small>Show the aiming dot and interaction prompts.</small></span>
+            <input id="reticle" type="checkbox" checked>
           </label>
 
           <p class="settings-section-heading">Controller<small id="controllerStatusLine">No controller detected.</small></p>

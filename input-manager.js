@@ -53,6 +53,14 @@
     menuDown: [STANDARD_BUTTONS.dpadDown],
     menuLeft: [STANDARD_BUTTONS.dpadLeft],
     menuRight: [STANDARD_BUTTONS.dpadRight],
+    /*
+     * First-person additions; the 2D view simply never queries these. A is jump
+     * in first person, so attackAlt moves the swing onto the right trigger and
+     * the two actions can never fire from one press.
+     */
+    jump: [STANDARD_BUTTONS.a],
+    sprint: [STANDARD_BUTTONS.leftStick],
+    attackAlt: [STANDARD_BUTTONS.rightTrigger],
     moveUp: [STANDARD_BUTTONS.dpadUp],
     moveDown: [STANDARD_BUTTONS.dpadDown],
     moveLeft: [STANDARD_BUTTONS.dpadLeft],
@@ -79,6 +87,8 @@
     pause: ['escape'],
     confirm: ['enter', 'e', 'space'],
     cancel: ['escape'],
+    jump: [' ', 'space'],
+    sprint: ['shift'],
     menuUp: ['w', 'arrowup'],
     menuDown: ['s', 'arrowdown'],
     menuLeft: ['a', 'arrowleft'],
@@ -119,7 +129,14 @@
     responseCurve: 1.35,
     cameraPeek: true,
     swapConfirmCancel: false,
-    southpaw: false
+    southpaw: false,
+    /* First-person view settings, persisted through the same validated store. */
+    viewMode: 'topDown',
+    fov: 70,
+    mouseSensitivity: 1,
+    headBob: true,
+    cameraEffects: true,
+    reticle: true
   };
 
   var settings = readSettings();
@@ -176,8 +193,17 @@
     target.lookSensitivityY = has(source, 'lookSensitivityY') ? numberOr(source.lookSensitivityY, target.lookSensitivityY, 0.2, 3) : target.lookSensitivityY;
     target.triggerThreshold = has(source, 'triggerThreshold') ? numberOr(source.triggerThreshold, target.triggerThreshold, 0.05, 0.95) : target.triggerThreshold;
     target.responseCurve = has(source, 'responseCurve') ? numberOr(source.responseCurve, target.responseCurve, 1, 3) : target.responseCurve;
+    target.headBob = has(source, 'headBob') ? source.headBob !== false : target.headBob;
+    target.cameraEffects = has(source, 'cameraEffects') ? source.cameraEffects !== false : target.cameraEffects;
+    target.reticle = has(source, 'reticle') ? source.reticle !== false : target.reticle;
+    target.fov = has(source, 'fov') ? numberOr(source.fov, target.fov, 55, 100) : target.fov;
+    target.mouseSensitivity = has(source, 'mouseSensitivity')
+      ? numberOr(source.mouseSensitivity, target.mouseSensitivity, 0.2, 3) : target.mouseSensitivity;
     if (has(source, 'promptStyle')) {
       target.promptStyle = ['auto', 'xbox', 'keyboard'].indexOf(source.promptStyle) >= 0 ? source.promptStyle : target.promptStyle;
+    }
+    if (has(source, 'viewMode')) {
+      target.viewMode = ['topDown', 'firstPerson'].indexOf(source.viewMode) >= 0 ? source.viewMode : target.viewMode;
     }
     if (target.outerDeadzone <= target.moveDeadzone) target.outerDeadzone = settingDefaults.outerDeadzone;
     return target;

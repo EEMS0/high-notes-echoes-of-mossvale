@@ -339,11 +339,19 @@
     }
     var abilityKey = document.querySelector('.ability-key');
     if (abilityKey) abilityKey.textContent = pad ? 'CONTROLLER' : 'QUICK KEYS';
+    /* First person moves the swing to RT because A becomes jump there. */
+    var firstPerson = !!(window.MossFP && window.MossFP.isActive());
     var abilityBar = byId('abilityBar');
     if (abilityBar && abilityBar.dataset.padManaged !== 'off') {
-      abilityBar.innerHTML = pad
-        ? chip('A') + ' STRIKE · ' + chip('B') + ' DODGE · ' + chip('X') + ' PULSE'
-        : 'SPACE SWING · SHIFT DASH';
+      if (firstPerson) {
+        abilityBar.innerHTML = pad
+          ? chip('A') + ' JUMP · ' + chip('RT') + ' STRIKE · ' + chip('Y') + ' TALK'
+          : 'SPACE JUMP · J STRIKE · E TALK';
+      } else {
+        abilityBar.innerHTML = pad
+          ? chip('A') + ' STRIKE · ' + chip('B') + ' DODGE · ' + chip('X') + ' PULSE'
+          : 'SPACE SWING · SHIFT DASH';
+      }
     }
     var titleHint = document.querySelector('.title-hint');
     if (titleHint) {
