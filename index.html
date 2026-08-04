@@ -15,11 +15,13 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=22">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=2" defer></script>
-  <script src="game.js?v=21" defer></script>
+  <script src="input-manager.js?v=1" defer></script>
+  <script src="game.js?v=22" defer></script>
+  <script src="controller-ui.js?v=1" defer></script>
   <script src="v1-expansion.js?v=9" defer></script>
   <script src="v2-platform-fighter.js?v=28" defer></script>
 </head>
@@ -201,14 +203,32 @@
           <div><span>Move</span><kbd>WASD / Arrows</kbd></div>
           <div><span>Attack</span><kbd>Space / J</kbd></div>
           <div><span>Dodge</span><kbd>Shift / K</kbd></div>
+          <div><span>Block</span><kbd>F</kbd></div>
           <div><span>Echo Pulse</span><kbd>Q / L</kbd></div>
           <div><span>Use Heartbloom</span><kbd>H</kbd></div>
           <div><span>Change Odin command</span><kbd>R</kbd></div>
           <div><span>Interact</span><kbd>E / Enter</kbd></div>
           <div><span>Map &amp; quests</span><kbd>Tab</kbd></div>
           <div><span>Backpack</span><kbd>I / B</kbd></div>
+          <div><span>Instruments</span><kbd>V</kbd></div>
           <div><span>Pause / back</span><kbd>Esc</kbd></div>
-          <div><span>Gamepad</span><kbd>A strike · B dodge · X pulse · Y talk</kbd></div>
+        </div>
+
+        <div class="controls-table" aria-label="Xbox controller controls">
+          <div><span>Move</span><span class="cprompt" data-btn="LS">LS</span><span class="cprompt" data-btn="D-pad">D-pad</span></div>
+          <div><span>Attack</span><span class="cprompt" data-btn="A">A</span><span class="cprompt" data-btn="RT">RT</span></div>
+          <div><span>Dodge</span><span class="cprompt" data-btn="B">B</span></div>
+          <div><span>Echo Pulse</span><span class="cprompt" data-btn="X">X</span></div>
+          <div><span>Interact / talk</span><span class="cprompt" data-btn="Y">Y</span></div>
+          <div><span>Block (hold)</span><span class="cprompt" data-btn="LB">LB</span></div>
+          <div><span>Change Odin command</span><span class="cprompt" data-btn="RB">RB</span></div>
+          <div><span>Use Heartbloom</span><span class="cprompt" data-btn="LT">LT</span></div>
+          <div><span>Map &amp; quests</span><span class="cprompt" data-btn="View">View</span></div>
+          <div><span>Backpack</span><span class="cprompt" data-btn="L3">L3</span></div>
+          <div><span>Instruments</span><span class="cprompt" data-btn="R3">R3</span></div>
+          <div><span>Pause / resume</span><span class="cprompt" data-btn="Menu">Menu</span></div>
+          <div><span>Menus: select / back</span><span class="cprompt" data-btn="A">A</span><span class="cprompt" data-btn="B">B</span></div>
+          <div><span>Menus: switch tabs</span><span class="cprompt" data-btn="LB">LB</span><span class="cprompt" data-btn="RB">RB</span></div>
         </div>
 
         <div class="touch-guide touch-only" aria-label="Touch controls">
@@ -276,6 +296,83 @@
           <label class="setting-row switch-row" for="largeText">
             <span><strong>Large text</strong><small>Increase dialogue text further.</small></span>
             <input id="largeText" type="checkbox">
+          </label>
+
+          <p class="settings-section-heading">Display<small>Fullscreen works on the console browser where permitted.</small></p>
+
+          <div class="setting-row switch-row">
+            <span><strong>Fullscreen</strong><small>Fill the screen for TV play.</small></span>
+            <button id="fullscreenToggle" class="game-button button-secondary" type="button" aria-pressed="false">Enter Fullscreen</button>
+          </div>
+
+          <label class="setting-row select-row" for="renderScale">
+            <span><strong>Render resolution</strong><small>Lower this if a 4K TV feels sluggish.</small></span>
+            <select id="renderScale">
+              <option value="performance">Performance</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="sharp">Sharp</option>
+            </select>
+          </label>
+
+          <p class="settings-section-heading">Controller<small id="controllerStatusLine">No controller detected.</small></p>
+
+          <label class="setting-row switch-row" for="controllerEnabled">
+            <span><strong>Controller enabled</strong><small>Turn off to ignore all gamepad input.</small></span>
+            <input id="controllerEnabled" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row range-row" for="moveDeadzone">
+            <span><strong>Movement deadzone</strong><small>Raise this if your character drifts when idle.</small></span>
+            <input id="moveDeadzone" type="range" min="0.02" max="0.5" value="0.18" step="0.01">
+          </label>
+
+          <label class="setting-row range-row" for="lookDeadzone">
+            <span><strong>Look deadzone</strong><small>Right stick rest threshold.</small></span>
+            <input id="lookDeadzone" type="range" min="0.02" max="0.5" value="0.2" step="0.01">
+          </label>
+
+          <label class="setting-row range-row" for="lookSensitivityX">
+            <span><strong>Look sensitivity · horizontal</strong><small>Right stick speed left and right.</small></span>
+            <input id="lookSensitivityX" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row range-row" for="lookSensitivityY">
+            <span><strong>Look sensitivity · vertical</strong><small>Right stick speed up and down.</small></span>
+            <input id="lookSensitivityY" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="invertLookY">
+            <span><strong>Invert Y axis</strong><small>Flip vertical right-stick direction.</small></span>
+            <input id="invertLookY" type="checkbox">
+          </label>
+
+          <label class="setting-row switch-row" for="controllerVibration">
+            <span><strong>Vibration</strong><small>Short rumble on hits, pickups and beats.</small></span>
+            <input id="controllerVibration" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row select-row" for="promptStyle">
+            <span><strong>Button prompts</strong><small>Which control hints the interface shows.</small></span>
+            <select id="promptStyle">
+              <option value="auto" selected>Automatic</option>
+              <option value="xbox">Controller</option>
+              <option value="keyboard">Keyboard</option>
+            </select>
+          </label>
+
+          <label class="setting-row range-row" for="triggerThreshold">
+            <span><strong>Trigger threshold</strong><small>How far LT and RT must travel to register.</small></span>
+            <input id="triggerThreshold" type="range" min="0.05" max="0.95" value="0.5" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="southpaw">
+            <span><strong>Southpaw sticks</strong><small>Swap the movement and look sticks.</small></span>
+            <input id="southpaw" type="checkbox">
+          </label>
+
+          <label class="setting-row switch-row" for="swapConfirmCancel">
+            <span><strong>Swap A and B</strong><small>Use B to confirm and A to go back.</small></span>
+            <input id="swapConfirmCancel" type="checkbox">
           </label>
         </div>
 

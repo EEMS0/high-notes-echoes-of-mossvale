@@ -291,6 +291,8 @@
     var wasBlocked = orientationBlocked;
     orientationBlocked = touchCapable && size.height > size.width;
     document.body.classList.toggle('is-portrait', orientationBlocked);
+    /* devicePixelRatio can change on fullscreen, zoom or a move between screens. */
+    applyRenderScale();
     canvasDirty = true;
     if (orientationBlocked !== wasBlocked) {
       releaseHeldInputs();
@@ -345,7 +347,8 @@
     objectiveArrow: true,
     largeText: false,
     interfaceSize: 'standard',
-    adaptiveFirstStage: true
+    adaptiveFirstStage: true,
+    renderScale: 'balanced'
   };
   function readStorage(key) {
     try {
@@ -1926,8 +1929,72 @@
     if (objectiveArrow) objectiveArrow.checked = !!settings.objectiveArrow;
     if (largeText) largeText.checked = !!settings.largeText;
     if (interfaceSize) interfaceSize.value = settings.interfaceSize;
+    var renderScale = byId('renderScale');
+    if (renderScale) renderScale.value = settings.renderScale;
+    applyRenderScale();
+    applyControllerSettings();
     audioCall('setMusicVolume', settings.musicVolume);
     audioCall('setSfxVolume', settings.sfxVolume);
+  }
+
+  /*
+   * The canvas backing store is fixed at 960x540 and upscaled by CSS. On a 4K
+   * TV the browser would otherwise resample from a very small source, so we
+   * raise the backing store a little on high-density displays while capping the
+   * multiplier — rendering at a true 4K pixel ratio would cost far more than it
+   * gains for this art style.
+   */
+  var RENDER_SCALES = { performance: 1, balanced: 1.5, sharp: 2 };
+  var appliedRenderScale = 0;
+  function applyRenderScale() {
+    if (!RENDER_SCALES[settings.renderScale]) settings.renderScale = 'balanced';
+    var cap = RENDER_SCALES[settings.renderScale];
+    var ratio = Math.min(cap, Math.max(1, window.devicePixelRatio || 1));
+    if (ratio === appliedRenderScale) return;
+    appliedRenderScale = ratio;
+    canvas.width = Math.round(W * ratio);
+    canvas.height = Math.round(H * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    canvasDirty = true;
+  }
+
+  /* Mirror the controller settings panel into MossInput and back. */
+  function applyControllerSettings() {
+    var input = window.MossInput;
+    if (!input) return;
+    var map = [
+      ['controllerEnabled', 'controllerEnabled', 'check'],
+      ['moveDeadzone', 'moveDeadzone', 'range'],
+      ['lookDeadzone', 'lookDeadzone', 'range'],
+      ['lookSensitivityX', 'lookSensitivityX', 'range'],
+      ['lookSensitivityY', 'lookSensitivityY', 'range'],
+      ['invertLookY', 'invertLookY', 'check'],
+      ['controllerVibration', 'vibration', 'check'],
+      ['promptStyle', 'promptStyle', 'value'],
+      ['triggerThreshold', 'triggerThreshold', 'range'],
+      ['southpaw', 'southpaw', 'check'],
+      ['swapConfirmCancel', 'swapConfirmCancel', 'check']
+    ];
+    for (var i = 0; i < map.length; i++) {
+      var el = byId(map[i][0]);
+      if (!el) continue;
+      var value = input.settings[map[i][1]];
+      if (map[i][2] === 'check') el.checked = !!value;
+      else el.value = value;
+    }
+    var status = byId('controllerStatusLine');
+    if (status) {
+      var info = input.getPadInfo();
+      status.textContent = info.connected
+        ? 'Connected · ' + info.id + ' (slot ' + info.index + ', ' + info.mapping + ' mapping)'
+        : 'No controller detected.';
+      status.classList.toggle('is-live', info.connected);
+    }
+    if (window.MossControllerUI) {
+      window.MossControllerUI.refreshPrompts();
+      window.MossControllerUI.syncFullscreenLabel();
+    }
   }
 
   function bindSetting(id, key, isNumber) {
@@ -1943,6 +2010,30 @@
       saveSettings();
       applySettings();
     });
+  }
+
+  /*
+   * Controller preferences live inside MossInput (which validates and persists
+   * them) rather than in the game settings blob, so they need their own binder.
+   * MossInput clamps every value, and applyControllerSettings() echoes the
+   * accepted result back into the DOM — assigning .value/.checked in code fires
+   * no events, so there is no feedback loop.
+   */
+  function bindControllerSetting(id, key, kind) {
+    var el = byId(id);
+    if (!el) return;
+    function commit() {
+      var input = window.MossInput;
+      if (!input) return;
+      var patch = {};
+      if (kind === 'check') patch[key] = !!el.checked;
+      else if (kind === 'number') patch[key] = Number(el.value);
+      else patch[key] = el.value;
+      input.applySettings(patch);
+      applyControllerSettings();
+    }
+    el.addEventListener('change', commit);
+    if (kind === 'number') el.addEventListener('input', commit);
   }
 
   function resetPlayer(useSavedPosition) {
@@ -2344,6 +2435,8 @@
       gain = activeResonance('conductor') ? 3 : 2;
       rhythmCombo.lastQuality = 'PERFECT';
       state.statistics.perfectBeats = (state.statistics.perfectBeats || 0) + 1;
+      /* Confirmation only — the beat is still carried by audio and the HUD. */
+      rumble(0.18, 45);
     } else if (distanceToBeat <= goodWindow) {
       gain = 1;
       rhythmCombo.lastQuality = 'GOOD';
@@ -2718,6 +2811,7 @@
       return;
     }
     state.notes.push(shrine.note);
+    rumble(0.3, 220);
     state.notes.sort(function (a, b) { return NOTE_ORDER.indexOf(a) - NOTE_ORDER.indexOf(b); });
     for (var i = 0; i < 28; i++) spawnParticle(shrine.x, shrine.y - 15, NOTE_COLORS[shrine.note], 100, 4);
     audioCall('sfx', 'note');
@@ -3634,6 +3728,8 @@
       );
     }
     resetCombo('damage');
+    /* Scale the knock with the hit, but stay well short of a jolt. */
+    rumble(Math.min(0.55, 0.22 + actualDamage * 0.12), 160);
     var n = normalize(player.x - fromX, player.y - fromY);
     moveWithCollision(player, n.x * 26, n.y * 26);
     audioCall('sfx', 'hit');
@@ -3845,6 +3941,7 @@
       return false;
     }
     state.heartblooms++;
+    rumble(0.14, 60);
     state.statistics.healingItemsCollected++;
     if (heartbloom.fixed && heartbloom.id && state.collectedHeartblooms.indexOf(heartbloom.id) < 0) {
       state.collectedHeartblooms.push(heartbloom.id);
@@ -5677,6 +5774,9 @@
     });
     controlContacts.clear();
     joystickVector.x = 0; joystickVector.y = 0; joystickVector.magnitude = 0; joystickVector.pointerId = null;
+    if (window.MossInput) window.MossInput.releaseAll();
+    gamepadBlockHeld = false;
+    gamepadAttackHeld = false;
     var joystickBase = byId('joystickBase');
     if (joystickBase) joystickBase.classList.remove('active');
     document.querySelectorAll('[data-control].pressed, [data-control].is-pressed').forEach(function (button) {
@@ -5696,76 +5796,88 @@
     } else if (action === 'pause') togglePause();
   }
 
-  var gamepadVector = { x:0, y:0, magnitude:0 };
-  var gamepadButtonState = [];
   var gamepadBlockHeld = false;
+  var gamepadAttackHeld = false;
 
-  function pollGamepad() {
-    if (!navigator.getGamepads) return;
-    var pads;
-    try {
-      pads = navigator.getGamepads();
-    } catch (error) {
-      reportRuntimeIssue('Gamepad polling failed.', error);
-      return;
-    }
-    var pad = null;
-    for (var padIndex = 0; pads && padIndex < pads.length; padIndex++) {
-      if (pads[padIndex] && pads[padIndex].connected) { pad = pads[padIndex]; break; }
-    }
-    if (!pad) {
-      gamepadVector.x = 0; gamepadVector.y = 0; gamepadVector.magnitude = 0;
-      if (gamepadBlockHeld) endBlock();
+  /*
+   * Subtle haptic feedback. MossInput already checks the vibration setting, the
+   * connection and the actuator, and swallows unsupported-effect rejections, so
+   * this is safe to call from anywhere in the gameplay code.
+   */
+  function rumble(strength, duration) {
+    if (window.MossInput) window.MossInput.vibrate(strength, duration);
+  }
+
+  /* Drop any pad-held state so a disconnect or menu never leaves input stuck. */
+  function releaseGamepadHolds() {
+    if (gamepadBlockHeld) {
       gamepadBlockHeld = false;
-      gamepadButtonState.length = 0;
-      canvas.dataset.gamepad = 'disconnected';
+      endBlock();
+    }
+    if (gamepadAttackHeld) {
+      gamepadAttackHeld = false;
+      releaseAttackIfIdle();
+    }
+  }
+
+  /*
+   * Gameplay-only pad handling. Menus, dialogue and the title screen are owned
+   * by MossControllerUI, which reports back through menuHandled so the two
+   * layers can never both act on the same press.
+   */
+  function pollGamepad(menuHandled) {
+    var input = window.MossInput;
+    if (!input) return;
+    if (!input.isConnected()) {
+      releaseGamepadHolds();
+      if (canvas.dataset.gamepad !== 'disconnected') canvas.dataset.gamepad = 'disconnected';
       return;
     }
-    canvas.dataset.gamepad = pad.id || 'connected';
-    var axisX = Math.abs(pad.axes[0] || 0) >= 0.18 ? pad.axes[0] : 0;
-    var axisY = Math.abs(pad.axes[1] || 0) >= 0.18 ? pad.axes[1] : 0;
-    var dpadX = (pad.buttons[15] && pad.buttons[15].pressed ? 1 : 0) -
-      (pad.buttons[14] && pad.buttons[14].pressed ? 1 : 0);
-    var dpadY = (pad.buttons[13] && pad.buttons[13].pressed ? 1 : 0) -
-      (pad.buttons[12] && pad.buttons[12].pressed ? 1 : 0);
-    gamepadVector.x = dpadX || axisX;
-    gamepadVector.y = dpadY || axisY;
-    gamepadVector.magnitude = Math.min(1, Math.sqrt(gamepadVector.x * gamepadVector.x + gamepadVector.y * gamepadVector.y));
-    if (gamepadVector.magnitude > 1) {
-      gamepadVector.x /= gamepadVector.magnitude;
-      gamepadVector.y /= gamepadVector.magnitude;
-      gamepadVector.magnitude = 1;
+    var info = input.getPadInfo();
+    if (canvas.dataset.gamepad !== info.id) canvas.dataset.gamepad = info.id || 'connected';
+
+    if (menuHandled || !started) {
+      releaseGamepadHolds();
+      /* Menu button still resumes from a pad while the pause card is up. */
+      return;
     }
 
-    function pressed(index) { return !!(pad.buttons[index] && pad.buttons[index].pressed); }
-    function justPressed(index) { return pressed(index) && !gamepadButtonState[index]; }
-    var modalOpen = mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen ||
-      statisticsOpen || instrumentsOpen || homeOpen || panelIsOpen('settingsPanel');
-    if (justPressed(9)) {
-      if (modalOpen || dialogue) closeTopOverlay(); else togglePause();
-    } else if (justPressed(1) && (modalOpen || dialogue || paused)) {
-      closeTopOverlay();
-    } else if (started && !paused && !modalOpen && !dialogue) {
-      if (pressed(0) && !gamepadButtonState[0] && !player.attackHeld) {
+    if (input.padPressed('pause')) {
+      releaseGamepadHolds();
+      togglePause();
+      return;
+    }
+    if (paused) {
+      releaseGamepadHolds();
+      return;
+    }
+
+    if (input.padHeld('attack')) {
+      if (!gamepadAttackHeld && !player.attackHeld) {
         player.attackHeld = true;
         player.attackHold = 0;
         player.chargedThisHold = false;
         performAttack(false);
-      } else if (!pressed(0) && gamepadButtonState[0]) {
-        releaseAttackIfIdle();
       }
-      if (justPressed(1)) runControlAction('dodge');
-      if (justPressed(2)) runControlAction('pulse');
-      if (justPressed(3)) runControlAction('interact');
-      if (justPressed(5)) runControlAction('odin');
-      if (justPressed(8)) runControlAction('map');
-      if (pressed(4) && !gamepadBlockHeld) beginBlock();
-      if (!pressed(4) && gamepadBlockHeld) endBlock();
-      gamepadBlockHeld = pressed(4);
+      gamepadAttackHeld = true;
+    } else if (gamepadAttackHeld) {
+      gamepadAttackHeld = false;
+      releaseAttackIfIdle();
     }
-    for (var buttonIndex = 0; buttonIndex < pad.buttons.length; buttonIndex++) {
-      gamepadButtonState[buttonIndex] = pressed(buttonIndex);
-    }
+
+    if (input.padPressed('dodge')) runControlAction('dodge');
+    if (input.padPressed('pulse')) runControlAction('pulse');
+    if (input.padPressed('interact')) runControlAction('interact');
+    if (input.padPressed('odin')) runControlAction('odin');
+    if (input.padPressed('heal')) runControlAction('heal');
+    if (input.padPressed('map')) runControlAction('map');
+    if (input.padPressed('inventory')) openInventory();
+    if (input.padPressed('instruments')) openInstruments();
+
+    var blockNow = input.padHeld('block');
+    if (blockNow && !gamepadBlockHeld) beginBlock();
+    else if (!blockNow && gamepadBlockHeld) endBlock();
+    gamepadBlockHeld = blockNow;
   }
 
   function pressControl(button, action, contactId) {
@@ -6086,6 +6198,7 @@
         joystickKnob.style.transform = 'translate(' + px + 'px,' + py + 'px)';
         joystickVector.magnitude = distanceValue < 10 ? 0 : Math.min(1, distanceValue / radius);
         joystickVector.x = distanceValue ? dx / distanceValue : 0; joystickVector.y = distanceValue ? dy / distanceValue : 0;
+        if (window.MossInput) window.MossInput.setTouchVector(joystickVector.x, joystickVector.y, joystickVector.magnitude);
       }
       joystickZone.addEventListener('pointerdown', function (event) {
         if (joystickVector.pointerId !== null) return;
@@ -6099,6 +6212,7 @@
       function endJoystick(event) {
         if (joystickVector.pointerId !== event.pointerId) return;
         joystickVector.x = 0; joystickVector.y = 0; joystickVector.magnitude = 0; joystickVector.pointerId = null;
+        if (window.MossInput) window.MossInput.setTouchVector(0, 0, 0);
         joystickKnob.style.transform = ''; joystickBase.classList.remove('active');
       }
       joystickZone.addEventListener('pointerup', endJoystick); joystickZone.addEventListener('pointercancel', endJoystick); joystickZone.addEventListener('lostpointercapture', endJoystick);
@@ -6170,6 +6284,40 @@
     bindSetting('objectiveArrow', 'objectiveArrow', false);
     bindSetting('largeText', 'largeText', false);
     bindSetting('interfaceSize', 'interfaceSize', false);
+    bindSetting('renderScale', 'renderScale', false);
+
+    bindControllerSetting('controllerEnabled', 'controllerEnabled', 'check');
+    bindControllerSetting('moveDeadzone', 'moveDeadzone', 'number');
+    bindControllerSetting('lookDeadzone', 'lookDeadzone', 'number');
+    bindControllerSetting('lookSensitivityX', 'lookSensitivityX', 'number');
+    bindControllerSetting('lookSensitivityY', 'lookSensitivityY', 'number');
+    bindControllerSetting('invertLookY', 'invertLookY', 'check');
+    bindControllerSetting('controllerVibration', 'vibration', 'check');
+    bindControllerSetting('promptStyle', 'promptStyle', 'value');
+    bindControllerSetting('triggerThreshold', 'triggerThreshold', 'number');
+    bindControllerSetting('southpaw', 'southpaw', 'check');
+    bindControllerSetting('swapConfirmCancel', 'swapConfirmCancel', 'check');
+
+    var fullscreenToggle = byId('fullscreenToggle');
+    if (fullscreenToggle) {
+      if (window.MossControllerUI && !window.MossControllerUI.fullscreenSupported()) {
+        /* Keep the row honest rather than offering a button that cannot work. */
+        setHidden(fullscreenToggle, true);
+      } else {
+        fullscreenToggle.addEventListener('click', function () {
+          if (window.MossControllerUI) window.MossControllerUI.toggleFullscreen();
+        });
+      }
+    }
+    /* Entering or leaving fullscreen changes both the box size and the DPR. */
+    document.addEventListener('fullscreenchange', queueViewportSync);
+    document.addEventListener('webkitfullscreenchange', queueViewportSync);
+
+    if (window.MossInput) {
+      /* Refresh the status line and prompt glyphs the moment a pad appears. */
+      window.MossInput.onConnectionChange(function () { applyControllerSettings(); });
+      window.MossInput.onMethodChange(function () { applyControllerSettings(); });
+    }
 
     var controlButtons = Array.prototype.slice.call(document.querySelectorAll('[data-control]'));
     controlButtons.forEach(function (button) {
@@ -6276,18 +6424,29 @@
   function updatePlayer(dt) {
     var previousX = player.x;
     var previousY = player.y;
-    var left = keys.has('a') || keys.has('arrowleft') || keys.has('touch-left');
-    var right = keys.has('d') || keys.has('arrowright') || keys.has('touch-right');
-    var up = keys.has('w') || keys.has('arrowup') || keys.has('touch-up');
-    var down = keys.has('s') || keys.has('arrowdown') || keys.has('touch-down');
-    var mx = (right ? 1 : 0) - (left ? 1 : 0);
-    var my = (down ? 1 : 0) - (up ? 1 : 0);
-    if (joystickVector.magnitude > 0) { mx = joystickVector.x * joystickVector.magnitude; my = joystickVector.y * joystickVector.magnitude; }
-    else if (gamepadVector.magnitude > 0) { mx = gamepadVector.x * gamepadVector.magnitude; my = gamepadVector.y * gamepadVector.magnitude; }
-    if ((mx || my) && joystickVector.magnitude === 0) {
-      var n = normalize(mx, my);
-      mx = n.x;
-      my = n.y;
+    /*
+     * Movement comes from the unified input layer (keyboard, Xbox stick and
+     * D-pad, touch joystick). That vector is already radially clamped, so a
+     * diagonal is never faster than a cardinal push and a light stick tilt
+     * produces a genuinely slower walk instead of snapping to full speed.
+     */
+    var moveVector = window.MossInput ? window.MossInput.getVector('move') : null;
+    var mx = moveVector ? moveVector.x : 0;
+    var my = moveVector ? moveVector.y : 0;
+    if (!mx && !my) {
+      /* Legacy touch D-pad, plus a raw-key path if the input layer is absent. */
+      var bare = !moveVector;
+      var left = keys.has('touch-left') || (bare && (keys.has('a') || keys.has('arrowleft')));
+      var right = keys.has('touch-right') || (bare && (keys.has('d') || keys.has('arrowright')));
+      var up = keys.has('touch-up') || (bare && (keys.has('w') || keys.has('arrowup')));
+      var down = keys.has('touch-down') || (bare && (keys.has('s') || keys.has('arrowdown')));
+      var digitalX = (right ? 1 : 0) - (left ? 1 : 0);
+      var digitalY = (down ? 1 : 0) - (up ? 1 : 0);
+      if (digitalX || digitalY) {
+        var n = normalize(digitalX, digitalY);
+        mx = n.x;
+        my = n.y;
+      }
     }
     if (mx || my) player.facing = Math.atan2(my, mx);
     player.moveX = mx;
@@ -7249,7 +7408,21 @@
   function update(dt) {
     updateToast(dt);
     updateBuffs(dt);
-    pollGamepad();
+    /*
+     * Input is polled every frame regardless of pause state: the Gamepad API
+     * emits no events, so a paused game still needs to see the Menu button.
+     */
+    if (window.MossInput) {
+      window.MossInput.update(dt);
+      /*
+       * Best effort audio resume. Gamepad input grants no user-activation token
+       * in most browsers, so this succeeds only where the engine allows it; the
+       * pointer and key listeners remain the reliable path.
+       */
+      if (window.MossInput.anyPressed()) recoverAudioFromGesture();
+    }
+    var menuHandled = window.MossControllerUI ? window.MossControllerUI.update(dt) : false;
+    pollGamepad(menuHandled);
     if (!started || paused || orientationBlocked || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     state.playSeconds += dt;
     syncExpansionQuests(dt);
@@ -9075,7 +9248,13 @@
   }
 
   function draw() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    /*
+     * Re-apply the render-scale transform every frame: setting canvas.width in
+     * applyRenderScale() resets the context, and this reset would otherwise drop
+     * the scale so the world drew into a corner of a larger backing store.
+     */
+    var renderRatio = appliedRenderScale || 1;
+    ctx.setTransform(renderRatio, 0, 0, renderRatio, 0, 0);
     ctx.clearRect(0, 0, W, H);
     var amount = settings.screenShake && !settings.reducedMotion ? shake : 0;
     var shakeX = amount ? (Math.random() - 0.5) * amount : 0;
@@ -9384,6 +9563,18 @@
     gameVersion: GAME_VERSION,
     startNew: newGame,
     continueGame: continueGame,
+    /* Surface for MossControllerUI so menu navigation never pokes internals. */
+    controller: {
+      closeTopOverlay: closeTopOverlay,
+      togglePause: togglePause,
+      advanceDialogue: advanceDialogue,
+      pauseForInterruption: pauseForInterruption,
+      releaseHeldInputs: releaseHeldInputs,
+      showToast: showToast,
+      isStarted: function () { return started; },
+      isPaused: function () { return paused; },
+      isDialogueOpen: function () { return !!dialogue; }
+    },
     snapshot: function () {
       var currentEquipmentNetworkSnapshot = equipmentNetworkSnapshot(currentEquipmentPose());
       return JSON.parse(JSON.stringify({
