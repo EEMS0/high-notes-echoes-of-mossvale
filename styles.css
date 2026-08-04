@@ -4280,3 +4280,267 @@ body.reduced-motion *::after {
 @keyframes world-map-wipe{0%,100%{opacity:0;transform:scale(1.08)}42%,58%{opacity:1;transform:scale(1)}}
 #questList li{display:grid;gap:.2rem}#questList li strong{font-size:inherit}#questList li small{color:#87999a;font-size:.82em;text-decoration:none}
 @media(prefers-reduced-motion:reduce){.world-transition .game-shell::after{animation:none;opacity:.8}}
+
+/* ==========================================================================
+   Controller support — Xbox prompts, TV-safe focus, connection notices
+   ========================================================================== */
+
+:root {
+  --pad-a: #6cc24a;
+  --pad-b: #e8484c;
+  --pad-x: #2f7dd1;
+  --pad-y: #f2c832;
+  --pad-neutral: #d7dee2;
+  --focus-ring: #ffd166;
+}
+
+/* Button glyph chip. Sized in em so it rides the existing interface scale. */
+.cprompt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75em;
+  height: 1.75em;
+  margin: 0 0.12em;
+  padding: 0 0.4em;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(6, 20, 18, 0.9);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.16), 0 1px 4px rgba(0, 0, 0, 0.5);
+  color: var(--pad-neutral);
+  font-family: inherit;
+  font-size: 0.86em;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.cprompt[data-btn="A"] { border-color: var(--pad-a); background: rgba(21, 61, 22, 0.92); color: #d8f7c8; }
+.cprompt[data-btn="B"] { border-color: var(--pad-b); background: rgba(74, 18, 20, 0.92); color: #ffd3d4; }
+.cprompt[data-btn="X"] { border-color: var(--pad-x); background: rgba(14, 40, 74, 0.92); color: #cfe4ff; }
+.cprompt[data-btn="Y"] { border-color: var(--pad-y); background: rgba(74, 60, 10, 0.92); color: #ffeeb4; }
+
+/* Shoulders, triggers, sticks and system buttons read as wider capsules. */
+.cprompt[data-btn="LB"],
+.cprompt[data-btn="RB"],
+.cprompt[data-btn="LT"],
+.cprompt[data-btn="RT"],
+.cprompt[data-btn="L3"],
+.cprompt[data-btn="R3"],
+.cprompt[data-btn="Menu"],
+.cprompt[data-btn="View"],
+.cprompt[data-btn="D-pad"],
+.cprompt[data-btn="LS"],
+.cprompt[data-btn="RS"] {
+  min-width: 2.6em;
+  border-radius: 7px;
+  border-color: rgba(255, 227, 159, 0.4);
+  color: #ffe4a2;
+  font-size: 0.78em;
+}
+
+/* Inline hint rows swap between keyboard and pad wording automatically. */
+.input-hint .for-pad { display: none; }
+body[data-input-method="gamepad"] .input-hint .for-pad { display: inline; }
+body[data-input-method="gamepad"] .input-hint .for-key { display: none; }
+
+/* --- TV-safe focus ------------------------------------------------------ */
+
+/*
+ * The native ring is too faint at couch distance, and :focus-visible does not
+ * fire for focus moved programmatically by a controller, so the navigator
+ * applies .pad-focus explicitly.
+ */
+.pad-focus,
+body[data-input-method="gamepad"] .game-button:focus,
+body[data-input-method="gamepad"] .icon-button:focus,
+body[data-input-method="gamepad"] select:focus,
+body[data-input-method="gamepad"] input:focus,
+body[data-input-method="gamepad"] [role="tab"]:focus,
+body[data-input-method="gamepad"] button:focus {
+  outline: 4px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px rgba(4, 12, 10, 0.9), 0 0 22px rgba(255, 209, 102, 0.55);
+  scroll-margin: 4rem;
+}
+
+.pad-focus {
+  position: relative;
+  z-index: 2;
+}
+
+/* Focused cells in dense grids need a fill, not just a ring. */
+.pad-focus.inventory-slot,
+.pad-focus.skill-node,
+.pad-focus.instrument-card,
+.pad-focus.shop-item,
+.pad-focus.home-room {
+  background-image: linear-gradient(rgba(255, 209, 102, 0.14), rgba(255, 209, 102, 0.05));
+}
+
+/* --- Controller connection notice --------------------------------------- */
+
+.controller-notice {
+  position: absolute;
+  right: 2.4%;
+  right: max(2.4%, var(--local-safe-right));
+  bottom: 2.4%;
+  bottom: max(2.4%, var(--local-safe-bottom));
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  max-width: 60%;
+  border: 1px solid rgba(108, 194, 74, 0.5);
+  border-radius: 999px;
+  padding: 0.6em 1.1em;
+  background: rgba(4, 18, 16, 0.94);
+  box-shadow: var(--soft-shadow);
+  color: var(--ink);
+  font-size: clamp(11px, 1.25vw, 17px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.7em);
+  visibility: hidden;
+  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+}
+
+.controller-notice.show {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.controller-notice.is-lost { border-color: rgba(230, 93, 102, 0.55); }
+
+.controller-notice .notice-dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--pad-a);
+  box-shadow: 0 0 10px var(--pad-a);
+}
+
+.controller-notice.is-lost .notice-dot {
+  background: var(--danger);
+  box-shadow: 0 0 10px var(--danger);
+}
+
+.controller-notice small {
+  color: var(--ink-muted);
+  font-weight: 700;
+}
+
+/* --- TV legibility ------------------------------------------------------ */
+
+/*
+ * A pad usually means the player is across a room. Nudge the smallest text up
+ * and enlarge hit targets. Mouse and keyboard presentation is untouched.
+ */
+body[data-input-method="gamepad"] .title-hint,
+body[data-input-method="gamepad"] .panel-intro {
+  font-size: clamp(11px, 1.15vw, 17px);
+}
+
+body[data-input-method="gamepad"] .game-button {
+  min-height: 52px;
+  font-size: clamp(11px, 1.05vw, 16px);
+}
+
+body[data-input-method="gamepad"] .icon-button {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+/* Hover must never be the only way to reveal state on a console. */
+body[data-input-method="gamepad"] .game-button:hover,
+body[data-input-method="gamepad"] .icon-button:hover {
+  transform: none;
+}
+
+/* Footer strip listing the current context's controller actions. */
+.pad-legend {
+  position: absolute;
+  left: 50%;
+  bottom: 2.6%;
+  bottom: max(2.6%, var(--local-safe-bottom));
+  z-index: 62;
+  display: none;
+  align-items: center;
+  gap: 1.15em;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 227, 159, 0.22);
+  border-radius: 999px;
+  padding: 0.5em 1.3em;
+  background: rgba(4, 15, 14, 0.88);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--ink-muted);
+  font-size: clamp(10px, 1.05vw, 15px);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+body[data-input-method="gamepad"] .pad-legend.show { display: flex; }
+
+.pad-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+/* --- Developer debug overlay -------------------------------------------- */
+
+.controller-debug {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2000;
+  margin: 0;
+  border: 1px solid rgba(108, 194, 74, 0.45);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  background: rgba(2, 10, 9, 0.92);
+  color: #b6f5c2;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  white-space: pre;
+}
+
+/* --- Controller settings rows ------------------------------------------- */
+
+.settings-section-heading {
+  margin: 1.1rem 0 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+  color: var(--amber);
+  font: 900 0.72rem monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-section-heading small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--ink-muted);
+  font: 700 0.7rem inherit;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+#controllerStatusLine { color: var(--ink-muted); }
+#controllerStatusLine.is-live { color: var(--moss-bright); }
+
+@media (prefers-reduced-motion: reduce) {
+  .controller-notice { transition: none; }
+}
