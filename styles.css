@@ -4280,3 +4280,408 @@ body.reduced-motion *::after {
 @keyframes world-map-wipe{0%,100%{opacity:0;transform:scale(1.08)}42%,58%{opacity:1;transform:scale(1)}}
 #questList li{display:grid;gap:.2rem}#questList li strong{font-size:inherit}#questList li small{color:#87999a;font-size:.82em;text-decoration:none}
 @media(prefers-reduced-motion:reduce){.world-transition .game-shell::after{animation:none;opacity:.8}}
+
+/* ==========================================================================
+   Controller support — Xbox prompts, TV-safe focus, connection notices
+   ========================================================================== */
+
+:root {
+  --pad-a: #6cc24a;
+  --pad-b: #e8484c;
+  --pad-x: #2f7dd1;
+  --pad-y: #f2c832;
+  --pad-neutral: #d7dee2;
+  --focus-ring: #ffd166;
+}
+
+/* Button glyph chip. Sized in em so it rides the existing interface scale. */
+.cprompt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75em;
+  height: 1.75em;
+  margin: 0 0.12em;
+  padding: 0 0.4em;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(6, 20, 18, 0.9);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.16), 0 1px 4px rgba(0, 0, 0, 0.5);
+  color: var(--pad-neutral);
+  font-family: inherit;
+  font-size: 0.86em;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.cprompt[data-btn="A"] { border-color: var(--pad-a); background: rgba(21, 61, 22, 0.92); color: #d8f7c8; }
+.cprompt[data-btn="B"] { border-color: var(--pad-b); background: rgba(74, 18, 20, 0.92); color: #ffd3d4; }
+.cprompt[data-btn="X"] { border-color: var(--pad-x); background: rgba(14, 40, 74, 0.92); color: #cfe4ff; }
+.cprompt[data-btn="Y"] { border-color: var(--pad-y); background: rgba(74, 60, 10, 0.92); color: #ffeeb4; }
+
+/* Shoulders, triggers, sticks and system buttons read as wider capsules. */
+.cprompt[data-btn="LB"],
+.cprompt[data-btn="RB"],
+.cprompt[data-btn="LT"],
+.cprompt[data-btn="RT"],
+.cprompt[data-btn="L3"],
+.cprompt[data-btn="R3"],
+.cprompt[data-btn="Menu"],
+.cprompt[data-btn="View"],
+.cprompt[data-btn="D-pad"],
+.cprompt[data-btn="LS"],
+.cprompt[data-btn="RS"] {
+  min-width: 2.6em;
+  border-radius: 7px;
+  border-color: rgba(255, 227, 159, 0.4);
+  color: #ffe4a2;
+  font-size: 0.78em;
+}
+
+/* Inline hint rows swap between keyboard and pad wording automatically. */
+.input-hint .for-pad { display: none; }
+body[data-input-method="gamepad"] .input-hint .for-pad { display: inline; }
+body[data-input-method="gamepad"] .input-hint .for-key { display: none; }
+
+/* --- TV-safe focus ------------------------------------------------------ */
+
+/*
+ * The native ring is too faint at couch distance, and :focus-visible does not
+ * fire for focus moved programmatically by a controller, so the navigator
+ * applies .pad-focus explicitly.
+ */
+.pad-focus,
+body[data-input-method="gamepad"] .game-button:focus,
+body[data-input-method="gamepad"] .icon-button:focus,
+body[data-input-method="gamepad"] select:focus,
+body[data-input-method="gamepad"] input:focus,
+body[data-input-method="gamepad"] [role="tab"]:focus,
+body[data-input-method="gamepad"] button:focus {
+  outline: 4px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px rgba(4, 12, 10, 0.9), 0 0 22px rgba(255, 209, 102, 0.55);
+  scroll-margin: 4rem;
+}
+
+.pad-focus {
+  position: relative;
+  z-index: 2;
+}
+
+/* Focused cells in dense grids need a fill, not just a ring. */
+.pad-focus.inventory-slot,
+.pad-focus.skill-node,
+.pad-focus.instrument-card,
+.pad-focus.shop-item,
+.pad-focus.home-room {
+  background-image: linear-gradient(rgba(255, 209, 102, 0.14), rgba(255, 209, 102, 0.05));
+}
+
+/* --- Controller connection notice --------------------------------------- */
+
+.controller-notice {
+  position: absolute;
+  right: 2.4%;
+  right: max(2.4%, var(--local-safe-right));
+  bottom: 2.4%;
+  bottom: max(2.4%, var(--local-safe-bottom));
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  max-width: 60%;
+  border: 1px solid rgba(108, 194, 74, 0.5);
+  border-radius: 999px;
+  padding: 0.6em 1.1em;
+  background: rgba(4, 18, 16, 0.94);
+  box-shadow: var(--soft-shadow);
+  color: var(--ink);
+  font-size: clamp(11px, 1.25vw, 17px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.7em);
+  visibility: hidden;
+  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+}
+
+.controller-notice.show {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.controller-notice.is-lost { border-color: rgba(230, 93, 102, 0.55); }
+
+.controller-notice .notice-dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--pad-a);
+  box-shadow: 0 0 10px var(--pad-a);
+}
+
+.controller-notice.is-lost .notice-dot {
+  background: var(--danger);
+  box-shadow: 0 0 10px var(--danger);
+}
+
+.controller-notice small {
+  color: var(--ink-muted);
+  font-weight: 700;
+}
+
+/* --- TV legibility ------------------------------------------------------ */
+
+/*
+ * A pad usually means the player is across a room. Nudge the smallest text up
+ * and enlarge hit targets. Mouse and keyboard presentation is untouched.
+ */
+body[data-input-method="gamepad"] .title-hint,
+body[data-input-method="gamepad"] .panel-intro {
+  font-size: clamp(11px, 1.15vw, 17px);
+}
+
+body[data-input-method="gamepad"] .game-button {
+  min-height: 52px;
+  font-size: clamp(11px, 1.05vw, 16px);
+}
+
+body[data-input-method="gamepad"] .icon-button {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+/* Hover must never be the only way to reveal state on a console. */
+body[data-input-method="gamepad"] .game-button:hover,
+body[data-input-method="gamepad"] .icon-button:hover {
+  transform: none;
+}
+
+/* Footer strip listing the current context's controller actions. */
+.pad-legend {
+  position: absolute;
+  left: 50%;
+  bottom: 2.6%;
+  bottom: max(2.6%, var(--local-safe-bottom));
+  z-index: 62;
+  display: none;
+  align-items: center;
+  gap: 1.15em;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 227, 159, 0.22);
+  border-radius: 999px;
+  padding: 0.5em 1.3em;
+  background: rgba(4, 15, 14, 0.88);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--ink-muted);
+  font-size: clamp(10px, 1.05vw, 15px);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+body[data-input-method="gamepad"] .pad-legend.show { display: flex; }
+
+.pad-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+/* --- Developer debug overlay -------------------------------------------- */
+
+.controller-debug {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 2000;
+  margin: 0;
+  border: 1px solid rgba(108, 194, 74, 0.45);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  background: rgba(2, 10, 9, 0.92);
+  color: #b6f5c2;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  white-space: pre;
+}
+
+/* --- Controller settings rows ------------------------------------------- */
+
+.settings-section-heading {
+  margin: 1.1rem 0 0.3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+  color: var(--amber);
+  font: 900 0.72rem monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-section-heading small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--ink-muted);
+  font: 700 0.7rem inherit;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+#controllerStatusLine { color: var(--ink-muted); }
+#controllerStatusLine.is-live { color: var(--moss-bright); }
+
+@media (prefers-reduced-motion: reduce) {
+  .controller-notice { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   First-person view
+   The WebGL canvas sits directly over the 2D canvas and is only revealed when
+   body.first-person is set, so the top-down view stays byte-for-byte unchanged.
+   --------------------------------------------------------------------------- */
+.fp-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+body.first-person .fp-canvas {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Hide the 2D world without unloading it, so toggling back is instant. */
+body.first-person #gameCanvas {
+  visibility: hidden;
+}
+
+/* Reticle — centred, resolution independent, generous enough for a TV. */
+.fp-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: clamp(14px, 1.5vmin, 26px);
+  height: clamp(14px, 1.5vmin, 26px);
+  margin-left: calc(clamp(14px, 1.5vmin, 26px) / -2);
+  margin-top: calc(clamp(14px, 1.5vmin, 26px) / -2);
+  border-radius: 50%;
+  border: 2px solid rgba(232, 246, 238, 0.5);
+  box-shadow: 0 0 0 1px rgba(4, 12, 10, 0.55), inset 0 0 6px rgba(4, 12, 10, 0.35);
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease, border-color 140ms ease;
+  pointer-events: none;
+  z-index: 4;
+}
+body.first-person .fp-reticle.is-visible { opacity: 1; }
+/* A musical bloom rather than a crosshair, matching the game's language. */
+.fp-reticle.is-active {
+  border-color: var(--amber, #f6e36d);
+  transform: scale(1.45);
+  box-shadow: 0 0 12px rgba(246, 227, 109, 0.55), inset 0 0 8px rgba(246, 227, 109, 0.35);
+}
+
+/* Interaction prompt — inside a TV-safe margin, never at the screen edge. */
+.fp-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: max(16%, calc(var(--local-safe-bottom, 0px) + 5.5em));
+  transform: translateX(-50%) translateY(6px);
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.95em;
+  border-radius: 999px;
+  background: rgba(6, 20, 18, 0.82);
+  border: 1px solid rgba(140, 210, 190, 0.3);
+  backdrop-filter: blur(6px);
+  font-size: clamp(0.95rem, 1.7vmin, 1.35rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #e8f6ee;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 4;
+}
+.fp-prompt.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.fp-prompt-text { text-transform: uppercase; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-reticle, .fp-prompt { transition: none; }
+}
+/* ========================================================================== */
+/* V2.1 responsive presentation, onboarding, inventory and mobile FP           */
+/* ========================================================================== */
+:root{
+  --ui-space-1:clamp(.35rem,.6vw,.55rem);--ui-space-2:clamp(.65rem,1vw,.9rem);
+  --ui-space-3:clamp(.9rem,1.5vw,1.35rem);--ui-space-4:clamp(1.2rem,2vw,2rem);
+  --ui-tap:max(44px,2.75rem);--ui-panel:min(94vw,92rem);--ui-reading:min(72ch,100%);
+  --safe-top:max(env(safe-area-inset-top),.4rem);--safe-right:max(env(safe-area-inset-right),.4rem);
+  --safe-bottom:max(env(safe-area-inset-bottom),.4rem);--safe-left:max(env(safe-area-inset-left),.4rem)
+}
+.feature-card,.modal-card{max-width:var(--ui-panel);max-height:calc(var(--app-height,100vh) - var(--safe-top) - var(--safe-bottom) - 1rem);overflow:auto;overscroll-behavior:contain}
+.game-button,.icon-button,select,input[type="text"],input:not([type]){min-height:var(--ui-tap)}
+.settings-card{width:min(94vw,76rem);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--ui-space-2)}
+.settings-tabs,.shop-filters{display:flex;gap:.45rem;overflow-x:auto;padding:.25rem .1rem .55rem;scrollbar-width:thin}
+.settings-tab,.shop-filter{min-height:var(--ui-tap);padding:.65rem 1rem;border:1px solid rgba(143,227,193,.25);border-radius:999px;background:rgba(7,27,24,.78);color:#dff8ec;font:800 clamp(.68rem,1vw,.82rem)/1.1 monospace;white-space:nowrap}
+.settings-tab[aria-selected="true"],.shop-filter[aria-selected="true"]{color:#071b18;background:linear-gradient(135deg,#56f0c4,#ffc857);box-shadow:0 0 22px rgba(86,240,196,.2)}
+.settings-list{min-height:0;overflow:auto;padding:.2rem .35rem .5rem;overscroll-behavior:contain}
+.settings-category{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ui-space-2)}
+.settings-category[hidden]{display:none}
+.settings-category .setting-row{margin:0;padding:var(--ui-space-3);border:1px solid rgba(143,227,193,.14);border-radius:16px;background:linear-gradient(145deg,rgba(16,52,47,.72),rgba(5,22,26,.82));min-height:5.25rem}
+.setting-value{grid-column:2;justify-self:end;color:#ffc857;font:900 .78rem/1 monospace;min-width:3.5rem;text-align:right}
+.settings-reset-actions{display:flex;flex-wrap:wrap;gap:.5rem}.settings-footer{position:sticky;bottom:0;background:linear-gradient(0deg,#071b18 78%,transparent);padding-top:1rem}
+
+.character-creator-card{width:min(94vw,74rem)}
+.character-creator-layout{display:grid;grid-template-columns:minmax(17rem,.8fr) minmax(24rem,1.35fr);gap:var(--ui-space-4)}
+.character-preview-stage{display:grid;place-items:center;align-content:center;min-height:25rem;border:1px solid rgba(86,240,196,.22);border-radius:24px;background:radial-gradient(circle at 50% 68%,rgba(86,240,196,.14),transparent 45%),linear-gradient(160deg,#103b35,#081c24);overflow:hidden}
+.character-preview-stage canvas{width:min(100%,22rem);height:auto;image-rendering:pixelated}.character-preview-stage p{max-width:28ch;text-align:center;color:#b9d6cd}
+.character-options{display:grid;grid-template-columns:1fr 1fr;gap:var(--ui-space-2);align-content:start}
+.creator-field,.creator-choice{display:grid;gap:.45rem;padding:var(--ui-space-2);border:1px solid rgba(255,255,255,.1);border-radius:15px;background:rgba(4,18,23,.55)}
+.creator-field>span{display:grid;gap:.15rem}
+.creator-field input,.creator-field select{width:100%;border:1px solid rgba(86,240,196,.3);border-radius:10px;background:#071b18;color:#fff;padding:.65rem}
+.creator-choice{margin:0}.swatch-grid,.choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(4.3rem,1fr));gap:.45rem}
+.creator-option{min-height:4.5rem;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:#0b2929;color:#dff8ec;display:grid;place-items:center;gap:.25rem;padding:.4rem}
+.creator-option span{width:2rem;height:2rem;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 2px rgba(255,255,255,.22)}
+.creator-option.selected{border-color:#ffc857;box-shadow:0 0 0 2px rgba(255,200,87,.3)}.creator-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:flex-end}
+
+.tutorial-panel{position:fixed;z-index:72;left:50%;bottom:max(var(--safe-bottom),1rem);transform:translateX(-50%);width:min(92vw,36rem);padding:1rem 1.15rem;border:1px solid rgba(86,240,196,.5);border-radius:18px;background:linear-gradient(145deg,rgba(7,27,24,.96),rgba(12,35,48,.96));box-shadow:0 20px 60px rgba(0,0,0,.5);pointer-events:auto}
+.tutorial-panel[hidden]{display:none}.tutorial-panel h2{font-size:clamp(1rem,2vw,1.35rem);margin:.15rem 0}.tutorial-panel p{margin:.3rem 0}.tutorial-progress{display:flex;align-items:center;gap:.7rem;height:.35rem;background:rgba(255,255,255,.09);border-radius:999px;margin-bottom:.8rem}.tutorial-progress span:first-child{font:800 .65rem monospace;white-space:nowrap}.tutorial-progress span:last-child{display:block;height:100%;width:10%;border-radius:inherit;background:linear-gradient(90deg,#56f0c4,#ffc857);transition:width .25s ease}.tutorial-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem}
+
+.fp-look-zone{position:absolute;z-index:12;inset:15% 0 0 42%;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.fp-look-zone[hidden]{display:none}
+body.first-person .action-pad,body.first-person .touch-utility,body.first-person .joystick-zone{z-index:13}
+body.first-person.touch-capable .joystick-zone{width:43%;height:72%;bottom:0}
+body.first-person.touch-capable .action-pad{right:max(var(--safe-right),.5rem);bottom:max(var(--safe-bottom),.55rem);transform:scale(.9);transform-origin:bottom right}
+body.first-person.touch-capable .touch-utility{right:max(var(--safe-right),.6rem);top:max(var(--safe-top),.6rem)}
+
+.shop-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(17rem,.7fr);gap:var(--ui-space-3);min-height:0}.shop-grid{align-content:start}.shop-item{position:relative;cursor:pointer;transition:transform .18s ease,border-color .18s ease}.shop-item.selected{border-color:#ffc857;box-shadow:0 0 0 2px rgba(255,200,87,.22)}.shop-item:hover{transform:translateY(-2px)}
+.shop-item-heading{align-items:center}.item-rarity{font:800 .62rem monospace;letter-spacing:.08em;color:#9de8ff}.rarity-legendary .item-rarity{color:#ffc857}.rarity-rare .item-rarity{color:#d77cff}.rarity-uncommon .item-rarity{color:#56f0c4}
+.shop-detail{position:sticky;top:0;align-self:start;padding:var(--ui-space-3);border:1px solid rgba(255,200,87,.25);border-radius:20px;background:linear-gradient(150deg,rgba(26,57,50,.92),rgba(7,22,31,.96))}.shop-detail h3{font-size:clamp(1.25rem,2vw,1.8rem)}.shop-detail dl div{display:flex;justify-content:space-between;gap:1rem;padding:.55rem 0;border-bottom:1px solid rgba(255,255,255,.08)}.shop-detail dt{color:#9dbbb3}.shop-detail dd{margin:0;font-weight:800;text-transform:capitalize}
+.adventure-item-icon{background-image:url('Sprites/UI/Adventure Items/adventure-items-sheet.png')!important;background-size:500% 400%!important;background-position:var(--item-x,0) var(--item-y,0)!important;background-repeat:no-repeat!important;image-rendering:pixelated}.shop-detail-icon{display:block;width:7rem;height:7rem;margin:.2rem auto 1rem}.inventory-detail-icon.adventure-item-icon{background-size:500% 400%!important}
+
+@media(max-width:760px),(max-height:520px){.feature-card,.modal-card{max-height:calc(var(--app-height,100vh) - .5rem);border-radius:14px}.settings-category{grid-template-columns:1fr}.settings-category .setting-row{min-height:4.3rem;padding:.75rem}.character-creator-layout{grid-template-columns:minmax(10rem,.65fr) minmax(18rem,1.35fr);gap:.7rem}.character-preview-stage{min-height:15rem}.character-options{gap:.45rem}.creator-field,.creator-choice{padding:.55rem}.creator-option{min-height:3.3rem}.shop-layout{grid-template-columns:1fr minmax(13rem,.68fr)}.tutorial-panel{left:var(--safe-left);bottom:var(--safe-bottom);transform:none;width:min(52vw,29rem);padding:.65rem .8rem}.tutorial-panel .game-button{min-height:38px}.hud .objective-card{max-width:36vw}}
+@media(max-width:640px) and (orientation:portrait){.character-creator-layout,.shop-layout{grid-template-columns:1fr}.character-preview-stage{min-height:12rem}.character-preview-stage canvas{width:12rem}.character-options{grid-template-columns:1fr}.shop-detail{position:static}.settings-category{grid-template-columns:1fr}}
+@media(min-width:1500px){.feature-card{width:min(90vw,92rem)}.inventory-layout,.map-layout,.production-layout{gap:clamp(1.25rem,2vw,2.5rem)}.shop-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){.shop-item,.tutorial-progress span:last-child{transition:none}.shop-item:hover{transform:none}}

@@ -151,6 +151,8 @@
     this.background = new Image();
     this.background.decoding = 'async';
     this.background.src = 'assets/echo-arena-background.webp';
+    this.arenaLayers=['background','midground','foreground'].map(function(name){var image=new Image();image.decoding='async';image.src='assets/arena/mossvale-amphitheatre-'+name+'.webp';return image;});
+    this.effectSheet=new Image();this.effectSheet.decoding='async';this.effectSheet.src='Sprites/Effects/arena-effects-sheet.png';
     this.active = false;
     this.phase = 'lobby';
     this.matchType = '';
@@ -740,7 +742,7 @@
     fighter.attack = {move:moveData,t:0,hit:new Set(),spawned:false};
     fighter.attackCooldown = moveData.total;
     fighter.animationTime = 0;
-    if (type === 'ultimate') fighter.ultimate = 0;
+    if (type === 'ultimate') {fighter.ultimate = 0;this.addEffect(fighter.x,fighter.y-35,'ultimate',moveData.effect,110);}
     if (moveData.recoveryImpulse) {
       fighter.recoveryUsed = true;
       fighter.vx = fighter.facing * moveData.recoveryImpulse.x;
@@ -1147,6 +1149,7 @@
   };
 
   PlatformArena.prototype.spawnProjectile = function (fighter,moveData) {
+    this.addEffect(fighter.x+fighter.facing*34,fighter.y-fighter.height*.52,'projectile',moveData.effect,30);
     if (this.projectiles.length >= MAX_PROJECTILES) this.projectiles.shift();
     var definition = moveData.projectile;
     this.projectiles.push({id:randomToken('P'),owner:fighter.id,move:moveData,x:fighter.x+fighter.facing*34,
@@ -1615,7 +1618,9 @@
     if (!ctx || !canvas) return;
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    if (this.background.complete && this.background.naturalWidth) {
+    var layered=this.arenaLayers&&this.arenaLayers[0].complete&&this.arenaLayers[0].naturalWidth;
+    if(layered){ctx.drawImage(this.arenaLayers[0],0,0,canvas.width,canvas.height);}
+    else if (this.background.complete && this.background.naturalWidth) {
       var sourceRatio = this.background.naturalWidth/this.background.naturalHeight;
       var targetRatio = canvas.width/canvas.height;
       var sx=0,sy=0,sw=this.background.naturalWidth,sh=this.background.naturalHeight;
@@ -1639,6 +1644,7 @@
     this.fighters.forEach(function (fighter,index) { self.drawFighter(ctx,fighter,index); });
     this.drawEffects(ctx);
     ctx.restore();
+    if(this.arenaLayers&&this.arenaLayers[2].complete&&this.arenaLayers[2].naturalWidth){ctx.save();ctx.globalAlpha=.82;ctx.drawImage(this.arenaLayers[2],0,0,canvas.width,canvas.height);ctx.restore();}
     this.drawHud(ctx);
     this.drawOffscreenIndicators(ctx);
     if (this.phase === 'countdown') this.drawCountdown(ctx);
@@ -1654,8 +1660,10 @@
   };
 
   PlatformArena.prototype.drawParallax = function (ctx) {
-    var offset=(this.camera.x-600)*-.035;
+    var reduced=document.body.classList.contains('reduced-motion');
+    var offset=reduced?0:(this.camera.x-600)*-.035;
     ctx.save();
+    if(this.arenaLayers&&this.arenaLayers[1].complete&&this.arenaLayers[1].naturalWidth){var shift=clamp(offset*1.8,-24,24);ctx.globalAlpha=.92;ctx.drawImage(this.arenaLayers[1],shift,0,ctx.canvas.width+48,ctx.canvas.height);}
     ctx.globalAlpha=.28;
     ctx.fillStyle='#7df7a1';
     for(var i=0;i<7;i++){
@@ -1709,8 +1717,10 @@
     ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(fighter.x,fighter.y+3,27,8,0,0,Math.PI*2);ctx.fill();
     var drawn=false;
     if(window.MossSprites){
+      ctx.save();ctx.shadowColor=fighter.colour;ctx.shadowBlur=14;
       drawn=window.MossSprites.draw(ctx,fighter.definition.sprite,this.animationFor(fighter),fighter.animationTime,
         fighter.x,fighter.y,82,{flipX:false,glow:fighter.attack?fighter.attack.move.effect:fighter.colour,glowBlur:fighter.attack?18:7});
+      ctx.restore();
     }
     if(!drawn){
       ctx.strokeStyle=fighter.colour;ctx.lineWidth=4;ctx.shadowColor=fighter.colour;ctx.shadowBlur=16;
@@ -1731,6 +1741,7 @@
       }
     }
     ctx.fillStyle=fighter.colour;ctx.globalAlpha=1;ctx.beginPath();ctx.arc(fighter.x,fighter.y-67,5,0,Math.PI*2);ctx.fill();
+    ctx.font='900 9px monospace';ctx.textAlign='center';ctx.strokeStyle='rgba(3,9,16,.9)';ctx.lineWidth=3;ctx.strokeText('P'+(index+1)+' · '+fighter.name.toUpperCase(),fighter.x,fighter.y-78);ctx.fillStyle=fighter.colour;ctx.fillText('P'+(index+1)+' · '+fighter.name.toUpperCase(),fighter.x,fighter.y-78);
     ctx.restore();
   };
 
@@ -1744,9 +1755,10 @@
   };
 
   PlatformArena.prototype.drawEffects = function (ctx) {
-    this.effects.forEach(function (effect) {
+    var self=this;this.effects.forEach(function (effect) {
       var progress=1-effect.life/effect.maxLife;
       ctx.save();ctx.globalAlpha=clamp(effect.life/effect.maxLife,0,1);ctx.strokeStyle=effect.colour;
+      if(self.effectSheet.complete&&self.effectSheet.naturalWidth){var types=['hit','guard','perfect','dodge','projectile','ultimate','knockout','respawn'],index=Math.max(0,types.indexOf(effect.type));var cell=self.effectSheet.naturalWidth/8,size=effect.size*(1.05+progress*.8);ctx.drawImage(self.effectSheet,index*cell,0,cell,self.effectSheet.naturalHeight,effect.x-size/2,effect.y-size/2,size,size);}
       ctx.lineWidth=Math.max(2,6*(1-progress));ctx.shadowColor=effect.colour;ctx.shadowBlur=18;
       ctx.beginPath();ctx.arc(effect.x,effect.y,effect.size*(.25+progress),0,Math.PI*2);ctx.stroke();
       if(effect.type==='hit'||effect.type==='knockout'){

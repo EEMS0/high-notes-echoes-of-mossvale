@@ -283,6 +283,19 @@ function sanitizeWorldSnapshot(payload: JsonObject): JsonObject | null {
     if (!equipment) return null;
     result.equipment = equipment;
   }
+  if (payload.appearance !== undefined) {
+    if (!isObject(payload.appearance)) return null;
+    const appearance = payload.appearance;
+    const body = cleanText(appearance.body, 12);
+    const hair = cleanText(appearance.hair, 12);
+    const outfit = cleanText(appearance.outfit, 12);
+    const accent = cleanText(appearance.accent, 12);
+    if (!body || !["fern","amber","umber","moon"].includes(body) ||
+        !hair || !["tuft","braid","mohawk","cap"].includes(hair) ||
+        !outfit || !["grove","ember","sky","violet","gold"].includes(outfit) ||
+        !accent || !["mint","gold","blue","violet","rose","pearl"].includes(accent)) return null;
+    result.appearance = { body, hair, outfit, accent };
+  }
   if (result.x === undefined || result.y === undefined) return null;
   return result;
 }

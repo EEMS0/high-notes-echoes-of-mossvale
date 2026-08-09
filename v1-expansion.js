@@ -1203,6 +1203,7 @@
       odin:!!current.state.odinRecruited,
       quests:(current.state.completedQuests || []).length,bosses:(current.state.stageBosses || []).length
     };
+    if(current.state.character&&current.state.character.appearance)worldSnapshot.appearance=current.state.character.appearance;
     if (current.state.activeResonance) worldSnapshot.resonance = current.state.activeResonance;
     this.send('snapshot',worldSnapshot);
   };
@@ -1257,7 +1258,7 @@
       var targetY = remote.y + clamp(remote.vy || 0,-260,260)*predictionSeconds;
       visual.x += (targetX-visual.x)*0.42;
       visual.y += (targetY-visual.y)*0.42;
-      ['name','cosmetic','facing','moving','attacking','odin','stage','instrument','ping'].forEach(function (key) {
+      ['name','cosmetic','facing','moving','attacking','odin','stage','instrument','ping','appearance'].forEach(function (key) {
         visual[key] = remote[key];
       });
       // Advance only from the last validated packet and cap extrapolation to

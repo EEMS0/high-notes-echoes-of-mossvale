@@ -15,13 +15,19 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=24">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=2" defer></script>
-  <script src="game.js?v=21" defer></script>
-  <script src="v1-expansion.js?v=9" defer></script>
-  <script src="v2-platform-fighter.js?v=28" defer></script>
+  <script src="character-runtime.js?v=1" defer></script>
+  <script src="input-manager.js?v=3" defer></script>
+  <script src="game.js?v=25" defer></script>
+  <script src="controller-ui.js?v=2" defer></script>
+  <script src="v1-expansion.js?v=10" defer></script>
+  <script src="v2-platform-fighter.js?v=29" defer></script>
+  <!-- First-person view. ES modules defer by default and load after the classic
+       scripts above, so game.js feature-detects window.MossFP every frame. -->
+  <script type="module" src="fp-controller.js?v=3"></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -35,6 +41,8 @@
       role="img"
       aria-label="Mossvale game world"
     >Your browser needs HTML canvas support to play HIGH NOTES.</canvas>
+
+    <canvas id="fpCanvas" class="fp-canvas" aria-hidden="true"></canvas>
 
     <section class="hud" aria-label="Adventure status">
       <div class="hud-cluster hud-cluster-left">
@@ -87,6 +95,7 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <section id="touchControls" class="touch-controls" aria-label="Touch controls">
+      <div id="fpLookZone" class="fp-look-zone" aria-label="Drag to look around" hidden></div>
       <div class="touch-utility" aria-label="Game menu">
         <button id="touchHealButton" class="touch-button utility-button utility-heal" type="button" data-control="heal" aria-label="Heal, medicine pouch empty" disabled>
           <span aria-hidden="true">♥</span><small>HEAL</small><strong id="touchHeartbloomCount" class="touch-heal-count" aria-hidden="true">0</strong>
@@ -131,6 +140,38 @@
           <span aria-hidden="true">✦</span><small>TALK</small>
         </button>
       </div>
+    </section>
+
+    <section id="characterCreator" class="overlay feature-screen character-creator" role="dialog" aria-modal="true" aria-labelledby="characterCreatorTitle" hidden>
+      <div class="feature-card character-creator-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">YOUR SONG, YOUR SILHOUETTE</p><h2 id="characterCreatorTitle">Create your adventurer</h2></div>
+          <button id="closeCharacterCreator" class="icon-button" type="button" aria-label="Cancel character creation">&times;</button>
+        </div>
+        <div class="character-creator-layout">
+          <section class="character-preview-stage" aria-label="Animated character preview">
+            <canvas id="characterPreview" width="320" height="320" role="img" aria-label="Preview of your adventurer"></canvas>
+            <p>Appearance is cosmetic and never changes combat power.</p>
+          </section>
+          <form id="characterForm" class="character-options" autocomplete="off">
+            <label class="creator-field" for="characterName"><span><strong>Display name</strong><small>Used in your adventure and natural dialogue.</small></span><input id="characterName" maxlength="18" value="Echo" required aria-describedby="characterNameHint"><small id="characterNameHint">1–18 letters, numbers, spaces, apostrophes or hyphens.</small></label>
+            <label class="creator-field" for="characterPronouns"><span><strong>Pronouns</strong><small>Only used where dialogue naturally refers to you.</small></span><select id="characterPronouns"><option value="they">They / them</option><option value="she">She / her</option><option value="he">He / him</option><option value="name">Use my name</option></select></label>
+            <fieldset class="creator-choice"><legend>Body palette</legend><div id="characterBodyChoices" class="swatch-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Hair / head style</legend><div id="characterHairChoices" class="choice-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Outfit palette</legend><div id="characterOutfitChoices" class="swatch-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Accent colour</legend><div id="characterAccentChoices" class="swatch-grid"></div></fieldset>
+            <div class="button-row creator-actions"><button id="randomizeCharacter" class="game-button button-ghost" type="button">Randomize</button><button id="resetCharacter" class="game-button button-secondary" type="button">Reset</button><button id="confirmCharacter" class="game-button button-primary" type="submit">Begin Prologue</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="tutorialPanel" class="tutorial-panel" aria-live="polite" hidden>
+      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 10</span><span id="tutorialProgressFill"></span></div>
+      <p class="panel-kicker">REHEARSAL GROVE</p>
+      <h2 id="tutorialStepTitle">Find your footing</h2>
+      <p id="tutorialStepText">Move through the glowing rehearsal circle.</p>
+      <div class="tutorial-actions"><button id="tutorialDoButton" class="game-button button-primary" type="button">Practice</button><button id="tutorialSkipButton" class="game-button button-ghost" type="button">Skip tutorial</button></div>
     </section>
 
     <section id="titleScreen" class="overlay title-screen" aria-labelledby="gameTitle">
@@ -201,14 +242,32 @@
           <div><span>Move</span><kbd>WASD / Arrows</kbd></div>
           <div><span>Attack</span><kbd>Space / J</kbd></div>
           <div><span>Dodge</span><kbd>Shift / K</kbd></div>
+          <div><span>Block</span><kbd>F</kbd></div>
           <div><span>Echo Pulse</span><kbd>Q / L</kbd></div>
           <div><span>Use Heartbloom</span><kbd>H</kbd></div>
           <div><span>Change Odin command</span><kbd>R</kbd></div>
           <div><span>Interact</span><kbd>E / Enter</kbd></div>
           <div><span>Map &amp; quests</span><kbd>Tab</kbd></div>
           <div><span>Backpack</span><kbd>I / B</kbd></div>
+          <div><span>Instruments</span><kbd>V</kbd></div>
           <div><span>Pause / back</span><kbd>Esc</kbd></div>
-          <div><span>Gamepad</span><kbd>A strike · B dodge · X pulse · Y talk</kbd></div>
+        </div>
+
+        <div class="controls-table" aria-label="Xbox controller controls">
+          <div><span>Move</span><span class="cprompt" data-btn="LS">LS</span><span class="cprompt" data-btn="D-pad">D-pad</span></div>
+          <div><span>Attack</span><span class="cprompt" data-btn="A">A</span><span class="cprompt" data-btn="RT">RT</span></div>
+          <div><span>Dodge</span><span class="cprompt" data-btn="B">B</span></div>
+          <div><span>Echo Pulse</span><span class="cprompt" data-btn="X">X</span></div>
+          <div><span>Interact / talk</span><span class="cprompt" data-btn="Y">Y</span></div>
+          <div><span>Block (hold)</span><span class="cprompt" data-btn="LB">LB</span></div>
+          <div><span>Change Odin command</span><span class="cprompt" data-btn="RB">RB</span></div>
+          <div><span>Use Heartbloom</span><span class="cprompt" data-btn="LT">LT</span></div>
+          <div><span>Map &amp; quests</span><span class="cprompt" data-btn="View">View</span></div>
+          <div><span>Backpack</span><span class="cprompt" data-btn="L3">L3</span></div>
+          <div><span>Instruments</span><span class="cprompt" data-btn="R3">R3</span></div>
+          <div><span>Pause / resume</span><span class="cprompt" data-btn="Menu">Menu</span></div>
+          <div><span>Menus: select / back</span><span class="cprompt" data-btn="A">A</span><span class="cprompt" data-btn="B">B</span></div>
+          <div><span>Menus: switch tabs</span><span class="cprompt" data-btn="LB">LB</span><span class="cprompt" data-btn="RB">RB</span></div>
         </div>
 
         <div class="touch-guide touch-only" aria-label="Touch controls">
@@ -216,6 +275,7 @@
           <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. <strong>Map</strong> and <strong>Pause</strong> are at the top-right.</p>
           <p class="audio-tip">No sound on iPhone? Turn off Silent Mode, raise media volume, then tap the game once.</p>
         </div>
+        <button id="replayTutorialButton" class="game-button button-secondary" type="button">Replay tutorial</button>
       </div>
     </section>
 
@@ -229,6 +289,7 @@
           <button id="closeSettingsButton" class="icon-button" type="button" aria-label="Close settings">×</button>
         </div>
 
+        <nav id="settingsTabs" class="settings-tabs" role="tablist" aria-label="Settings categories"></nav>
         <div class="settings-list">
           <label class="setting-row select-row" for="difficultySelect">
             <span><strong>Difficulty</strong><small>Adjust enemy pressure and recovery.</small></span>
@@ -277,9 +338,126 @@
             <span><strong>Large text</strong><small>Increase dialogue text further.</small></span>
             <input id="largeText" type="checkbox">
           </label>
+
+          <p class="settings-section-heading">Display<small>Fullscreen works on the console browser where permitted.</small></p>
+
+          <div class="setting-row switch-row">
+            <span><strong>Fullscreen</strong><small>Fill the screen for TV play.</small></span>
+            <button id="fullscreenToggle" class="game-button button-secondary" type="button" aria-pressed="false">Enter Fullscreen</button>
+          </div>
+
+          <label class="setting-row select-row" for="renderScale">
+            <span><strong>Render resolution</strong><small>Lower this if a 4K TV feels sluggish.</small></span>
+            <select id="renderScale">
+              <option value="performance">Performance</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="sharp">Sharp</option>
+            </select>
+          </label>
+
+          <p class="settings-section-heading">View<small id="viewModeStatusLine">Top-down is the classic Mossvale view.</small></p>
+
+          <label class="setting-row select-row" for="viewMode">
+            <span><strong>Camera</strong><small>Play top-down or from Mossvale eye level.</small></span>
+            <select id="viewMode">
+              <option value="topDown" selected>Top-down (classic)</option>
+              <option value="firstPerson">First person</option>
+            </select>
+          </label>
+
+          <label class="setting-row range-row" for="fov">
+            <span><strong>Field of view</strong><small>Widen the first-person view.</small></span>
+            <input id="fov" type="range" min="55" max="100" value="70" step="1">
+          </label>
+
+          <label class="setting-row range-row" for="mouseSensitivity">
+            <span><strong>Mouse sensitivity</strong><small>First-person mouse look speed.</small></span>
+            <input id="mouseSensitivity" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+          <label class="setting-row range-row" for="mobileLookSensitivity">
+            <span><strong>Mobile look sensitivity</strong><small>Right-side drag speed in first-person view.</small></span>
+            <input id="mobileLookSensitivity" type="range" min="0.25" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="headBob">
+            <span><strong>Head bob</strong><small>Gentle walking sway. Turn off for comfort.</small></span>
+            <input id="headBob" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row switch-row" for="cameraEffects">
+            <span><strong>Camera effects</strong><small>Landing dip and sprint field-of-view shift.</small></span>
+            <input id="cameraEffects" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row switch-row" for="reticle">
+            <span><strong>Reticle</strong><small>Show the aiming dot and interaction prompts.</small></span>
+            <input id="reticle" type="checkbox" checked>
+          </label>
+
+          <p class="settings-section-heading">Controller<small id="controllerStatusLine">No controller detected.</small></p>
+
+          <label class="setting-row switch-row" for="controllerEnabled">
+            <span><strong>Controller enabled</strong><small>Turn off to ignore all gamepad input.</small></span>
+            <input id="controllerEnabled" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row range-row" for="moveDeadzone">
+            <span><strong>Movement deadzone</strong><small>Raise this if your character drifts when idle.</small></span>
+            <input id="moveDeadzone" type="range" min="0.02" max="0.5" value="0.18" step="0.01">
+          </label>
+
+          <label class="setting-row range-row" for="lookDeadzone">
+            <span><strong>Look deadzone</strong><small>Right stick rest threshold.</small></span>
+            <input id="lookDeadzone" type="range" min="0.02" max="0.5" value="0.2" step="0.01">
+          </label>
+
+          <label class="setting-row range-row" for="lookSensitivityX">
+            <span><strong>Look sensitivity · horizontal</strong><small>Right stick speed left and right.</small></span>
+            <input id="lookSensitivityX" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row range-row" for="lookSensitivityY">
+            <span><strong>Look sensitivity · vertical</strong><small>Right stick speed up and down.</small></span>
+            <input id="lookSensitivityY" type="range" min="0.2" max="3" value="1" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="invertLookY">
+            <span><strong>Invert Y axis</strong><small>Flip vertical right-stick direction.</small></span>
+            <input id="invertLookY" type="checkbox">
+          </label>
+
+          <label class="setting-row switch-row" for="controllerVibration">
+            <span><strong>Vibration</strong><small>Short rumble on hits, pickups and beats.</small></span>
+            <input id="controllerVibration" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row select-row" for="promptStyle">
+            <span><strong>Button prompts</strong><small>Which control hints the interface shows.</small></span>
+            <select id="promptStyle">
+              <option value="auto" selected>Automatic</option>
+              <option value="xbox">Controller</option>
+              <option value="keyboard">Keyboard</option>
+            </select>
+          </label>
+
+          <label class="setting-row range-row" for="triggerThreshold">
+            <span><strong>Trigger threshold</strong><small>How far LT and RT must travel to register.</small></span>
+            <input id="triggerThreshold" type="range" min="0.05" max="0.95" value="0.5" step="0.05">
+          </label>
+
+          <label class="setting-row switch-row" for="southpaw">
+            <span><strong>Southpaw sticks</strong><small>Swap the movement and look sticks.</small></span>
+            <input id="southpaw" type="checkbox">
+          </label>
+
+          <label class="setting-row switch-row" for="swapConfirmCancel">
+            <span><strong>Swap A and B</strong><small>Use B to confirm and A to go back.</small></span>
+            <input id="swapConfirmCancel" type="checkbox">
+          </label>
         </div>
 
         <div class="settings-footer">
+          <div class="button-row settings-reset-actions"><button id="resetSettingsCategory" class="game-button button-secondary" type="button">Reset this category</button><button id="resetAllSettings" class="game-button button-ghost" type="button">Reset all settings</button></div>
           <p>Settings save automatically on this device.</p>
           <button id="resetButton" class="game-button button-danger" type="button">Reset Adventure</button>
         </div>
@@ -357,7 +535,11 @@
           <div class="merchant-portrait" aria-hidden="true"><img src="Sprites/Portraits/brad/happy.png" alt=""></div>
           <div><strong>Brad has a deal for every difficult road.</strong><p>Beatcoins drop from defeated enemies. Spend them on supplies and permanent upgrades.</p><p id="shopWallet" class="panel-intro">0 Beatcoins</p></div>
         </div>
-        <div id="shopGrid" class="shop-grid"></div>
+        <div id="shopFilters" class="shop-filters" role="tablist" aria-label="Shop categories"></div>
+        <div class="shop-layout">
+          <div id="shopGrid" class="shop-grid"></div>
+          <aside id="shopDetail" class="shop-detail" aria-live="polite"><p class="panel-kicker">BRAD'S PICK</p><h3>Select an item</h3><p>Choose a card to inspect its benefits.</p></aside>
+        </div>
       </div>
     </section>
 
