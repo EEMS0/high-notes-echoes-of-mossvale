@@ -27,6 +27,11 @@ const SPECS = {
   collectible: { height: metres(0.6), sizeInCanvas: 72 },
   weed: { height: metres(0.5), sizeInCanvas: 64 },
   portal: { height: metres(2.4), sizeInCanvas: 110 }
+  ,companion:{height:metres(1.15),sizeInCanvas:92}
+  ,boss:{height:metres(3.4),sizeInCanvas:118}
+  ,pickup:{height:metres(.55),sizeInCanvas:64}
+  ,puzzle:{height:metres(1.05),sizeInCanvas:78}
+  ,effect:{height:metres(1.15),sizeInCanvas:92}
 };
 
 export class MossFPBillboards {
@@ -189,6 +194,14 @@ export class MossFPBillboards {
         id: null, animation: 'idle', elapsed: now, color: '#c2b4ff', signature: 'portal'
       });
     });
+    if(entities.odin){out.push({key:'companion:odin',kind:'companion',x:entities.odin.x,y:entities.odin.y,id:'odin',animation:'idle_south',elapsed:now,color:'#62c7ff',signature:entities.odin.activity||'idle'});}
+    if(entities.boss&&!entities.boss.dead){out.push({key:'boss:'+entities.boss.defId,kind:'boss',x:entities.boss.x,y:entities.boss.y,id:entities.boss.assetId||entities.boss.defId,animation:'idle_south',elapsed:now,color:'#ff7892',signature:String(Math.ceil(entities.boss.hp||0))});}
+    (entities.healthPickups||[]).forEach(function(item,index){out.push({key:'health:'+(item.id||index),kind:'pickup',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#ff7892',signature:'heartbloom'});});
+    (entities.weeds||[]).forEach(function(item){out.push({key:'weed:'+item.id,kind:'pickup',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#7df7a1',signature:'weed'});});
+    (entities.drums||[]).forEach(function(item){out.push({key:'drum:'+item.id,kind:'puzzle',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#ffc857',signature:'drum'});});
+    (entities.speakers||[]).forEach(function(item){out.push({key:'speaker:'+item.id,kind:'puzzle',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#d77cff',signature:'speaker'});});
+    if(entities.tutorial){out.push({key:'tutorial:'+entities.tutorial.id,kind:'puzzle',x:entities.tutorial.x,y:entities.tutorial.y,id:null,animation:'idle',elapsed:now,color:'#56f0c4',signature:'tutorial'});}
+    (entities.projectiles||[]).slice(0,24).forEach(function(item,index){out.push({key:'projectile:'+index,kind:'effect',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:item.color||'#62c7ff',signature:'projectile'});});
 
     return out;
   }

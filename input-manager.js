@@ -134,6 +134,7 @@
     viewMode: 'topDown',
     fov: 70,
     mouseSensitivity: 1,
+    mobileLookSensitivity: 1,
     headBob: true,
     cameraEffects: true,
     reticle: true
@@ -199,6 +200,8 @@
     target.fov = has(source, 'fov') ? numberOr(source.fov, target.fov, 55, 100) : target.fov;
     target.mouseSensitivity = has(source, 'mouseSensitivity')
       ? numberOr(source.mouseSensitivity, target.mouseSensitivity, 0.2, 3) : target.mouseSensitivity;
+    target.mobileLookSensitivity = has(source, 'mobileLookSensitivity')
+      ? numberOr(source.mobileLookSensitivity, target.mobileLookSensitivity, 0.25, 3) : target.mobileLookSensitivity;
     if (has(source, 'promptStyle')) {
       target.promptStyle = ['auto', 'xbox', 'keyboard'].indexOf(source.promptStyle) >= 0 ? source.promptStyle : target.promptStyle;
     }

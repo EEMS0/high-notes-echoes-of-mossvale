@@ -15,18 +15,19 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=24">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=2" defer></script>
-  <script src="input-manager.js?v=2" defer></script>
-  <script src="game.js?v=24" defer></script>
+  <script src="character-runtime.js?v=1" defer></script>
+  <script src="input-manager.js?v=3" defer></script>
+  <script src="game.js?v=25" defer></script>
   <script src="controller-ui.js?v=2" defer></script>
-  <script src="v1-expansion.js?v=9" defer></script>
-  <script src="v2-platform-fighter.js?v=28" defer></script>
+  <script src="v1-expansion.js?v=10" defer></script>
+  <script src="v2-platform-fighter.js?v=29" defer></script>
   <!-- First-person view. ES modules defer by default and load after the classic
        scripts above, so game.js feature-detects window.MossFP every frame. -->
-  <script type="module" src="fp-controller.js?v=2"></script>
+  <script type="module" src="fp-controller.js?v=3"></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -94,6 +95,7 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <section id="touchControls" class="touch-controls" aria-label="Touch controls">
+      <div id="fpLookZone" class="fp-look-zone" aria-label="Drag to look around" hidden></div>
       <div class="touch-utility" aria-label="Game menu">
         <button id="touchHealButton" class="touch-button utility-button utility-heal" type="button" data-control="heal" aria-label="Heal, medicine pouch empty" disabled>
           <span aria-hidden="true">♥</span><small>HEAL</small><strong id="touchHeartbloomCount" class="touch-heal-count" aria-hidden="true">0</strong>
@@ -138,6 +140,38 @@
           <span aria-hidden="true">✦</span><small>TALK</small>
         </button>
       </div>
+    </section>
+
+    <section id="characterCreator" class="overlay feature-screen character-creator" role="dialog" aria-modal="true" aria-labelledby="characterCreatorTitle" hidden>
+      <div class="feature-card character-creator-card">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">YOUR SONG, YOUR SILHOUETTE</p><h2 id="characterCreatorTitle">Create your adventurer</h2></div>
+          <button id="closeCharacterCreator" class="icon-button" type="button" aria-label="Cancel character creation">&times;</button>
+        </div>
+        <div class="character-creator-layout">
+          <section class="character-preview-stage" aria-label="Animated character preview">
+            <canvas id="characterPreview" width="320" height="320" role="img" aria-label="Preview of your adventurer"></canvas>
+            <p>Appearance is cosmetic and never changes combat power.</p>
+          </section>
+          <form id="characterForm" class="character-options" autocomplete="off">
+            <label class="creator-field" for="characterName"><span><strong>Display name</strong><small>Used in your adventure and natural dialogue.</small></span><input id="characterName" maxlength="18" value="Echo" required aria-describedby="characterNameHint"><small id="characterNameHint">1–18 letters, numbers, spaces, apostrophes or hyphens.</small></label>
+            <label class="creator-field" for="characterPronouns"><span><strong>Pronouns</strong><small>Only used where dialogue naturally refers to you.</small></span><select id="characterPronouns"><option value="they">They / them</option><option value="she">She / her</option><option value="he">He / him</option><option value="name">Use my name</option></select></label>
+            <fieldset class="creator-choice"><legend>Body palette</legend><div id="characterBodyChoices" class="swatch-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Hair / head style</legend><div id="characterHairChoices" class="choice-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Outfit palette</legend><div id="characterOutfitChoices" class="swatch-grid"></div></fieldset>
+            <fieldset class="creator-choice"><legend>Accent colour</legend><div id="characterAccentChoices" class="swatch-grid"></div></fieldset>
+            <div class="button-row creator-actions"><button id="randomizeCharacter" class="game-button button-ghost" type="button">Randomize</button><button id="resetCharacter" class="game-button button-secondary" type="button">Reset</button><button id="confirmCharacter" class="game-button button-primary" type="submit">Begin Prologue</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="tutorialPanel" class="tutorial-panel" aria-live="polite" hidden>
+      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 10</span><span id="tutorialProgressFill"></span></div>
+      <p class="panel-kicker">REHEARSAL GROVE</p>
+      <h2 id="tutorialStepTitle">Find your footing</h2>
+      <p id="tutorialStepText">Move through the glowing rehearsal circle.</p>
+      <div class="tutorial-actions"><button id="tutorialDoButton" class="game-button button-primary" type="button">Practice</button><button id="tutorialSkipButton" class="game-button button-ghost" type="button">Skip tutorial</button></div>
     </section>
 
     <section id="titleScreen" class="overlay title-screen" aria-labelledby="gameTitle">
@@ -241,6 +275,7 @@
           <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. <strong>Map</strong> and <strong>Pause</strong> are at the top-right.</p>
           <p class="audio-tip">No sound on iPhone? Turn off Silent Mode, raise media volume, then tap the game once.</p>
         </div>
+        <button id="replayTutorialButton" class="game-button button-secondary" type="button">Replay tutorial</button>
       </div>
     </section>
 
@@ -254,6 +289,7 @@
           <button id="closeSettingsButton" class="icon-button" type="button" aria-label="Close settings">×</button>
         </div>
 
+        <nav id="settingsTabs" class="settings-tabs" role="tablist" aria-label="Settings categories"></nav>
         <div class="settings-list">
           <label class="setting-row select-row" for="difficultySelect">
             <span><strong>Difficulty</strong><small>Adjust enemy pressure and recovery.</small></span>
@@ -338,6 +374,10 @@
             <span><strong>Mouse sensitivity</strong><small>First-person mouse look speed.</small></span>
             <input id="mouseSensitivity" type="range" min="0.2" max="3" value="1" step="0.05">
           </label>
+          <label class="setting-row range-row" for="mobileLookSensitivity">
+            <span><strong>Mobile look sensitivity</strong><small>Right-side drag speed in first-person view.</small></span>
+            <input id="mobileLookSensitivity" type="range" min="0.25" max="3" value="1" step="0.05">
+          </label>
 
           <label class="setting-row switch-row" for="headBob">
             <span><strong>Head bob</strong><small>Gentle walking sway. Turn off for comfort.</small></span>
@@ -417,6 +457,7 @@
         </div>
 
         <div class="settings-footer">
+          <div class="button-row settings-reset-actions"><button id="resetSettingsCategory" class="game-button button-secondary" type="button">Reset this category</button><button id="resetAllSettings" class="game-button button-ghost" type="button">Reset all settings</button></div>
           <p>Settings save automatically on this device.</p>
           <button id="resetButton" class="game-button button-danger" type="button">Reset Adventure</button>
         </div>
@@ -494,7 +535,11 @@
           <div class="merchant-portrait" aria-hidden="true"><img src="Sprites/Portraits/brad/happy.png" alt=""></div>
           <div><strong>Brad has a deal for every difficult road.</strong><p>Beatcoins drop from defeated enemies. Spend them on supplies and permanent upgrades.</p><p id="shopWallet" class="panel-intro">0 Beatcoins</p></div>
         </div>
-        <div id="shopGrid" class="shop-grid"></div>
+        <div id="shopFilters" class="shop-filters" role="tablist" aria-label="Shop categories"></div>
+        <div class="shop-layout">
+          <div id="shopGrid" class="shop-grid"></div>
+          <aside id="shopDetail" class="shop-detail" aria-live="polite"><p class="panel-kicker">BRAD'S PICK</p><h3>Select an item</h3><p>Choose a card to inspect its benefits.</p></aside>
+        </div>
       </div>
     </section>
 

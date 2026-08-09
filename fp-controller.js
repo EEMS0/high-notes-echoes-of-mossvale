@@ -40,6 +40,8 @@ class FirstPersonController {
     this.pitch = 0;
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.touchDeltaX = 0;
+    this.touchDeltaY = 0;
     this.pointerLocked = false;
     this.builtStage = -1;
     this.moveBasis = { x: 0, y: 0 };
@@ -138,8 +140,9 @@ class FirstPersonController {
     var api = bridge();
     if (!api) return;
     var stage = api.getStage();
-    if (!force && stage === this.builtStage) return;
-    this.builtStage = stage;
+    var sceneKey = api.getSceneKey ? api.getSceneKey() : stage;
+    if (!force && sceneKey === this.builtStage) return;
+    this.builtStage = sceneKey;
     this.scene.build(api.getLevelData());
     this.billboards.rebuild(api);
   }
@@ -161,6 +164,13 @@ class FirstPersonController {
       this.pitch -= this.mouseDeltaY * MOUSE_LOOK_RATE * mouseScale * sensY * invert;
       this.mouseDeltaX = 0;
       this.mouseDeltaY = 0;
+    }
+    if (this.touchDeltaX || this.touchDeltaY) {
+      var touchScale = typeof settings.mobileLookSensitivity === 'number' ? settings.mobileLookSensitivity : 1;
+      this.yaw -= this.touchDeltaX * MOUSE_LOOK_RATE * touchScale * sensX;
+      this.pitch -= this.touchDeltaY * MOUSE_LOOK_RATE * touchScale * sensY * invert;
+      this.touchDeltaX = 0;
+      this.touchDeltaY = 0;
     }
 
     if (window.MossInput) {
@@ -209,6 +219,8 @@ class FirstPersonController {
       /* Menus and dialogue own the frame; drop look input so nothing drifts. */
       this.mouseDeltaX = 0;
       this.mouseDeltaY = 0;
+      this.touchDeltaX = 0;
+      this.touchDeltaY = 0;
       this.motor.clearRequests();
       this.interaction.clear();
       this.updateCamera(dt, api, false);
@@ -276,6 +288,8 @@ class FirstPersonController {
   clearInput() {
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.touchDeltaX = 0;
+    this.touchDeltaY = 0;
     this.motor.clearRequests();
     this.sprinting = false;
   }
@@ -293,6 +307,7 @@ window.MossFP = {
   transformMove: function (mx, my) { return controller.transformMove(mx, my); },
   facingAngle: function () { return controller.facingAngle(); },
   clearInput: function () { controller.clearInput(); },
+  addTouchLook: function (x,y) { if(controller.active){controller.touchDeltaX += Number(x)||0;controller.touchDeltaY += Number(y)||0;} },
   requestPointerLock: function () { controller.requestPointerLock(); },
   releasePointerLock: function () { controller.releasePointerLock(); },
   isPointerLocked: function () { return controller.pointerLocked; },
