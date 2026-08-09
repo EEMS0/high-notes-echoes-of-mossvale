@@ -65,7 +65,7 @@
     appearance = sanitizeAppearance(appearance);
     ctx.save();
     ctx.globalCompositeOperation = 'source-atop';
-    ctx.globalAlpha=.22;ctx.fillStyle=color('body',appearance.body);ctx.beginPath();ctx.arc(x,y-size*.59,size*.145,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=.22;ctx.fillStyle=color('body',appearance.body);ctx.beginPath();ctx.arc(x,footY-size*.59,size*.145,0,Math.PI*2);ctx.fill();
     ctx.globalAlpha = .18;
     ctx.fillStyle = color('outfit', appearance.outfit);
     ctx.fillRect(x-size*.34, footY-size*.48, size*.68, size*.43);

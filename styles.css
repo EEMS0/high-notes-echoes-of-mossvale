@@ -4637,13 +4637,13 @@ body.first-person .fp-reticle.is-visible { opacity: 1; }
 :root{
   --ui-space-1:clamp(.35rem,.6vw,.55rem);--ui-space-2:clamp(.65rem,1vw,.9rem);
   --ui-space-3:clamp(.9rem,1.5vw,1.35rem);--ui-space-4:clamp(1.2rem,2vw,2rem);
-  --ui-tap:max(44px,2.75rem);--ui-panel:min(94vw,92rem);--ui-reading:min(72ch,100%);
+  --ui-tap:max(44px,2.75rem);--ui-panel:min(100%,92rem);--ui-reading:min(72ch,100%);
   --safe-top:max(env(safe-area-inset-top),.4rem);--safe-right:max(env(safe-area-inset-right),.4rem);
   --safe-bottom:max(env(safe-area-inset-bottom),.4rem);--safe-left:max(env(safe-area-inset-left),.4rem)
 }
 .feature-card,.modal-card{max-width:var(--ui-panel);max-height:calc(var(--app-height,100vh) - var(--safe-top) - var(--safe-bottom) - 1rem);overflow:auto;overscroll-behavior:contain}
 .game-button,.icon-button,select,input[type="text"],input:not([type]){min-height:var(--ui-tap)}
-.settings-card{width:min(94vw,76rem);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--ui-space-2)}
+.settings-card{width:min(100%,76rem);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--ui-space-2);overflow:hidden}
 .settings-tabs,.shop-filters{display:flex;gap:.45rem;overflow-x:auto;padding:.25rem .1rem .55rem;scrollbar-width:thin}
 .settings-tab,.shop-filter{min-height:var(--ui-tap);padding:.65rem 1rem;border:1px solid rgba(143,227,193,.25);border-radius:999px;background:rgba(7,27,24,.78);color:#dff8ec;font:800 clamp(.68rem,1vw,.82rem)/1.1 monospace;white-space:nowrap}
 .settings-tab[aria-selected="true"],.shop-filter[aria-selected="true"]{color:#071b18;background:linear-gradient(135deg,#56f0c4,#ffc857);box-shadow:0 0 22px rgba(86,240,196,.2)}
@@ -4654,7 +4654,7 @@ body.first-person .fp-reticle.is-visible { opacity: 1; }
 .setting-value{grid-column:2;justify-self:end;color:#ffc857;font:900 .78rem/1 monospace;min-width:3.5rem;text-align:right}
 .settings-reset-actions{display:flex;flex-wrap:wrap;gap:.5rem}.settings-footer{position:sticky;bottom:0;background:linear-gradient(0deg,#071b18 78%,transparent);padding-top:1rem}
 
-.character-creator-card{width:min(94vw,74rem)}
+.character-creator-card{width:min(100%,74rem);display:grid;grid-template-rows:auto minmax(0,1fr)}
 .character-creator-layout{display:grid;grid-template-columns:minmax(17rem,.8fr) minmax(24rem,1.35fr);gap:var(--ui-space-4)}
 .character-preview-stage{display:grid;place-items:center;align-content:center;min-height:25rem;border:1px solid rgba(86,240,196,.22);border-radius:24px;background:radial-gradient(circle at 50% 68%,rgba(86,240,196,.14),transparent 45%),linear-gradient(160deg,#103b35,#081c24);overflow:hidden}
 .character-preview-stage canvas{width:min(100%,22rem);height:auto;image-rendering:pixelated}.character-preview-stage p{max-width:28ch;text-align:center;color:#b9d6cd}
@@ -4681,7 +4681,119 @@ body.first-person.touch-capable .touch-utility{right:max(var(--safe-right),.6rem
 .shop-detail{position:sticky;top:0;align-self:start;padding:var(--ui-space-3);border:1px solid rgba(255,200,87,.25);border-radius:20px;background:linear-gradient(150deg,rgba(26,57,50,.92),rgba(7,22,31,.96))}.shop-detail h3{font-size:clamp(1.25rem,2vw,1.8rem)}.shop-detail dl div{display:flex;justify-content:space-between;gap:1rem;padding:.55rem 0;border-bottom:1px solid rgba(255,255,255,.08)}.shop-detail dt{color:#9dbbb3}.shop-detail dd{margin:0;font-weight:800;text-transform:capitalize}
 .adventure-item-icon{background-image:url('Sprites/UI/Adventure Items/adventure-items-sheet.png')!important;background-size:500% 400%!important;background-position:var(--item-x,0) var(--item-y,0)!important;background-repeat:no-repeat!important;image-rendering:pixelated}.shop-detail-icon{display:block;width:7rem;height:7rem;margin:.2rem auto 1rem}.inventory-detail-icon.adventure-item-icon{background-size:500% 400%!important}
 
-@media(max-width:760px),(max-height:520px){.feature-card,.modal-card{max-height:calc(var(--app-height,100vh) - .5rem);border-radius:14px}.settings-category{grid-template-columns:1fr}.settings-category .setting-row{min-height:4.3rem;padding:.75rem}.character-creator-layout{grid-template-columns:minmax(10rem,.65fr) minmax(18rem,1.35fr);gap:.7rem}.character-preview-stage{min-height:15rem}.character-options{gap:.45rem}.creator-field,.creator-choice{padding:.55rem}.creator-option{min-height:3.3rem}.shop-layout{grid-template-columns:1fr minmax(13rem,.68fr)}.tutorial-panel{left:var(--safe-left);bottom:var(--safe-bottom);transform:none;width:min(52vw,29rem);padding:.65rem .8rem}.tutorial-panel .game-button{min-height:38px}.hud .objective-card{max-width:36vw}}
+@media(max-width:760px),(max-height:520px){.feature-card,.modal-card{max-height:calc(var(--app-height,100vh) - .5rem);border-radius:14px}.settings-category{grid-template-columns:1fr}.settings-category .setting-row{min-height:4.3rem;padding:.75rem}.character-creator-layout{grid-template-columns:minmax(0,.65fr) minmax(0,1.35fr);gap:.7rem}.character-preview-stage{min-height:15rem}.character-options{gap:.45rem}.creator-field,.creator-choice{padding:.55rem}.creator-option{min-height:3.3rem}.shop-layout{grid-template-columns:minmax(0,1fr) minmax(0,13rem)}.tutorial-panel{left:var(--safe-left);bottom:var(--safe-bottom);transform:none;width:min(52vw,29rem);padding:.65rem .8rem}.tutorial-panel .game-button{min-height:38px}.hud .objective-card{max-width:36vw}}
 @media(max-width:640px) and (orientation:portrait){.character-creator-layout,.shop-layout{grid-template-columns:1fr}.character-preview-stage{min-height:12rem}.character-preview-stage canvas{width:12rem}.character-options{grid-template-columns:1fr}.shop-detail{position:static}.settings-category{grid-template-columns:1fr}}
 @media(min-width:1500px){.feature-card{width:min(90vw,92rem)}.inventory-layout,.map-layout,.production-layout{gap:clamp(1.25rem,2vw,2.5rem)}.shop-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){.shop-item,.tutorial-progress span:last-child{transition:none}.shop-item:hover{transform:none}}
+
+/* iPhone and other short landscape screens render the game inside a 16:9
+   shell.  Modal widths must therefore be based on that shell, never on 100vw.
+   Keep navigation fixed and scroll only the dense body of each interface. */
+@media (max-height: 520px) and (orientation: landscape) {
+  body { font-size: calc(13px * var(--interface-scale)); }
+  body.large-text,
+  body.large-text .game-shell { font-size: calc(14px * var(--interface-scale)); }
+
+  .panel-overlay,
+  .feature-screen,
+  .pause-screen,
+  .ending-screen {
+    padding: max(.25rem,var(--local-safe-top)) max(.25rem,var(--local-safe-right))
+      max(.25rem,var(--local-safe-bottom)) max(.25rem,var(--local-safe-left));
+  }
+
+  .feature-card,
+  .modal-card,
+  .pause-card,
+  .ending-card {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 12px;
+    padding: .65rem;
+  }
+
+  .panel-heading {
+    margin-bottom: .35rem;
+    padding-bottom: .25rem;
+  }
+
+  .panel-heading h2,
+  .pause-card h2,
+  .ending-card h2 {
+    font-size: clamp(1.15rem,5.5vh,1.45rem);
+  }
+
+  .panel-kicker { font-size: .55rem; }
+  .panel-intro { margin-bottom: .5rem; font-size: .72rem; }
+  .icon-button { width: 40px; height: 40px; min-height: 40px !important; }
+  .game-button { min-height: 40px; padding: .55em .8em; }
+
+  .settings-card {
+    height: 100%;
+    gap: .35rem;
+  }
+  .settings-tabs { padding-block: 0 .3rem; }
+  .settings-tab { min-height: 38px; padding: .5rem .75rem; }
+  .settings-list { padding: 0 .2rem .35rem; }
+  .settings-category { gap: .4rem; }
+  .settings-category .setting-row {
+    min-height: 3.65rem;
+    padding: .5rem .65rem;
+    border-radius: 11px;
+  }
+  .settings-footer {
+    position: static;
+    margin-top: 0;
+    padding-top: .4rem;
+  }
+  .settings-footer p { display: none; }
+
+  .character-creator-card {
+    height: 100%;
+    overflow: hidden;
+  }
+  .character-creator-layout {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .character-preview-stage {
+    min-height: 0;
+    border-radius: 14px;
+  }
+  .character-preview-stage canvas { width: min(100%,10.5rem); }
+  .character-preview-stage p { margin: .25rem .45rem; font-size: .7rem; }
+  .character-options {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: .2rem;
+  }
+  .creator-field,
+  .creator-choice { gap: .25rem; padding: .4rem; border-radius: 10px; }
+  .creator-field small { font-size: .62rem; }
+  .swatch-grid,
+  .choice-grid { grid-template-columns: repeat(auto-fit,minmax(3.35rem,1fr)); gap: .3rem; }
+  .creator-option { min-height: 3rem; padding: .25rem; border-radius: 9px; }
+  .creator-option span { width: 1.45rem; height: 1.45rem; }
+  .creator-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-top: .4rem;
+    background: linear-gradient(0deg,#071b18 78%,transparent);
+  }
+
+  .merchant-banner { grid-template-columns: 54px minmax(0,1fr); padding: .4rem .55rem; }
+  .merchant-portrait { width: 50px; }
+  .shop-layout { gap: .5rem; }
+  .shop-detail { padding: .65rem; border-radius: 12px; }
+  .shop-detail-icon { width: 4.25rem; height: 4.25rem; margin-bottom: .35rem; }
+
+  .production-hub-card {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 12px;
+  }
+}
