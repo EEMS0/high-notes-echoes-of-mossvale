@@ -58,7 +58,7 @@
       upAir:move('guitar-up-air','Sky Harmonic',{startup:.075,active:.09,recovery:.17,damage:7,baseKnockback:150,growth:2.2,angle:88,hitbox:{x:0,y:-64,w:48,h:60},animation:'attack_b',effect:'#9de8ff'}),
       downAir:move('guitar-down-air','Drop D',{startup:.14,active:.11,recovery:.28,damage:10,baseKnockback:190,growth:2.55,angle:285,hitbox:{x:12,y:4,w:44,h:54},animation:'attack_b',effect:'#d77cff'}),
       charge:move('guitar-charge','Power Chord',{startup:.38,active:.12,recovery:.33,damage:16,baseKnockback:245,growth:3.25,angle:35,hitbox:{x:45,y:-31,w:78,h:48},movement:42,animation:'special',effect:'#ff6680'}),
-      neutralSpecial:move('guitar-special','Riff Bolt',{startup:.18,active:.04,recovery:.26,damage:6,baseKnockback:128,growth:1.65,angle:30,hitbox:{x:30,y:-30,w:30,h:25},animation:'special',effect:'#62c7ff',projectile:{speed:430,life:1.25,radius:12}}),
+      neutralSpecial:move('guitar-special','Riff Bolt',{startup:.18,active:.04,recovery:.26,damage:6,baseKnockback:128,growth:1.65,angle:30,hitbox:{x:30,y:-30,w:30,h:25},animation:'special',effect:'#62c7ff',projectile:{speed:430,life:1.25,radius:12,style:'note'}}),
       sideSpecial:move('guitar-side-special','Amp Rush',{startup:.13,active:.18,recovery:.3,damage:11,baseKnockback:205,growth:2.65,angle:30,hitbox:{x:38,y:-28,w:68,h:44},movement:220,animation:'special',effect:'#7ce4d1'}),
       recovery:move('guitar-recovery','Encore Rise',{startup:.08,active:.22,recovery:.34,damage:7,baseKnockback:150,growth:1.9,angle:78,hitbox:{x:0,y:-43,w:56,h:74},animation:'special',effect:'#9de8ff',recoveryImpulse:{x:90,y:-520}}),
       ultimate:move('guitar-ultimate','Aurora Headliner',{startup:.42,active:.24,recovery:.48,damage:22,baseKnockback:285,growth:3.8,angle:45,hitbox:{x:0,y:-40,w:190,h:120},animation:'special',effect:'#f6e36d'})
@@ -78,25 +78,129 @@
       upAir:move('bass-up-air','Ceiling Rattle',{startup:.12,active:.12,recovery:.25,damage:10,baseKnockback:198,growth:2.7,angle:88,hitbox:{x:0,y:-67,w:58,h:64},animation:'attack_b',effect:'#ffc857'}),
       downAir:move('bass-down-air','Bass Drop',{startup:.19,active:.13,recovery:.36,damage:15,baseKnockback:250,growth:3.3,angle:282,hitbox:{x:8,y:7,w:54,h:58},animation:'special',effect:'#ff6680'}),
       charge:move('bass-charge','Earthshaker',{startup:.52,active:.14,recovery:.42,damage:21,baseKnockback:305,growth:4,angle:33,hitbox:{x:51,y:-33,w:92,h:54},movement:30,animation:'special',effect:'#ff6680',armour:.3}),
-      neutralSpecial:move('bass-special','Subwave',{startup:.25,active:.04,recovery:.34,damage:9,baseKnockback:185,growth:2.45,angle:25,hitbox:{x:34,y:-20,w:34,h:24},animation:'special',effect:'#ff9d57',projectile:{speed:310,life:1.5,radius:17,grounded:true}}),
+      neutralSpecial:move('bass-special','Subwave',{startup:.25,active:.04,recovery:.34,damage:9,baseKnockback:185,growth:2.45,angle:25,hitbox:{x:34,y:-20,w:34,h:24},animation:'special',effect:'#ff9d57',projectile:{speed:310,life:1.5,radius:17,grounded:true,style:'wave'}}),
       sideSpecial:move('bass-side-special','Freight Train',{startup:.2,active:.22,recovery:.4,damage:16,baseKnockback:270,growth:3.45,angle:29,hitbox:{x:48,y:-28,w:86,h:48},movement:180,animation:'special',effect:'#ff825c',armour:.2}),
       recovery:move('bass-recovery','Cabinet Lift',{startup:.12,active:.24,recovery:.42,damage:10,baseKnockback:190,growth:2.4,angle:80,hitbox:{x:0,y:-47,w:68,h:80},animation:'special',effect:'#ffc857',recoveryImpulse:{x:65,y:-455},armour:.12}),
       ultimate:move('bass-ultimate','Faultline Finale',{startup:.55,active:.28,recovery:.56,damage:28,baseKnockback:350,growth:4.6,angle:42,hitbox:{x:0,y:-36,w:230,h:110},animation:'special',effect:'#ff9d57',armour:.4})
     });
   }
 
+  function synthMoves() {
+    return Object.freeze({
+      neutral:move('synth-neutral','Pulse Tap',{startup:.07,active:.07,recovery:.14,damage:4,baseKnockback:112,growth:1.45,angle:30,hitbox:{x:30,y:-28,w:44,h:34},animation:'attack_a',effect:'#7ee7ff'}),
+      forward:move('synth-forward','Prism Key',{startup:.12,active:.09,recovery:.21,damage:8,baseKnockback:170,growth:2.25,angle:34,hitbox:{x:40,y:-29,w:62,h:42},movement:28,animation:'attack_b',effect:'#d77cff'}),
+      up:move('synth-up','Oscillator Lift',{startup:.1,active:.11,recovery:.22,damage:7,baseKnockback:158,growth:2.15,angle:84,hitbox:{x:3,y:-63,w:52,h:66},animation:'attack_b',effect:'#7ee7ff'}),
+      down:move('synth-down','Low-Pass Sweep',{startup:.13,active:.11,recovery:.22,damage:7,baseKnockback:142,growth:1.95,angle:18,hitbox:{x:35,y:-11,w:70,h:26},animation:'attack_a',effect:'#7df7a1'}),
+      dash:move('synth-dash','Phase Skip',{startup:.08,active:.1,recovery:.23,damage:8,baseKnockback:175,growth:2.3,angle:31,hitbox:{x:38,y:-25,w:62,h:38},movement:145,animation:'special',effect:'#62c7ff'}),
+      neutralAir:move('synth-neutral-air','Orbiting Keys',{startup:.08,active:.15,recovery:.18,damage:6,baseKnockback:135,growth:1.8,angle:48,hitbox:{x:0,y:-31,w:82,h:72},animation:'attack_a',effect:'#7ee7ff'}),
+      forwardAir:move('synth-forward-air','Sawtooth Slice',{startup:.095,active:.1,recovery:.2,damage:8,baseKnockback:174,growth:2.35,angle:35,hitbox:{x:40,y:-31,w:66,h:43},animation:'attack_b',effect:'#d77cff'}),
+      backAir:move('synth-back-air','Reverse Sample',{startup:.08,active:.08,recovery:.19,damage:8,baseKnockback:180,growth:2.4,angle:39,hitbox:{x:-36,y:-31,w:56,h:40},animation:'attack_a',effect:'#ff8bc8'}),
+      upAir:move('synth-up-air','High Frequency',{startup:.08,active:.1,recovery:.18,damage:7,baseKnockback:154,growth:2.2,angle:90,hitbox:{x:0,y:-67,w:50,h:62},animation:'attack_b',effect:'#9de8ff'}),
+      downAir:move('synth-down-air','Sub Oscillation',{startup:.15,active:.12,recovery:.28,damage:10,baseKnockback:190,growth:2.55,angle:283,hitbox:{x:8,y:5,w:48,h:55},animation:'special',effect:'#d77cff'}),
+      charge:move('synth-charge','Overdrive Stack',{startup:.42,active:.12,recovery:.34,damage:17,baseKnockback:255,growth:3.4,angle:36,hitbox:{x:46,y:-31,w:82,h:50},movement:35,animation:'special',effect:'#ff6680'}),
+      neutralSpecial:move('synth-special','Waveform Orb',{startup:.16,active:.04,recovery:.24,damage:6,baseKnockback:132,growth:1.75,angle:32,hitbox:{x:30,y:-30,w:28,h:24},animation:'special',effect:'#7ee7ff',projectile:{speed:365,life:1.55,radius:14,style:'wave'}}),
+      sideSpecial:move('synth-side-special','Phase Sequencer',{startup:.12,active:.17,recovery:.29,damage:10,baseKnockback:198,growth:2.65,angle:32,hitbox:{x:41,y:-29,w:72,h:44},movement:205,animation:'special',effect:'#d77cff'}),
+      recovery:move('synth-recovery','Arpeggio Warp',{startup:.08,active:.2,recovery:.32,damage:6,baseKnockback:145,growth:1.85,angle:82,hitbox:{x:0,y:-45,w:58,h:76},animation:'special',effect:'#7ee7ff',recoveryImpulse:{x:112,y:-505}}),
+      ultimate:move('synth-ultimate','Neon Starfield',{startup:.44,active:.26,recovery:.5,damage:23,baseKnockback:292,growth:3.9,angle:47,hitbox:{x:0,y:-42,w:220,h:130},animation:'special',effect:'#d77cff'})
+    });
+  }
+
+  function drumMoves() {
+    return Object.freeze({
+      neutral:move('drums-neutral','Stick Check',{startup:.065,active:.075,recovery:.14,damage:5,baseKnockback:120,growth:1.5,angle:28,hitbox:{x:31,y:-28,w:46,h:35},animation:'attack_a',effect:'#58e6da'}),
+      forward:move('drums-forward','Snare Crack',{startup:.12,active:.09,recovery:.23,damage:9,baseKnockback:190,growth:2.55,angle:33,hitbox:{x:42,y:-28,w:68,h:42},movement:35,animation:'attack_b',effect:'#ffc857'}),
+      up:move('drums-up','Cymbal Crash',{startup:.11,active:.11,recovery:.23,damage:8,baseKnockback:175,growth:2.4,angle:86,hitbox:{x:3,y:-64,w:58,h:68},animation:'attack_b',effect:'#f6e36d'}),
+      down:move('drums-down','Floor Tom',{startup:.15,active:.12,recovery:.26,damage:10,baseKnockback:180,growth:2.5,angle:21,hitbox:{x:37,y:-12,w:76,h:30},animation:'attack_a',effect:'#ff9d57'}),
+      dash:move('drums-dash','Marching Break',{startup:.095,active:.14,recovery:.28,damage:11,baseKnockback:210,growth:2.8,angle:29,hitbox:{x:42,y:-25,w:72,h:40},movement:165,animation:'attack_b',effect:'#58e6da',armour:.08}),
+      neutralAir:move('drums-neutral-air','Stick Cyclone',{startup:.075,active:.17,recovery:.2,damage:7,baseKnockback:148,growth:2,angle:46,hitbox:{x:0,y:-31,w:86,h:74},animation:'attack_a',effect:'#58e6da'}),
+      forwardAir:move('drums-forward-air','Air Snare',{startup:.11,active:.11,recovery:.23,damage:10,baseKnockback:205,growth:2.8,angle:35,hitbox:{x:43,y:-31,w:70,h:44},animation:'attack_b',effect:'#ffc857'}),
+      backAir:move('drums-back-air','Backbeat Bash',{startup:.09,active:.09,recovery:.22,damage:10,baseKnockback:210,growth:2.85,angle:38,hitbox:{x:-38,y:-30,w:60,h:42},animation:'attack_a',effect:'#ff9d57'}),
+      upAir:move('drums-up-air','Hi-Hat Lift',{startup:.09,active:.1,recovery:.21,damage:8,baseKnockback:176,growth:2.45,angle:89,hitbox:{x:0,y:-66,w:56,h:64},animation:'attack_b',effect:'#f6e36d'}),
+      downAir:move('drums-down-air','Kick Pedal Drop',{startup:.17,active:.13,recovery:.32,damage:13,baseKnockback:225,growth:3,angle:282,hitbox:{x:10,y:6,w:52,h:58},animation:'special',effect:'#ff6680'}),
+      charge:move('drums-charge','Thunder Fill',{startup:.46,active:.15,recovery:.38,damage:19,baseKnockback:278,growth:3.65,angle:35,hitbox:{x:49,y:-31,w:88,h:52},movement:30,animation:'special',effect:'#ff6680',armour:.18}),
+      neutralSpecial:move('drums-special','Rolling Tom',{startup:.2,active:.04,recovery:.29,damage:8,baseKnockback:168,growth:2.2,angle:24,hitbox:{x:31,y:-20,w:30,h:24},animation:'special',effect:'#58e6da',projectile:{speed:335,life:1.55,radius:16,grounded:true,style:'drum'}}),
+      sideSpecial:move('drums-side-special','Rolling Thunder',{startup:.16,active:.2,recovery:.34,damage:13,baseKnockback:238,growth:3.15,angle:31,hitbox:{x:45,y:-28,w:80,h:46},movement:188,animation:'special',effect:'#ffc857',armour:.12}),
+      recovery:move('drums-recovery','Cymbal Lift',{startup:.1,active:.23,recovery:.37,damage:8,baseKnockback:172,growth:2.2,angle:82,hitbox:{x:0,y:-47,w:64,h:80},animation:'special',effect:'#58e6da',recoveryImpulse:{x:82,y:-475}}),
+      ultimate:move('drums-ultimate','Worldbeat Cataclysm',{startup:.5,active:.3,recovery:.54,damage:26,baseKnockback:330,growth:4.35,angle:44,hitbox:{x:0,y:-38,w:240,h:118},animation:'special',effect:'#ffc857',armour:.3})
+    });
+  }
+
+  function microphoneMoves() {
+    return Object.freeze({
+      neutral:move('microphone-neutral','Mic Check',{startup:.055,active:.065,recovery:.12,damage:4,baseKnockback:104,growth:1.3,angle:31,hitbox:{x:29,y:-28,w:42,h:34},animation:'attack_a',effect:'#ff8bc8'}),
+      forward:move('microphone-forward','Resonant Palm',{startup:.09,active:.08,recovery:.18,damage:7,baseKnockback:158,growth:2.1,angle:36,hitbox:{x:38,y:-29,w:58,h:40},movement:42,animation:'attack_b',effect:'#ff8bc8'}),
+      up:move('microphone-up','High Register',{startup:.075,active:.1,recovery:.19,damage:7,baseKnockback:150,growth:2.05,angle:86,hitbox:{x:3,y:-62,w:50,h:64},animation:'attack_b',effect:'#f6d7ff'}),
+      down:move('microphone-down','Bassline Step',{startup:.1,active:.1,recovery:.2,damage:6,baseKnockback:137,growth:1.9,angle:19,hitbox:{x:34,y:-10,w:65,h:25},animation:'attack_a',effect:'#d77cff'}),
+      dash:move('microphone-dash','Stage Dive',{startup:.07,active:.11,recovery:.22,damage:8,baseKnockback:174,growth:2.35,angle:30,hitbox:{x:40,y:-24,w:66,h:39},movement:178,animation:'attack_b',effect:'#ff8bc8'}),
+      neutralAir:move('microphone-neutral-air','Harmony Halo',{startup:.055,active:.15,recovery:.15,damage:6,baseKnockback:126,growth:1.7,angle:48,hitbox:{x:0,y:-30,w:78,h:70},animation:'attack_a',effect:'#ff8bc8'}),
+      forwardAir:move('microphone-forward-air','Sonic Flourish',{startup:.08,active:.09,recovery:.17,damage:7,baseKnockback:158,growth:2.2,angle:36,hitbox:{x:39,y:-31,w:61,h:42},animation:'attack_b',effect:'#f6d7ff'}),
+      backAir:move('microphone-back-air','Refrain Kick',{startup:.065,active:.07,recovery:.16,damage:8,baseKnockback:180,growth:2.45,angle:39,hitbox:{x:-35,y:-30,w:53,h:38},animation:'attack_a',effect:'#d77cff'}),
+      upAir:move('microphone-up-air','Falsetto Flash',{startup:.065,active:.09,recovery:.16,damage:7,baseKnockback:145,growth:2.1,angle:90,hitbox:{x:0,y:-65,w:48,h:60},animation:'attack_b',effect:'#f6d7ff'}),
+      downAir:move('microphone-down-air','Drop the Mic',{startup:.13,active:.11,recovery:.25,damage:10,baseKnockback:188,growth:2.55,angle:284,hitbox:{x:10,y:5,w:46,h:54},animation:'special',effect:'#ff6680'}),
+      charge:move('microphone-charge','Belt Note',{startup:.36,active:.12,recovery:.3,damage:15,baseKnockback:235,growth:3.2,angle:39,hitbox:{x:44,y:-32,w:76,h:50},movement:35,animation:'special',effect:'#ff6680'}),
+      neutralSpecial:move('microphone-special','Echo Orb',{startup:.14,active:.04,recovery:.22,damage:5,baseKnockback:120,growth:1.55,angle:35,hitbox:{x:29,y:-30,w:28,h:24},animation:'special',effect:'#ff8bc8',projectile:{speed:405,life:1.3,radius:13,style:'voice'}}),
+      sideSpecial:move('microphone-side-special','Resonant Glide',{startup:.1,active:.17,recovery:.27,damage:9,baseKnockback:188,growth:2.5,angle:34,hitbox:{x:40,y:-28,w:68,h:43},movement:232,animation:'special',effect:'#d77cff'}),
+      recovery:move('microphone-recovery','High Note Rise',{startup:.065,active:.21,recovery:.3,damage:6,baseKnockback:140,growth:1.8,angle:84,hitbox:{x:0,y:-44,w:54,h:76},animation:'special',effect:'#f6d7ff',recoveryImpulse:{x:125,y:-540}}),
+      ultimate:move('microphone-ultimate','Choir of Stars',{startup:.4,active:.25,recovery:.46,damage:21,baseKnockback:276,growth:3.7,angle:48,hitbox:{x:0,y:-42,w:218,h:132},animation:'special',effect:'#ff8bc8'})
+    });
+  }
+
+  function violinMoves() {
+    return Object.freeze({
+      neutral:move('violin-neutral','Bow Tap',{startup:.05,active:.06,recovery:.115,damage:4,baseKnockback:108,growth:1.35,angle:27,hitbox:{x:31,y:-28,w:45,h:33},animation:'attack_a',effect:'#d8c5ff'}),
+      forward:move('violin-forward','Silver Thrust',{startup:.085,active:.075,recovery:.17,damage:8,baseKnockback:170,growth:2.3,angle:33,hitbox:{x:44,y:-29,w:72,h:36},movement:48,animation:'attack_b',effect:'#d8c5ff'}),
+      up:move('violin-up','Crescendo Arc',{startup:.075,active:.1,recovery:.18,damage:7,baseKnockback:155,growth:2.15,angle:87,hitbox:{x:4,y:-65,w:52,h:66},animation:'attack_b',effect:'#9de8ff'}),
+      down:move('violin-down','Pizzicato Sweep',{startup:.095,active:.09,recovery:.19,damage:6,baseKnockback:140,growth:1.95,angle:18,hitbox:{x:36,y:-10,w:68,h:24},animation:'attack_a',effect:'#d77cff'}),
+      dash:move('violin-dash','Tempo Lunge',{startup:.06,active:.1,recovery:.2,damage:9,baseKnockback:188,growth:2.55,angle:31,hitbox:{x:44,y:-27,w:72,h:38},movement:205,animation:'attack_b',effect:'#d8c5ff'}),
+      neutralAir:move('violin-neutral-air','Chamber Spin',{startup:.06,active:.14,recovery:.16,damage:6,baseKnockback:132,growth:1.8,angle:44,hitbox:{x:0,y:-30,w:80,h:70},animation:'attack_a',effect:'#d8c5ff'}),
+      forwardAir:move('violin-forward-air','Air Staccato',{startup:.07,active:.085,recovery:.17,damage:8,baseKnockback:174,growth:2.4,angle:34,hitbox:{x:42,y:-31,w:68,h:39},animation:'attack_b',effect:'#f6d7ff'}),
+      backAir:move('violin-back-air','Reverse Bow',{startup:.055,active:.065,recovery:.15,damage:8,baseKnockback:184,growth:2.5,angle:38,hitbox:{x:-38,y:-30,w:58,h:37},animation:'attack_a',effect:'#d77cff'}),
+      upAir:move('violin-up-air','Harmonic Point',{startup:.06,active:.085,recovery:.16,damage:7,baseKnockback:150,growth:2.15,angle:90,hitbox:{x:0,y:-68,w:46,h:64},animation:'attack_b',effect:'#9de8ff'}),
+      downAir:move('violin-down-air','Falling Cadence',{startup:.12,active:.1,recovery:.25,damage:10,baseKnockback:195,growth:2.65,angle:282,hitbox:{x:10,y:5,w:46,h:55},animation:'special',effect:'#d77cff'}),
+      charge:move('violin-charge','Grand Crescendo',{startup:.34,active:.11,recovery:.29,damage:16,baseKnockback:248,growth:3.35,angle:35,hitbox:{x:48,y:-30,w:82,h:44},movement:55,animation:'special',effect:'#ff6680'}),
+      neutralSpecial:move('violin-special','Bow Beam',{startup:.15,active:.035,recovery:.21,damage:5,baseKnockback:122,growth:1.6,angle:31,hitbox:{x:32,y:-29,w:28,h:20},animation:'special',effect:'#d8c5ff',projectile:{speed:510,life:1.05,radius:9,style:'bow'}}),
+      sideSpecial:move('violin-side-special','Tempo Lunge EX',{startup:.075,active:.15,recovery:.25,damage:10,baseKnockback:205,growth:2.75,angle:32,hitbox:{x:48,y:-28,w:78,h:39},movement:255,animation:'special',effect:'#f6d7ff'}),
+      recovery:move('violin-recovery','Crescendo Leap',{startup:.065,active:.2,recovery:.3,damage:6,baseKnockback:142,growth:1.85,angle:84,hitbox:{x:0,y:-46,w:52,h:76},animation:'special',effect:'#9de8ff',recoveryImpulse:{x:118,y:-525}}),
+      ultimate:move('violin-ultimate','Moonlit Concerto',{startup:.38,active:.24,recovery:.44,damage:22,baseKnockback:286,growth:3.85,angle:46,hitbox:{x:0,y:-40,w:210,h:122},animation:'special',effect:'#d8c5ff'})
+    });
+  }
+
   var FIGHTERS = Object.freeze({
     guitar:Object.freeze({
-      id:'guitar',name:'Guitar Virtuoso',shortName:'GUITAR',sprite:'eems',accent:'#f6e36d',
+      id:'guitar',name:'Aria · Guitar Virtuoso',shortName:'GUITAR',sprite:'eems',accent:'#f6e36d',
       description:'Fast pressure, flexible recovery, and precise riff projectiles.',weight:92,
       runSpeed:285,airSpeed:235,acceleration:1900,airAcceleration:980,jumpSpeed:520,gravity:1420,
       maxFall:650,friction:12,guardMax:100,moves:guitarMoves()
     }),
     bass:Object.freeze({
-      id:'bass',name:'Bass Breaker',shortName:'BASS',sprite:'bass-player',accent:'#ff9d57',
+      id:'bass',name:'Bram · Bass Breaker',shortName:'BASS',sprite:'bass-player',accent:'#ff9d57',
       description:'Heavy armour, stage control, and enormous launch power.',weight:116,
       runSpeed:238,airSpeed:195,acceleration:1500,airAcceleration:760,jumpSpeed:470,gravity:1500,
       maxFall:690,friction:10,guardMax:118,moves:bassMoves()
+    }),
+    synth:Object.freeze({
+      id:'synth',name:'Nyx · Synth Weaver',shortName:'SYNTH',sprite:'synth-performer',accent:'#7ee7ff',
+      description:'Technical space control, waveform projectiles, and slippery movement.',weight:86,
+      runSpeed:248,airSpeed:232,acceleration:1640,airAcceleration:1040,jumpSpeed:505,gravity:1320,
+      maxFall:615,friction:11,guardMax:91,moves:synthMoves()
+    }),
+    drums:Object.freeze({
+      id:'drums',name:'Taro · Drum Vanguard',shortName:'DRUMS',sprite:'drummer',accent:'#58e6da',
+      description:'Armoured rhythm pressure, rolling projectiles, and sturdy recovery.',weight:105,
+      runSpeed:262,airSpeed:205,acceleration:1700,airAcceleration:850,jumpSpeed:490,gravity:1450,
+      maxFall:670,friction:11,guardMax:110,moves:drumMoves()
+    }),
+    microphone:Object.freeze({
+      id:'microphone',name:'Solene · Voice Tempest',shortName:'VOICE',sprite:'singer',accent:'#ff8bc8',
+      description:'Fast aerial movement, resonant pressure, and the highest recovery.',weight:82,
+      runSpeed:302,airSpeed:270,acceleration:1960,airAcceleration:1180,jumpSpeed:540,gravity:1260,
+      maxFall:600,friction:12.5,guardMax:88,moves:microphoneMoves()
+    }),
+    violin:Object.freeze({
+      id:'violin',name:'Vesper · Violin Duelist',shortName:'VIOLIN',sprite:'violinist',accent:'#d8c5ff',
+      description:'Precise reach, rapid confirms, and razor-fast bow projectiles.',weight:88,
+      runSpeed:310,airSpeed:245,acceleration:2020,airAcceleration:1080,jumpSpeed:525,gravity:1350,
+      maxFall:625,friction:13,guardMax:94,moves:violinMoves()
     })
   });
 
@@ -163,6 +267,7 @@
     this.effects = [];
     this.keys = new Set();
     this.touch = {x:0,y:0,guard:false};
+    this.touchPointers = new Map();
     this.accumulator = 0;
     this.lastTime = performance.now();
     this.matchTime = MATCH_SECONDS;
@@ -194,9 +299,17 @@
     this.boundFrame = this.frame.bind(this);
     this.boundKeyDown = this.keyDown.bind(this);
     this.boundKeyUp = this.keyUp.bind(this);
+    this.boundReleaseInputs = this.releaseInputs.bind(this);
+    var arena = this;
     window.addEventListener('keydown',this.boundKeyDown,true);
     window.addEventListener('keyup',this.boundKeyUp,true);
-    if (window.MossSprites) window.MossSprites.preload(['eems','bass-player','combat-effects']);
+    window.addEventListener('blur',this.boundReleaseInputs);
+    document.addEventListener('visibilitychange',function () {
+      if (document.hidden) arena.releaseInputs();
+    });
+    if (window.MossSprites) window.MossSprites.preload([
+      'eems','bass-player','synth-performer','drummer','singer','violinist','combat-effects'
+    ]);
   }
 
   PlatformArena.prototype.network = function () {
@@ -219,9 +332,20 @@
     this.raf = 0;
   };
 
-  PlatformArena.prototype.stop = function (reason) {
+  PlatformArena.prototype.releaseInputs = function () {
     this.keys.clear();
+    this.touchPointers.clear();
     this.touch = {x:0,y:0,guard:false};
+    if (!this.root) return;
+    this.root.querySelectorAll('.arena-v2-controls button.pressed').forEach(function (button) {
+      button.classList.remove('pressed');
+      button.setAttribute('aria-pressed','false');
+    });
+  };
+
+  PlatformArena.prototype.stop = function (reason) {
+    this.releaseInputs();
+    document.body.classList.remove('arena-match-active');
     var leavingArena = reason === 'hub-closed' || reason === 'tab-changed';
     if (this.active && this.matchType === 'online' && leavingArena) {
       this.abandonOnlineMatch(reason);
@@ -320,6 +444,7 @@
   };
 
   PlatformArena.prototype.renderLobby = function () {
+    document.body.classList.remove('arena-match-active');
     var self = this;
     var network = this.network();
     var current = this.integration && this.integration.snapshot ? this.integration.snapshot() : null;
@@ -346,13 +471,15 @@
       '<div class="arena-rating"><strong>' + Math.floor(profile.rating || 1000) + '</strong><span>legacy casual rating · ' +
       Math.floor(pvp.matches || 0) + ' V2 sets</span></div></div>' +
       resultHtml +
-      '<section class="arena-v2-fighters" aria-labelledby="fighterSelectTitle"><div><p class="panel-kicker">COMPLETE STARTER IDENTITIES</p><h4 id="fighterSelectTitle">Choose an instrument fighter</h4></div>' +
+      '<section class="arena-v2-fighters" aria-labelledby="fighterSelectTitle"><div><p class="panel-kicker">SIX ORIGINAL HEADLINERS</p><h4 id="fighterSelectTitle">Choose an instrument fighter</h4><p>Every fighter has directional attacks, aerials, a charged strike, three specials, recovery, and a unique ultimate.</p></div>' +
       Object.keys(FIGHTERS).map(function (id) {
         var fighter = FIGHTERS[id];
         return '<button type="button" data-v2-fighter="' + id + '" class="arena-v2-fighter ' +
           (self.selectedInstrument === id ? 'active' : '') + '" style="--fighter-accent:' + fighter.accent + '">' +
           '<span class="arena-v2-fighter-portrait ' + id + '" aria-hidden="true"></span><span><strong>' +
-          escapeHtml(fighter.name) + '</strong><small>' + escapeHtml(fighter.description) + '</small></span></button>';
+          escapeHtml(fighter.name) + '</strong><small>' + escapeHtml(fighter.description) + '</small><em>' +
+          escapeHtml(fighter.moves.neutralSpecial.name + ' · ' + fighter.moves.sideSpecial.name + ' · ' +
+            fighter.moves.recovery.name + ' · ' + fighter.moves.ultimate.name) + '</em></span></button>';
       }).join('') + '</section>' +
       '<section class="arena-v2-modes"><p class="panel-kicker">RULESET STATUS</p><div>' +
       PLANNED_MODES.map(function (mode) {
@@ -381,7 +508,7 @@
       '<section class="arena-v2-stage-preview"><div><p class="panel-kicker">POLISHED STARTER STAGE</p><h4>Mossvale Amphitheatre</h4>' +
       '<p>Three drop-through platforms, stable spawn points, wide recovery lanes, camera-safe blast boundaries, and a hazard-free competitive layout.</p></div>' +
       '<div class="arena-v2-stage-thumb" role="img" aria-label="Mossvale Amphitheatre stage preview"></div></section>' +
-      '<p class="arena-legal">Stock Battle and Guitar/Bass are the completed V2 competitive slice. Other modes are displayed as foundations—not falsely advertised as finished. Online matches use the production relay and remain casual under host authority.</p>' +
+      '<p class="arena-legal">Stock Battle and all six original instrument fighters are playable. Other modes are displayed as foundations—not falsely advertised as finished. Online matches use the production relay and remain casual under host authority.</p>' +
       '</div>';
 
     Array.prototype.forEach.call(this.root.querySelectorAll('[data-v2-fighter]'),function (button) {
@@ -433,7 +560,8 @@
     var current = this.integration && this.integration.snapshot ? this.integration.snapshot() : null;
     var name = current && current.state.onlineProfile && current.state.onlineProfile.displayName || 'Mossvale Player';
     var pads = navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(),Boolean) : [];
-    var opponentInstrument = this.selectedInstrument === 'guitar' ? 'bass' : 'guitar';
+    var roster = Object.keys(FIGHTERS);
+    var opponentInstrument = roster[(Math.max(0,roster.indexOf(this.selectedInstrument))+1)%roster.length];
     var players = [
       {id:'local-p1',ownerId:'local-p1',name:name,instrument:this.selectedInstrument,colour:this.playerColour(0),controller:null},
       {id:type === 'training' ? 'training-bot' : 'local-p2',ownerId:type === 'training' ? 'bot' : 'local-p2',
@@ -551,6 +679,7 @@
     this.snapshotHost = '';
     this.camera = {x:600,y:325,zoom:.76,targetX:600,targetY:325,targetZoom:.76};
     this.keys.clear();
+    this.touchPointers.clear();
     this.touch = {x:0,y:0,guard:false};
     this.renderMatch();
     this.ensureLoop();
@@ -559,6 +688,7 @@
 
   PlatformArena.prototype.renderMatch = function () {
     if (!this.root) return;
+    document.body.classList.add('arena-match-active');
     var self = this;
     var networkCopy = this.matchType === 'online' ? 'Private room · host-authoritative casual simulation' :
       this.matchType === 'local' ? 'Same-device versus · independent input ownership' : 'Offline training · recovery-aware rival';
@@ -596,19 +726,45 @@
     Array.prototype.forEach.call(this.root.querySelectorAll('[data-v2-action]'),function (button) {
       button.addEventListener('pointerdown',function (event) {
         event.preventDefault();
+        event.stopPropagation();
+        button.classList.add('pressed');
+        button.setAttribute('aria-pressed','true');
+        if (button.setPointerCapture && event.pointerId != null) {
+          try { button.setPointerCapture(event.pointerId); } catch (error) {}
+        }
         self.queueLocalAction(button.dataset.v2Action);
       });
+      function releaseAction(event) {
+        if (event) event.preventDefault();
+        button.classList.remove('pressed');
+        button.setAttribute('aria-pressed','false');
+      }
+      button.addEventListener('pointerup',releaseAction);
+      button.addEventListener('pointercancel',releaseAction);
+      button.addEventListener('lostpointercapture',releaseAction);
     });
     Array.prototype.forEach.call(this.root.querySelectorAll('[data-v2-hold]'),function (button) {
       var code = 'Touch' + button.dataset.v2Hold.charAt(0).toUpperCase() + button.dataset.v2Hold.slice(1);
       function down(event) {
         event.preventDefault();
+        event.stopPropagation();
+        self.touchPointers.set(event.pointerId,code);
         self.keys.add(code);
+        button.classList.add('pressed');
+        button.setAttribute('aria-pressed','true');
         if (button.setPointerCapture && event.pointerId != null) {
           try { button.setPointerCapture(event.pointerId); } catch (error) {}
         }
       }
-      function up(event) { event.preventDefault(); self.keys.delete(code); }
+      function up(event) {
+        event.preventDefault();
+        self.touchPointers.delete(event.pointerId);
+        var stillHeld=false;
+        self.touchPointers.forEach(function (heldCode) { if(heldCode===code)stillHeld=true; });
+        if(!stillHeld)self.keys.delete(code);
+        button.classList.remove('pressed');
+        button.setAttribute('aria-pressed','false');
+      }
       button.addEventListener('pointerdown',down);
       button.addEventListener('pointerup',up);
       button.addEventListener('pointercancel',up);
@@ -1748,9 +1904,23 @@
   PlatformArena.prototype.drawProjectiles = function (ctx) {
     this.projectiles.forEach(function (projectile) {
       ctx.save();ctx.fillStyle=projectile.colour;ctx.shadowColor=projectile.colour;ctx.shadowBlur=18;
-      ctx.beginPath();ctx.arc(projectile.x,projectile.y,projectile.radius,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(projectile.x,projectile.y,
-        Math.max(3,projectile.radius*.45),0,Math.PI*2);ctx.stroke();ctx.restore();
+      var style=projectile.move&&projectile.move.projectile&&projectile.move.projectile.style||'note';
+      var r=projectile.radius,spin=performance.now()/180;
+      ctx.translate(projectile.x,projectile.y);
+      if(style==='wave'){
+        ctx.strokeStyle=projectile.colour;ctx.lineWidth=Math.max(3,r*.28);ctx.beginPath();
+        for(var x=-r*1.25;x<=r*1.25;x+=2){var y=Math.sin(x*.38+spin)*r*.42;if(x===-r*1.25)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();
+      }else if(style==='drum'){
+        ctx.rotate(spin*.35);ctx.fillRect(-r*.82,-r*.65,r*1.64,r*1.3);ctx.strokeStyle='#f7fff9';ctx.lineWidth=2;ctx.strokeRect(-r*.82,-r*.65,r*1.64,r*1.3);
+      }else if(style==='voice'){
+        ctx.strokeStyle=projectile.colour;ctx.lineWidth=3;for(var ring=1;ring<=3;ring++){ctx.globalAlpha=1-ring*.2;ctx.beginPath();ctx.arc(0,0,r*ring*.42,-1.05,1.05);ctx.stroke();}
+      }else if(style==='bow'){
+        ctx.rotate(Math.atan2(0,projectile.vx));ctx.fillRect(-r*1.65,-r*.22,r*3.3,r*.44);ctx.fillStyle='#fff';ctx.fillRect(r*.7,-r*.12,r*.85,r*.24);
+      }else{
+        ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(0,0,Math.max(3,r*.45),0,Math.PI*2);ctx.stroke();
+      }
+      ctx.restore();
     });
   };
 

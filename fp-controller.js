@@ -76,6 +76,7 @@ class FirstPersonController {
         self.mouseDeltaY = 0;
         /* Losing the pointer mid-play must not leave the view drifting. */
         var api = bridge();
+        if (api && typeof api.endAttack === 'function') api.endAttack();
         if (self.active && api && api.isPlaying()) {
           var controller = window.__HIGH_NOTES__ && window.__HIGH_NOTES__.controller;
           if (controller) controller.togglePause(true);
@@ -88,6 +89,24 @@ class FirstPersonController {
       /* Mouse deltas are displacement, never scaled by dt. */
       self.mouseDeltaX += event.movementX || 0;
       self.mouseDeltaY += event.movementY || 0;
+    });
+
+    /* Pointer lock previously consumed the mouse for looking without routing
+       its primary button into the campaign combat state. The first click still
+       acquires lock; once locked, press/hold/release mirrors keyboard attacks. */
+    document.addEventListener('mousedown', function (event) {
+      var api = bridge();
+      if (event.button !== 0 || !self.active || !self.pointerLocked || !api || !api.isPlaying()) return;
+      event.preventDefault();
+      if (typeof api.beginAttack === 'function') api.beginAttack();
+    });
+    document.addEventListener('mouseup', function (event) {
+      if (event.button !== 0 || !self.active) return;
+      var api = bridge();
+      if (api && typeof api.endAttack === 'function') api.endAttack();
+    });
+    this.canvas.addEventListener('contextmenu', function (event) {
+      if (self.active) event.preventDefault();
     });
 
     this.canvas.addEventListener('click', function () {
@@ -130,6 +149,8 @@ class FirstPersonController {
         this.pitch = 0;
       }
     } else {
+      var inactiveApi = bridge();
+      if (inactiveApi && typeof inactiveApi.endAttack === 'function') inactiveApi.endAttack();
       this.releasePointerLock();
       this.interaction.clear();
     }

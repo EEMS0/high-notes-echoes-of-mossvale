@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "description": "Integrated HIGH NOTES hero and instrument sprite sheets. Instruments are held within each authored pose so equipment follows the player rather than floating as a separate layer.",
+  "grid": {
+    "columns": ["south", "north", "west", "east"],
+    "rows": ["idle", "walk", "attack", "dash"]
+  },
+  "sheets": {
+    "guitar": "hero-instrument-guitar.png",
+    "bass": "hero-instrument-bass.png",
+    "synth": "hero-instrument-synth.png",
+    "drums": "hero-instrument-drums.png",
+    "microphone": "hero-instrument-microphone.png",
+    "violin": "hero-instrument-violin.png"
+  }
+}

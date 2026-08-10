@@ -4,13 +4,11 @@
   /*
    * HIGH NOTES equipment rig
    *
-   * This is deliberately a hybrid renderer. The authored hero remains the body
-   * layer and the existing instrument-mastery atlas supplies the item art. The
-   * registry below owns attachment points, hand anchors, layer changes and
-   * combat origins. Complex authored combined poses can be registered later via
-   * `combinedSprite` without changing gameplay or save data.
+   * Authored combined hero/instrument sheets own the visible pose. This rig
+   * continues to own hand anchors, combat origins, animation timing and network
+   * state, keeping presentation upgrades independent from combat balance.
    */
-  var SCHEMA_VERSION = 1;
+  var SCHEMA_VERSION = 2;
   var CHARACTER_ID = 'player-default';
   var VALID_LAYERS = Object.freeze(['rear-effects', 'rear', 'body', 'front', 'front-effects']);
 
@@ -313,12 +311,12 @@
   function describe() {
     return {
       schemaVersion:SCHEMA_VERSION,
-      architecture:'hybrid-layered-attachments',
+      architecture:'integrated-instrument-sheets-with-layered-cosmetics',
       characterIds:[CHARACTER_ID],
       equipmentIds:Object.keys(EQUIPMENT),
       animationIds:Object.keys(ANIMATIONS),
       layers:VALID_LAYERS.slice(),
-      assetNote:'Uses the existing authored hero and instrument-mastery atlases; no replacement binary art is claimed.'
+      assetNote:'Six original 4x4 integrated hero/instrument sheets are selected at runtime; directional hair and colour palettes remain composable.'
     };
   }
 

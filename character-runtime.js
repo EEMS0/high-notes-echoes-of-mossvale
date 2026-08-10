@@ -24,7 +24,7 @@
   var DEFAULTS = { body:'fern', hair:'tuft', outfit:'grove', accent:'mint' };
   var overlay = new Image();
   overlay.decoding = 'async';
-  overlay.src = 'assets/sprites/runtime/hero-customization-overlays.png';
+  overlay.src = 'assets/sprites/runtime/hero-hair-directions.png';
 
   function allowed(group, value) {
     return OPTIONS[group].some(function (entry) { return entry.id === value; });
@@ -45,12 +45,19 @@
     var found = OPTIONS[group].find(function (entry) { return entry.id === id; });
     return found ? found.color : OPTIONS[group][0].color;
   }
-  function drawHair(ctx, appearance, x, y, size) {
+  function normaliseDirection(direction) {
+    return ['south','north','west','east'].indexOf(direction) >= 0 ? direction : 'south';
+  }
+  function drawHair(ctx, appearance, x, y, size, direction) {
     var hairIndex = OPTIONS.hair.findIndex(function (entry) { return entry.id === appearance.hair; });
+    direction = normaliseDirection(direction);
     if (overlay.complete && overlay.naturalWidth) {
-      var cell = overlay.naturalWidth / 4;
-      var hairSize=size*.30;
-      ctx.drawImage(overlay, hairIndex * cell, 0, cell, overlay.naturalHeight, x - hairSize / 2, y - size * .73, hairSize, hairSize);
+      var cellW = overlay.naturalWidth / 4;
+      var cellH = overlay.naturalHeight / 4;
+      var directionRow = {south:0,north:1,west:2,east:3}[direction];
+      var hairSize=size*.48;
+      ctx.drawImage(overlay, hairIndex * cellW, directionRow * cellH, cellW, cellH,
+        x - hairSize / 2, y - size * .83, hairSize, hairSize);
       return;
     }
     ctx.fillStyle = color('accent', appearance.accent);
@@ -61,20 +68,32 @@
     else { ctx.moveTo(x-size*.2,y-size*.54);ctx.lineTo(x-size*.05,y-size*.75);ctx.lineTo(x+size*.07,y-size*.57);ctx.lineTo(x+size*.2,y-size*.72);ctx.lineTo(x+size*.2,y-size*.52); }
     ctx.fill();
   }
-  function decorate(ctx, appearance, x, footY, size) {
+  function decorate(ctx, appearance, x, footY, size, direction) {
     appearance = sanitizeAppearance(appearance);
+    direction = normaliseDirection(direction);
     ctx.save();
     ctx.globalCompositeOperation = 'source-atop';
     ctx.globalAlpha=.22;ctx.fillStyle=color('body',appearance.body);ctx.beginPath();ctx.arc(x,footY-size*.59,size*.145,0,Math.PI*2);ctx.fill();
     ctx.globalAlpha = .18;
     ctx.fillStyle = color('outfit', appearance.outfit);
-    ctx.fillRect(x-size*.34, footY-size*.48, size*.68, size*.43);
+    /* Keep the palette wash on the torso/cape. Wide rectangles also coloured
+       an instrument held across the body, making it appear detached. */
+    ctx.beginPath();
+    if (direction === 'west' || direction === 'east') {
+      ctx.ellipse(x,footY-size*.31,size*.21,size*.25,0,0,Math.PI*2);
+    } else {
+      ctx.ellipse(x,footY-size*.30,size*.25,size*.25,0,0,Math.PI*2);
+    }
+    ctx.fill();
     ctx.restore();
     ctx.save();
-    drawHair(ctx, appearance, x, footY, size);
-    ctx.strokeStyle = color('accent', appearance.accent);
-    ctx.lineWidth = Math.max(2, size*.035);
-    ctx.beginPath(); ctx.arc(x, footY-size*.34, size*.27, .15, Math.PI-.15); ctx.stroke();
+    drawHair(ctx, appearance, x, footY, size, direction);
+    /* Accent is an attached clasp, never a free-floating semicircle. */
+    ctx.fillStyle = color('accent', appearance.accent);
+    ctx.globalAlpha = .92;
+    ctx.translate(x + (direction === 'west' ? -size*.04 : direction === 'east' ? size*.04 : 0),footY-size*.39);
+    ctx.rotate(Math.PI/4);
+    ctx.fillRect(-size*.027,-size*.027,size*.054,size*.054);
     ctx.restore();
   }
 

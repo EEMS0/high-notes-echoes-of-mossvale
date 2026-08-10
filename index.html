@@ -15,19 +15,19 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=26">
+  <link rel="stylesheet" href="styles.css?v=28">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
-  <script src="equipment-runtime.js?v=2" defer></script>
-  <script src="character-runtime.js?v=2" defer></script>
+  <script src="equipment-runtime.js?v=3" defer></script>
+  <script src="character-runtime.js?v=3" defer></script>
   <script src="input-manager.js?v=3" defer></script>
-  <script src="game.js?v=25" defer></script>
+  <script src="game.js?v=28" defer></script>
   <script src="controller-ui.js?v=2" defer></script>
   <script src="v1-expansion.js?v=10" defer></script>
-  <script src="v2-platform-fighter.js?v=29" defer></script>
+  <script src="v2-platform-fighter.js?v=31" defer></script>
   <!-- First-person view. ES modules defer by default and load after the classic
        scripts above, so game.js feature-detects window.MossFP every frame. -->
-  <script type="module" src="fp-controller.js?v=4"></script>
+  <script type="module" src="fp-controller.js?v=5"></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -167,7 +167,7 @@
     </section>
 
     <section id="tutorialPanel" class="tutorial-panel" aria-live="polite" hidden>
-      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 10</span><span id="tutorialProgressFill"></span></div>
+      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 11</span><span id="tutorialProgressFill"></span></div>
       <p class="panel-kicker">REHEARSAL GROVE</p>
       <h2 id="tutorialStepTitle">Find your footing</h2>
       <p id="tutorialStepText">Move through the glowing rehearsal circle.</p>

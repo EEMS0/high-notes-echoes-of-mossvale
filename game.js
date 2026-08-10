@@ -18,27 +18,41 @@
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
   var GAME_VERSION = '2.0.0';
-  var SAVE_SCHEMA_VERSION = 21;
+  var SAVE_SCHEMA_VERSION = 22;
   var NOTE_ORDER = ['C', 'E', 'G', 'B'];
   var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
   var SPRITE_PATH = 'assets/sprites/runtime/';
   var spriteImages = {};
+  var INTEGRATED_HERO_SPRITES = Object.freeze({
+    guitar:'hero-instrument-guitar', bass:'hero-instrument-bass', synth:'hero-instrument-synth',
+    drums:'hero-instrument-drums', microphone:'hero-instrument-microphone', violin:'hero-instrument-violin'
+  });
   /*
    * Only atlases that still own a gameplay system are loaded eagerly. Character
    * art is now supplied by MossSprites, so retaining the old NPC/enemy atlases
    * here would decode more than 100 MB of duplicate texture data on mobile.
    */
-  ['hero', 'items', 'instrument-mastery'].forEach(function (name) {
+  function loadGameplaySprite(name, filename) {
+    if (spriteImages[name]) return spriteImages[name];
     var image = new Image();
     image.decoding = 'async';
-    image.onload = function () { canvasDirty = true; };
+    image.onload = function () {
+      canvasDirty = true;
+      if (name.indexOf('hero-instrument-') === 0 && settings && settings.reducedMotion && characterDraft && byId('characterCreator') && !byId('characterCreator').hidden) {
+        drawCharacterPreview();
+      }
+    };
     image.onerror = function () {
       image.failed = true;
-      reportRuntimeIssue('Legacy gameplay atlas "' + name + '" failed to load.', new Error(image.src));
+      reportRuntimeIssue('Gameplay sprite "' + name + '" failed to load.', new Error(image.src));
     };
-    image.src = SPRITE_PATH + name + '-sheet.png';
+    image.src = SPRITE_PATH + filename;
     spriteImages[name] = image;
-  });
+    return image;
+  }
+  [
+    ['hero','hero-sheet.png'], ['items','items-sheet.png'], ['instrument-mastery','instrument-mastery-sheet.png']
+  ].forEach(function (entry) { loadGameplaySprite(entry[0],entry[1]); });
   var worldMapImage = new Image();
   worldMapImage.decoding = 'async';
   worldMapImage.onload = function () { canvasDirty = true; if (mapOpen) drawMap(); };
@@ -88,6 +102,13 @@
   function spriteAvailable(name) {
     var image = spriteImages[name];
     return !!image && image.complete && image.naturalWidth > 0 && !image.failed;
+  }
+
+  function integratedHeroSpriteName(instrumentId) {
+    var name = INTEGRATED_HERO_SPRITES[instrumentId];
+    if (!name) return 'hero';
+    loadGameplaySprite(name,name + '.png');
+    return name;
   }
 
   function drawSpriteCell(name, row, col, x, y, size, anchorY, alpha) {
@@ -451,7 +472,11 @@
         created:false, displayName:'Echo', pronouns:'they',
         appearance:{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'}
       },
-      tutorial: {status:'not-started',step:0,rewardClaimed:false},
+      tutorial: {
+        status:'not-started',step:0,rewardClaimed:false,
+        prologueX:210,prologueY:500,
+        returnStage:1,returnX:1400,returnY:1045
+      },
       inventory: {
         consumables:{'field-tonic':0,'tempo-tea':0,'spore-tonic':0,'thorn-ward':0,'melody-map':0,'grove-blessing':0,'echo-amplifier':0,'weed-whisperer':0,'revival-seed':0},
         equipmentOwned:[],
@@ -1212,6 +1237,7 @@
     });
     var gone = new Set(state.defeated || []);
     enemies.forEach(function (e) { if (gone.has(e.id)) e.dead = true; });
+    if (currentLevel && currentLevel.isPrologue) return;
     MINIBOSS_DEFS.filter(function (definition) {
       return definition.stage === state.stage && state.miniBossesDefeated.indexOf(definition.id) < 0;
     }).forEach(function (definition,index) {
@@ -1327,6 +1353,51 @@
   };
 
   /*
+   * The prologue is deliberately not LEVELS[0]. Campaign stage numbers, map
+   * travel, quests, portals and multiplayer packets continue to use 1â€“4. This
+   * isolated scene is entered only while tutorialRuntime.active and restores
+   * the exact campaign location when it ends or a replay is skipped.
+   */
+  var PROLOGUE_OBJECTS = [
+    {id:'rehearsal-resonator',kind:'resonator',x:455,y:500,label:'REHEARSAL RESONATOR'},
+    {id:'rhythm-dummy-a',kind:'dummy',x:790,y:370,label:'RHYTHM DUMMY'},
+    {id:'rhythm-dummy-b',kind:'dummy',x:790,y:630,label:'RHYTHM DUMMY'},
+    {id:'mossvale-threshold',kind:'gate',x:1420,y:500,label:'MOSSVALE THRESHOLD'}
+  ];
+  var PROLOGUE_LEVEL = {
+    id:'prologue',isPrologue:true,name:'Rehearsal Grove',world:{w:1600,h:1000},
+    spawn:{x:210,y:500},hub:{x:800,y:500},boss:{x:1540,y:940},seed:22610,
+    weeds:[],shrines:[],drums:[],speakers:[],enemies:[],tokens:[],collectibles:[],portals:[],
+    npcs:[{
+      id:'maestro-linden',spriteId:'travelling-bard',name:'MAESTRO LINDEN',x:610,y:500,
+      color:'#f6e36d',occupation:'keeping the rehearsal safe',ambient:true,collisionRadius:14
+    }],
+    obstacles:[
+      {x:80,y:85,r:76},{x:280,y:78,r:62},{x:520,y:82,r:70},{x:810,y:72,r:66},
+      {x:1080,y:82,r:72},{x:1340,y:78,r:65},{x:1530,y:100,r:82},
+      {x:75,y:910,r:80},{x:330,y:925,r:66},{x:600,y:918,r:72},{x:1010,y:922,r:70},
+      {x:1280,y:918,r:62},{x:1530,y:900,r:84},{x:1010,y:305,r:42},{x:1100,y:700,r:45}
+    ],
+    water:[{x:1165,y:290,rx:112,ry:50},{x:1165,y:730,rx:118,ry:54}],
+    labels:[[800,170,'REHEARSAL GROVE'],[455,430,'LISTENING GLADE'],[790,285,'RHYTHM CLEARING'],[1370,420,'MOSSVALE THRESHOLD']],
+    zones:[
+      [300,500,330,310,'rgba(30,88,70,.98)','rgba(20,65,57,.86)'],
+      [790,500,410,350,'rgba(38,72,82,.98)','rgba(26,58,67,.86)'],
+      [1310,500,310,300,'rgba(77,54,79,.98)','rgba(48,42,66,.86)']
+    ],
+    routes:[
+      [210,500,330,500,455,500],[455,500,620,500,790,500],
+      [790,500,1010,420,1190,500],[1190,500,1320,500,1420,500],
+      [790,500,790,430,790,370],[790,500,790,570,790,630]
+    ],
+    palette:{
+      ground:'#0b2528',fade:'rgba(11,37,40,0)',routeOuter:'rgba(39,76,68,.92)',route:'#87755a',
+      routeGlow:'rgba(86,240,196,.24)',border:'#4e806c',waterA:'#327f87',waterB:'#153e54',
+      waterLine:'#66d7c4',grass:['#3f8263','#357258'],flowers:['#56f0c4','#ffc857','#8fb6ff','#d77cff'],obstacle:'tree'
+    }
+  };
+
+  /*
    * Production NPCs are distributed across the existing regions as ambient
    * residents. They use the same schedule/dialogue/interaction pipeline as the
    * story cast, so every commissioned sheet is live rather than merely shipped.
@@ -1378,15 +1449,17 @@
     });
   });
 
-  function preloadLevelSprites(stage) {
+  function preloadLevelSprites(stage, selectedLevel) {
     if (!window.MossSprites) return;
-    var level = LEVELS[stage] || LEVELS[1];
+    var level = selectedLevel || LEVELS[stage] || LEVELS[1];
     var ids = level.npcs.map(function (npc) { return npc.spriteId || npc.id; });
-    ids = ids.concat((ENEMY_SPECIES[stage] || ENEMY_SPECIES[1]).map(function (species) { return species.id; }));
-    ids = ids.concat(ELITE_VARIANTS.map(function (elite) { return elite.assetId || elite.id; }));
-    ids = ids.concat(MINIBOSS_DEFS.filter(function (mini) { return mini.stage === Number(stage); })
-      .map(function (mini) { return mini.id === 'groove-beetle' ? 'groove-beetle-prime' : mini.id; }));
-    ids.push(bossDefForStage(Number(stage)).assetId);
+    if (!level.isPrologue) {
+      ids = ids.concat((ENEMY_SPECIES[stage] || ENEMY_SPECIES[1]).map(function (species) { return species.id; }));
+      ids = ids.concat(ELITE_VARIANTS.map(function (elite) { return elite.assetId || elite.id; }));
+      ids = ids.concat(MINIBOSS_DEFS.filter(function (mini) { return mini.stage === Number(stage); })
+        .map(function (mini) { return mini.id === 'groove-beetle' ? 'groove-beetle-prime' : mini.id; }));
+      ids.push(bossDefForStage(Number(stage)).assetId);
+    }
     ids.push('odin', 'odin-expanded-actions', 'combat-effects');
     settlePromise(window.MossSprites.preload(ids).then(function () { canvasDirty = true; }));
   }
@@ -1407,8 +1480,8 @@
     }
   }
 
-  function activateLevel(stage) {
-    var level = LEVELS[stage] || LEVELS[1];
+  function activateLevel(stage, selectedLevel) {
+    var level = selectedLevel || LEVELS[stage] || LEVELS[1];
     currentLevel = level;
     WORLD.w = level.world.w; WORLD.h = level.world.h;
     HUB.x = level.hub.x; HUB.y = level.hub.y;
@@ -1416,17 +1489,21 @@
     weeds = level.weeds; shrines = level.shrines; drums = level.drums; speakers = level.speakers;
     npcs = level.npcs; enemyBlueprints = level.enemies; obstacles = level.obstacles; waterPools = level.water;
     stageTokens = level.tokens; collectibles = level.collectibles || []; stagePortals = level.portals;
-    if(encounterDirector.weatherTimer<=0)state.weather=stage===2?'fog':stage===3?'wind':stage===4?'rain':'clear';
+    if(encounterDirector.weatherTimer<=0)state.weather=level.isPrologue?'clear':stage===2?'fog':stage===3?'wind':stage===4?'rain':'clear';
     generateDecorations(level);
     canvas.setAttribute('aria-label', level.name + ' game world');
-    preloadLevelSprites(stage);
+    preloadLevelSprites(stage,level);
     canvasDirty = true;
   }
 
   function sanitizeState(raw) {
     var clean = freshState();
     if (!raw || typeof raw !== 'object') return clean;
-    var isLegacySave = Number(raw.version) < SAVE_SCHEMA_VERSION;
+    var savedVersion = Math.max(0,Math.floor(Number(raw.version) || 0));
+    /* Character creation and tutorials shipped in schema 21. A schema-21 save
+       must not be mistaken for a pre-onboarding save merely because this
+       separate-prologue migration advances the schema. */
+    var isLegacySave = savedVersion < 21;
     var rawCharacter = raw.character && typeof raw.character === 'object' ? raw.character : {};
     clean.character.created = isLegacySave ? true : !!rawCharacter.created;
     clean.character.displayName = window.MossCharacter ? window.MossCharacter.sanitizeName(rawCharacter.displayName) :
@@ -1438,6 +1515,12 @@
       (['not-started','in-progress','completed','skipped'].indexOf(rawTutorial.status) >= 0 ? rawTutorial.status : 'not-started');
     clean.tutorial.step = clamp(Math.floor(Number(rawTutorial.step) || 0),0,10);
     clean.tutorial.rewardClaimed = isLegacySave ? true : !!rawTutorial.rewardClaimed;
+    clean.tutorial.prologueX = clamp(Number(rawTutorial.prologueX) || PROLOGUE_LEVEL.spawn.x,40,PROLOGUE_LEVEL.world.w-40);
+    clean.tutorial.prologueY = clamp(Number(rawTutorial.prologueY) || PROLOGUE_LEVEL.spawn.y,40,PROLOGUE_LEVEL.world.h-40);
+    clean.tutorial.returnStage = clamp(Math.floor(Number(rawTutorial.returnStage) || Number(raw.stage) || 1),1,4);
+    var tutorialReturnLevel = LEVELS[clean.tutorial.returnStage] || LEVELS[1];
+    clean.tutorial.returnX = clamp(Number(rawTutorial.returnX) || tutorialReturnLevel.spawn.x,40,tutorialReturnLevel.world.w-40);
+    clean.tutorial.returnY = clamp(Number(rawTutorial.returnY) || tutorialReturnLevel.spawn.y,40,tutorialReturnLevel.world.h-40);
     function validUnique(values, validValues) {
       var valid = new Set(validValues);
       return Array.from(new Set(Array.isArray(values) ? values : [])).filter(function (v) {
@@ -1627,7 +1710,7 @@
       clean.pvpV2[key] = clamp(Math.floor(Number(rawPvpV2[key]) || 0),0,999999);
     });
     clean.pvpV2.playSeconds = clamp(Number(rawPvpV2.playSeconds) || 0,0,99999999);
-    clean.pvpV2.preferredInstrument = ['guitar','bass'].indexOf(rawPvpV2.preferredInstrument) >= 0 ?
+    clean.pvpV2.preferredInstrument = ['guitar','bass','synth','drums','microphone','violin'].indexOf(rawPvpV2.preferredInstrument) >= 0 ?
       rawPvpV2.preferredInstrument : 'guitar';
     clean.pvpV2.cosmetics = validUnique(rawPvpV2.cosmetics,['mossvale-standard','amphitheatre-banner','golden-headliner']);
     if (clean.pvpV2.cosmetics.indexOf('mossvale-standard') < 0) clean.pvpV2.cosmetics.unshift('mossvale-standard');
@@ -1635,7 +1718,7 @@
       entry = entry && typeof entry === 'object' ? entry : {};
       return {
         won:!!entry.won,online:!!entry.online,mode:'stock',
-        instrument:['guitar','bass'].indexOf(entry.instrument) >= 0 ? entry.instrument : 'guitar',
+        instrument:['guitar','bass','synth','drums','microphone','violin'].indexOf(entry.instrument) >= 0 ? entry.instrument : 'guitar',
         knockouts:clamp(Math.floor(Number(entry.knockouts)||0),0,99),
         falls:clamp(Math.floor(Number(entry.falls)||0),0,99),
         duration:clamp(Number(entry.duration)||0,0,3600),
@@ -1736,7 +1819,10 @@
   }
   function saveGame(force) {
     if (!started || (!force && nowTime - lastSaveTime < 4)) return;
-    if (!boss || boss.dead) {
+    if (tutorialRuntime.active && currentLevel && currentLevel.isPrologue) {
+      state.tutorial.prologueX = clamp(Math.round(player.x),40,PROLOGUE_LEVEL.world.w-40);
+      state.tutorial.prologueY = clamp(Math.round(player.y),40,PROLOGUE_LEVEL.world.h-40);
+    } else if (!boss || boss.dead) {
       state.x = Math.round(player.x);
       state.y = Math.round(player.y);
       state.stagePositions[String(state.stage)] = { x:state.x, y:state.y };
@@ -2354,10 +2440,11 @@
   }
   function drawCharacterPreview() {
     var preview=byId('characterPreview');if(!preview||!characterDraft)return;
-    var pc=preview.getContext('2d'),hero=spriteImages.hero;pc.clearRect(0,0,preview.width,preview.height);
+    var previewSprite=integratedHeroSpriteName(state && state.equippedInstrument ? state.equippedInstrument : 'guitar');
+    var pc=preview.getContext('2d'),hero=spriteAvailable(previewSprite)?spriteImages[previewSprite]:spriteImages.hero;pc.clearRect(0,0,preview.width,preview.height);
     var gradient=pc.createRadialGradient(160,190,18,160,190,150);gradient.addColorStop(0,'rgba(86,240,196,.24)');gradient.addColorStop(1,'rgba(7,27,24,0)');pc.fillStyle=gradient;pc.fillRect(0,0,320,320);
     pc.fillStyle='rgba(2,8,10,.5)';pc.beginPath();pc.ellipse(160,252,60,17,0,0,Math.PI*2);pc.fill();
-    if(hero&&hero.complete&&hero.naturalWidth){var cell=hero.naturalWidth/4,col=Math.floor((Date.now()/700)%4);pc.imageSmoothingEnabled=false;pc.drawImage(hero,col*cell,cell,cell,cell,70,56,180,180);if(window.MossCharacter)window.MossCharacter.decorate(pc,characterDraft.appearance,160,236,180);}else{pc.fillStyle='#56f0c4';pc.fillRect(125,90,70,150);}
+    if(hero&&hero.complete&&hero.naturalWidth){var cell=hero.naturalWidth/4,col=Math.floor((Date.now()/700)%4),directions=['south','north','west','east'];pc.imageSmoothingEnabled=false;pc.drawImage(hero,col*cell,cell,cell,cell,70,56,180,180);if(window.MossCharacter)window.MossCharacter.decorate(pc,characterDraft.appearance,160,236,180,directions[col]);}else{pc.fillStyle='#56f0c4';pc.fillRect(125,90,70,150);}
     if(!settings.reducedMotion&&!byId('characterCreator').hidden)characterPreviewFrame=requestAnimationFrame(drawCharacterPreview);
   }
   function openCharacterCreator() {
@@ -2387,9 +2474,8 @@
     started = true;
     setHidden(byId('titleScreen'), true);
     beginAudio();
-    if (orientationBlocked) togglePause(true);
-    saveGame(true);
     beginTutorial(false);
+    if (orientationBlocked) togglePause(true);
     updateHUD();
   }
 
@@ -2407,10 +2493,71 @@
     {title:'Follow the song',text:'Your objective card points toward the existing Mossvale opening.',signal:'finish',button:'Enter Mossvale'}
   ];
   function signalTutorial(name){if(!tutorialRuntime.active)return;tutorialRuntime.signals[name]=true;updateTutorial();}
-  function beginTutorial(replay){tutorialRuntime={active:true,replay:!!replay,startX:player.x,startY:player.y,signals:{}};state.tutorial.status='in-progress';state.tutorial.step=replay?0:clamp(state.tutorial.step,0,TUTORIAL_STEPS.length-1);document.body.classList.add('tutorial-active');setHidden(byId('tutorialPanel'),false);if(!state.pulse)state.tutorialPulse=true;updateTutorial();saveGame(true);}
+  function enterPrologueLevel(resume) {
+    activateLevel(state.stage,PROLOGUE_LEVEL);
+    resetEnemies();
+    attacks=[];pulses=[];particles=[];projectiles=[];hazards=[];healthPickups=[];boss=null;bossPadLatch=null;
+    encounterDirector.activeEvent=null;
+    var start = resume ? {x:state.tutorial.prologueX,y:state.tutorial.prologueY} : PROLOGUE_LEVEL.spawn;
+    player.x=clamp(Number(start.x)||PROLOGUE_LEVEL.spawn.x,40,WORLD.w-40);
+    player.y=clamp(Number(start.y)||PROLOGUE_LEVEL.spawn.y,40,WORLD.h-40);
+    if(circleHitsObstacle(player.x,player.y,player.r)){player.x=PROLOGUE_LEVEL.spawn.x;player.y=PROLOGUE_LEVEL.spawn.y;}
+    player.health=player.maxHealth;player.invuln=Math.max(player.invuln,1);
+    camera.x=player.x;camera.y=player.y;
+    if(state.odinRecruited){odin.x=player.x-38;odin.y=player.y+30;odin.target=null;resetOdinVisuals();}
+    resetFirstStageRuntime('prologue');
+    if(window.MossFP)window.MossFP.rebuild();
+    canvasDirty=true;
+  }
+  function beginTutorial(replay){
+    var resume=!replay&&state.tutorial.status==='in-progress';
+    if(!resume){
+      var returnLevel=LEVELS[state.stage]||LEVELS[1];
+      state.tutorial.returnStage=state.stage;
+      state.tutorial.returnX=clamp(Number(player.x)||returnLevel.spawn.x,40,returnLevel.world.w-40);
+      state.tutorial.returnY=clamp(Number(player.y)||returnLevel.spawn.y,40,returnLevel.world.h-40);
+      state.tutorial.prologueX=PROLOGUE_LEVEL.spawn.x;
+      state.tutorial.prologueY=PROLOGUE_LEVEL.spawn.y;
+    }
+    tutorialRuntime={active:true,replay:!!replay,startX:0,startY:0,signals:{}};
+    state.tutorial.status='in-progress';
+    state.tutorial.step=replay?0:clamp(state.tutorial.step,0,TUTORIAL_STEPS.length-1);
+    enterPrologueLevel(resume);
+    tutorialRuntime.startX=player.x;tutorialRuntime.startY=player.y;
+    paused=false;setHidden(byId('pauseScreen'),true);
+    document.body.classList.add('tutorial-active');setHidden(byId('tutorialPanel'),false);
+    if(!state.pulse)state.tutorialPulse=true;
+    updateTutorial();saveGame(true);updateHUD(true);
+  }
   function updateTutorial(){if(!tutorialRuntime.active)return;var index=state.tutorial.step,step=TUTORIAL_STEPS[index];if(!step)return completeTutorial(false);if(step.signal==='move'&&distance(player,{x:tutorialRuntime.startX,y:tutorialRuntime.startY})>70)tutorialRuntime.signals.move=true;if(tutorialRuntime.signals[step.signal]&&step.signal!=='finish'){state.tutorial.step++;saveGame(true);step=TUTORIAL_STEPS[state.tutorial.step];audioCall('sfx','unlock');}if(!step)return completeTutorial(false);var count=byId('tutorialStepCount'),title=byId('tutorialStepTitle'),text=byId('tutorialStepText'),fill=byId('tutorialProgressFill'),button=byId('tutorialDoButton');if(count)count.textContent=(state.tutorial.step+1)+' / '+TUTORIAL_STEPS.length;if(title)title.textContent=step.title;if(text)text.textContent=step.text;if(fill)fill.style.width=((state.tutorial.step+1)/TUTORIAL_STEPS.length*100)+'%';if(button){button.hidden=!step.button;button.textContent=step.button||'';}}
   function grantTutorialRewards(){if(state.tutorial.rewardClaimed)return;addConsumable('field-tonic',3);addConsumable('tempo-tea',2);addConsumable('spore-tonic',1);grantEquipment('grooveguard-vest',false);grantEquipment('trailstep-boots',false);grantEquipment('resonance-pin',false);state.tutorial.rewardClaimed=true;}
-  function completeTutorial(skipped){if(!tutorialRuntime.active)return;if(!tutorialRuntime.replay)grantTutorialRewards();state.tutorial.status=skipped?'skipped':'completed';state.tutorial.step=TUTORIAL_STEPS.length;delete state.tutorialPulse;tutorialRuntime.active=false;document.body.classList.remove('tutorial-active');setHidden(byId('tutorialPanel'),true);saveGame(true);showToast(skipped?'PROLOGUE SKIPPED':'REHEARSAL COMPLETE','The existing Mossvale opening begins now.','#56f0c4',4);updateHUD(true);}
+  function restoreCampaignAfterTutorial(){
+    var returnStage=clamp(Math.floor(Number(state.tutorial.returnStage)||state.stage||1),1,4);
+    var returnLevel=LEVELS[returnStage]||LEVELS[1];
+    state.stage=returnStage;
+    activateLevel(returnStage);
+    resetEnemies();
+    attacks=[];pulses=[];particles=[];projectiles=[];hazards=[];boss=null;bossPadLatch=null;
+    player.x=clamp(Number(state.tutorial.returnX)||returnLevel.spawn.x,40,WORLD.w-40);
+    player.y=clamp(Number(state.tutorial.returnY)||returnLevel.spawn.y,40,WORLD.h-40);
+    if(circleHitsObstacle(player.x,player.y,player.r)){player.x=returnLevel.spawn.x;player.y=returnLevel.spawn.y;}
+    camera.x=player.x;camera.y=player.y;state.x=player.x;state.y=player.y;
+    state.stagePositions[String(returnStage)]={x:Math.round(player.x),y:Math.round(player.y)};
+    if(state.odinRecruited){odin.x=player.x-40;odin.y=player.y+30;odin.target=null;resetOdinVisuals();}
+    resetFirstStageRuntime('tutorial-exit');spawnStageHeartblooms(returnStage);
+    if(window.MossFP)window.MossFP.rebuild();
+    canvasDirty=true;
+  }
+  function completeTutorial(skipped){
+    if(!tutorialRuntime.active)return;
+    if(!tutorialRuntime.replay)grantTutorialRewards();
+    state.tutorial.status=skipped?'skipped':'completed';state.tutorial.step=TUTORIAL_STEPS.length;
+    delete state.tutorialPulse;tutorialRuntime.active=false;
+    document.body.classList.remove('tutorial-active');setHidden(byId('tutorialPanel'),true);
+    restoreCampaignAfterTutorial();saveGame(true);
+    showToast(skipped?'PROLOGUE SKIPPED':'REHEARSAL COMPLETE','Mossvale Stage I begins at EEMS\' mix-stone.','#56f0c4',4);
+    updateHUD(true);
+  }
   function skipTutorial(){if(window.confirm('Skip the rehearsal and begin Mossvale? You will still receive the starter field kit.'))completeTutorial(true);}
   function replayTutorial(){if(!started){closeHowPanel();showToast('LOAD AN ADVENTURE','Continue an adventure before replaying the tutorial.','#ffc857',2.8);return;}closeHowPanel();beginTutorial(true);}
 
@@ -2432,10 +2579,10 @@
     started = true;
     setHidden(byId('titleScreen'), true);
     beginAudio();
+    if(state.tutorial.status==='in-progress')beginTutorial(false);
     if (orientationBlocked) togglePause(true);
     showToast('WELCOME BACK', getObjective().text, '#56f0c4', 3.4);
     updateHUD();
-    if(state.tutorial.status==='in-progress')beginTutorial(false);
     if (state.stage === 4 && bossDefeatedForStage(4) && !state.campaignFinaleSeen) {
       window.setTimeout(showCampaignFinale, 700);
     }
@@ -2536,6 +2683,13 @@
   }
 
   function getObjective() {
+    if (tutorialRuntime.active && currentLevel && currentLevel.isPrologue) {
+      var tutorialStep=TUTORIAL_STEPS[state.tutorial.step]||TUTORIAL_STEPS[TUTORIAL_STEPS.length-1];
+      var tutorialTarget=tutorialStep.signal==='move'?{x:345,y:500}:
+        tutorialStep.signal==='interact'?PROLOGUE_OBJECTS[0]:
+        tutorialStep.signal==='finish'?PROLOGUE_OBJECTS[3]:{x:790,y:500};
+      return {text:tutorialStep.text,x:tutorialTarget.x,y:tutorialTarget.y};
+    }
     if (state.stage === 1) {
       if (!state.metEems) return { text: 'Meet EEMS at the mix-stone', x: 1435, y: 880 };
       if (state.weeds.length < 6) return { text: 'Gather Glowweed for Jimbo · ' + state.weeds.length + '/6', x: 1175, y: 930 };
@@ -2786,7 +2940,7 @@
     }
     if (weedCount) weedCount.textContent = state.weeds.length + '/30';
     if (backpackHudButton) backpackHudButton.setAttribute('aria-label', 'Open backpack, ' + state.weeds.length + ' of 30 Glowweed collected');
-    if (objective) objective.textContent = tutorialRuntime.active ? TUTORIAL_STEPS[state.tutorial.step].text : objectiveInfo.text;
+    if (objective) objective.textContent = tutorialRuntime.active && TUTORIAL_STEPS[state.tutorial.step] ? TUTORIAL_STEPS[state.tutorial.step].text : objectiveInfo.text;
     if (stageName) stageName.textContent = tutorialRuntime.active ? 'PROLOGUE · REHEARSAL GROVE' : (STAGE_KICKERS[state.stage] || STAGE_KICKERS[1]);
     if (pauseLocation) pauseLocation.textContent = STAGE_NAMES[state.stage] + ' is holding your place · ' + equippedInstrument().name + ' · ' + state.weather.replace('-',' ');
     var comboCount = byId('comboCount'), comboMultiplier = byId('comboMultiplier'), comboFill = byId('comboFill'), comboQuality = byId('comboQuality'), comboHud = byId('comboHud');
@@ -3489,7 +3643,7 @@
   }
 
   function updateFirstStageBalance(dt) {
-    if (state.stage !== 1) {
+    if (state.stage !== 1 || (currentLevel && currentLevel.isPrologue)) {
       firstStageRuntime.safe = false;
       firstStageRuntime.zone = 'final';
       firstStageRuntime.attackSlots.clear();
@@ -3833,12 +3987,12 @@
     });
     shrines.forEach(function (s) { consider('shrine', s, 70); });
     stagePortals.forEach(function (p) { consider('portal', p, 76); });
+    if(currentLevel&&currentLevel.isPrologue)consider('tutorial',PROLOGUE_OBJECTS[0],76);
     if(encounterDirector.activeEvent)consider('world-event',encounterDirector.activeEvent,72);
     return best;
   }
 
   function interact(fromBuffer) {
-    signalTutorial('interact');
     if (dialogue) { advanceDialogue(); return; }
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
     var near = nearestInteractable();
@@ -3849,10 +4003,12 @@
       return;
     }
     inputBuffer.interact = 0;
+    signalTutorial('interact');
     recordFirstStageTutorial('interact');
     if (near.type === 'npc') talkToNpc(near.item.npc||near.item);
     else if (near.type === 'portal') enterStage(near.item);
     else if (near.type === 'world-event') resolveWorldEvent(near.item);
+    else if (near.type === 'tutorial') showToast('RESONATOR TUNED','Its answering note opens the rhythm clearing.','#56f0c4',2.5);
     else collectNote(near.item);
   }
 
@@ -5547,6 +5703,7 @@
   }
 
   function fastTravelTo(stage, visitShop) {
+    if(tutorialRuntime.active){audioCall('sfx','error');showToast('FINISH THE REHEARSAL','Mossvale roads open after the prologue.','#ffc857',2.6);return;}
     if (!stageUnlockedForTravel(stage)) {
       audioCall('sfx', 'error');
       showToast('ROUTE UNKNOWN', 'Reach this world through its stage gate first.', '#8e9ba0', 2.8);
@@ -5594,17 +5751,17 @@
     [1,2,3,4].forEach(function (stage) {
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'fast-travel-button' + (stage === state.stage ? ' current' : '');
-      button.disabled = !stageUnlockedForTravel(stage) || stage === state.stage;
+      button.className = 'fast-travel-button' + (!tutorialRuntime.active && stage === state.stage ? ' current' : '');
+      button.disabled = tutorialRuntime.active || !stageUnlockedForTravel(stage) || stage === state.stage;
       button.innerHTML = '<strong>' + (stage === state.stage ? '● ' : '◇ ') + STAGE_NAMES[stage] + '</strong><small>' +
-        (stage === state.stage ? 'Current world' : stageUnlockedForTravel(stage) ? 'Travel to hub' : 'Route locked') + '</small>';
+        (tutorialRuntime.active ? 'Available after rehearsal' : stage === state.stage ? 'Current world' : stageUnlockedForTravel(stage) ? 'Travel to hub' : 'Route locked') + '</small>';
       button.addEventListener('click', function () { fastTravelTo(stage, false); });
       el.appendChild(button);
     });
     var shop = byId('fastTravelShop');
-    if (shop) shop.disabled = state.stage === 1 && shopOpen;
+    if (shop) shop.disabled = tutorialRuntime.active || (state.stage === 1 && shopOpen);
     var home = byId('fastTravelHome');
-    if (home) home.disabled = !state.home.unlocked;
+    if (home) home.disabled = tutorialRuntime.active || !state.home.unlocked;
   }
 
   function openMap() {
@@ -5612,9 +5769,10 @@
     releaseHeldInputs();
     if (paused) setOverlayIsolation('pause', 'pauseScreen', false);
     mapOpen = true;
-    if (byId('mapTitle')) byId('mapTitle').textContent = 'Road Atlas - ' + STAGE_NAMES[state.stage];
-    if (byId('mapCanvas')) byId('mapCanvas').setAttribute('aria-label', 'Map of the connected stage roads. Current stage: ' + STAGE_NAMES[state.stage] + '.');
+    if (byId('mapTitle')) byId('mapTitle').textContent = tutorialRuntime.active ? 'Prologue Map - Rehearsal Grove' : 'Road Atlas - ' + STAGE_NAMES[state.stage];
+    if (byId('mapCanvas')) byId('mapCanvas').setAttribute('aria-label', tutorialRuntime.active ? 'Map of the separate Rehearsal Grove prologue.' : 'Map of the connected stage roads. Current stage: ' + STAGE_NAMES[state.stage] + '.');
     setHidden(byId('mapScreen'), false);
+    if(tutorialRuntime.active)setHidden(byId('tutorialPanel'),true);
     setOverlayIsolation('map', 'mapScreen', true);
     drawMap();
     renderQuestList();
@@ -5626,6 +5784,7 @@
     mapOpen = false;
     setOverlayIsolation('map', 'mapScreen', false);
     setHidden(byId('mapScreen'), true);
+    if(tutorialRuntime.active)setHidden(byId('tutorialPanel'),false);
     if (!paused) audioCall('pause', false);
     if (paused) setOverlayIsolation('pause', 'pauseScreen', true);
     focusSoon(paused ? 'pauseMapButton' : 'gameCanvas');
@@ -5778,12 +5937,28 @@
     m.restore();
   }
 
+  function drawPrologueMap(map,m,mw,mh){
+    var pad=34,scale=Math.min((mw-pad*2)/PROLOGUE_LEVEL.world.w,(mh-pad*2)/PROLOGUE_LEVEL.world.h);
+    var ox=(mw-PROLOGUE_LEVEL.world.w*scale)/2,oy=(mh-PROLOGUE_LEVEL.world.h*scale)/2;
+    var background=m.createLinearGradient(0,0,mw,mh);background.addColorStop(0,'#0b2528');background.addColorStop(.55,'#173e3b');background.addColorStop(1,'#32253f');
+    m.fillStyle=background;m.fillRect(0,0,mw,mh);m.save();m.translate(ox,oy);
+    PROLOGUE_LEVEL.zones.forEach(function(zone){m.fillStyle=zone[5];m.beginPath();m.ellipse(zone[0]*scale,zone[1]*scale,zone[2]*scale*.5,zone[3]*scale*.5,0,0,Math.PI*2);m.fill();});
+    m.strokeStyle='rgba(255,220,145,.24)';m.lineWidth=42*scale;m.lineCap='round';m.beginPath();PROLOGUE_LEVEL.routes.forEach(function(route){m.moveTo(route[0]*scale,route[1]*scale);m.quadraticCurveTo(route[2]*scale,route[3]*scale,route[4]*scale,route[5]*scale);});m.stroke();
+    m.strokeStyle='#56f0c4';m.lineWidth=2;m.strokeRect(10*scale,10*scale,(PROLOGUE_LEVEL.world.w-20)*scale,(PROLOGUE_LEVEL.world.h-20)*scale);
+    PROLOGUE_OBJECTS.forEach(function(object){drawMapMarker(m,object.x*scale,object.y*scale,object.kind==='gate'?'#d77cff':object.kind==='dummy'?'#ffc857':'#56f0c4',object.kind==='gate'?'gate':'diamond',object.kind==='gate'?'EXIT':'',false);});
+    var target=getObjective();drawMapMarker(m,target.x*scale,target.y*scale,'#ffc857','diamond','LESSON',true);
+    drawMapMarker(m,player.x*scale,player.y*scale,'#ffffff','circle','YOU',true);
+    m.restore();
+    m.fillStyle='#e7f7df';m.font='bold 13px monospace';m.textAlign='center';m.fillText('REHEARSAL GROVE - PROLOGUE',mw/2,22);
+  }
+
   function drawMap() {
     var map=byId('mapCanvas');
     if(!map)return;
     var m=map.getContext('2d'),mw=map.width,mh=map.height;
     mapAnimationTime=nowTime||performance.now()/1000;
     m.clearRect(0,0,mw,mh);
+    if(currentLevel&&currentLevel.isPrologue){drawPrologueMap(map,m,mw,mh);return;}
     if(worldMapImage.complete&&worldMapImage.naturalWidth&&!worldMapImage.failed)m.drawImage(worldMapImage,0,0,mw,mh);
     else{var fallback=m.createLinearGradient(0,0,mw,mh);fallback.addColorStop(0,'#10291f');fallback.addColorStop(.5,'#1b2449');fallback.addColorStop(1,'#082a38');m.fillStyle=fallback;m.fillRect(0,0,mw,mh);}
 
@@ -6053,6 +6228,19 @@
     player.chargedThisHold = false;
   }
 
+  function beginAttackInput() {
+    if (player.attackHeld) return false;
+    player.attackHeld = true;
+    player.attackHold = 0;
+    player.chargedThisHold = false;
+    performAttack(false);
+    return true;
+  }
+
+  function endAttackInput() {
+    releaseAttackIfIdle();
+  }
+
   function releaseHeldInputs() {
     keys.clear();
     player.attackHeld = false;
@@ -6154,10 +6342,7 @@
     /* A becomes jump in first person, so the swing lives on RT there instead. */
     if (input.padHeld(firstPersonActive() ? 'attackAlt' : 'attack')) {
       if (!gamepadAttackHeld && !player.attackHeld) {
-        player.attackHeld = true;
-        player.attackHold = 0;
-        player.chargedThisHold = false;
-        performAttack(false);
+        beginAttackInput();
       }
       gamepadAttackHeld = true;
     } else if (gamepadAttackHeld) {
@@ -6191,12 +6376,7 @@
     } else if (action === 'block') {
       beginBlock();
     } else if (action === 'attack') {
-      if (!player.attackHeld) {
-        player.attackHeld = true;
-        player.attackHold = 0;
-        player.chargedThisHold = false;
-        performAttack(false);
-      }
+      beginAttackInput();
     } else if (!alreadyActive) {
       runControlAction(action);
     }
@@ -6246,11 +6426,7 @@
       beginBlock();
       window.setTimeout(endBlock, 240);
     } else if (action === 'attack') {
-      if (player.attackHeld) return;
-      player.attackHeld = true;
-      player.attackHold = 0;
-      player.chargedThisHold = false;
-      performAttack(false);
+      if (!beginAttackInput()) return;
       window.setTimeout(function () {
         releaseAttackIfIdle();
       }, 120);
@@ -6403,12 +6579,7 @@
     else if (key === 'h') useStoredHeartbloom();
     else if (key === 'r') cycleOdinCommand();
     else if ((key === 'space' && !firstPersonActive()) || key === 'j') {
-      if (!player.attackHeld) {
-        player.attackHeld = true;
-        player.attackHold = 0;
-        player.chargedThisHold = false;
-        performAttack(false);
-      }
+      beginAttackInput();
     } else if (key === 'tab') {
       if (mapOpen) closeMap(); else openMap();
     } else if (key === 'i' || key === 'b') {
@@ -7121,6 +7292,7 @@
   }
 
   function updateEncounterDirector(dt) {
+    if(currentLevel&&currentLevel.isPrologue){encounterDirector.activeEvent=null;encounterDirector.cooldown=Math.max(encounterDirector.cooldown,12);return;}
     if(encounterDirector.weatherTimer>0){
       encounterDirector.weatherTimer-=dt;
       if(encounterDirector.weatherTimer<=0)state.weather=state.stage===2?'fog':state.stage===3?'wind':state.stage===4?'rain':'clear';
@@ -8137,6 +8309,7 @@
   }
 
   function updateBoss(dt) {
+    if(currentLevel&&currentLevel.isPrologue){boss=null;return;}
     if (boss && boss.dead) {
       if (typeof boss.deathTimer === 'number') {
         boss.deathTimer = Math.min(boss.deathDuration || 1.35, boss.deathTimer + dt);
@@ -8335,18 +8508,26 @@
       }
     });
 
-    var arenaBoss = bossDefForStage(state.stage);
-    ctx.strokeStyle = bossDefeatedForStage(state.stage) ? 'rgba(87,157,126,.55)' : 'rgba(56,39,72,.7)';
-    ctx.lineWidth = 26;
-    ctx.beginPath();
-    ctx.arc(BOSS_CENTER.x, BOSS_CENTER.y, 330, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = bossDefeatedForStage(state.stage) ? '#7ce4d1' :
-      bossPrerequisiteMet(state.stage) ? arenaBoss.shieldColor : '#59616c';
-    ctx.lineWidth = 5;
-    ctx.setLineDash([18, 14]);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if(currentLevel.isPrologue){
+      [[345,500,88,'#56f0c4'],[790,500,150,'#ffc857'],[1190,500,92,'#d77cff']].forEach(function(circle,index){
+        ctx.save();ctx.globalAlpha=settings.reducedMotion ? .34 : .3+Math.sin(nowTime*2+index)*.05;
+        ctx.strokeStyle=circle[3];ctx.lineWidth=index===1?5:3;ctx.setLineDash(index===1?[14,12]:[7,10]);
+        ctx.beginPath();ctx.arc(circle[0],circle[1],circle[2],0,Math.PI*2);ctx.stroke();ctx.restore();
+      });
+    }else{
+      var arenaBoss = bossDefForStage(state.stage);
+      ctx.strokeStyle = bossDefeatedForStage(state.stage) ? 'rgba(87,157,126,.55)' : 'rgba(56,39,72,.7)';
+      ctx.lineWidth = 26;
+      ctx.beginPath();
+      ctx.arc(BOSS_CENTER.x, BOSS_CENTER.y, 330, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = bossDefeatedForStage(state.stage) ? '#7ce4d1' :
+        bossPrerequisiteMet(state.stage) ? arenaBoss.shieldColor : '#59616c';
+      ctx.lineWidth = 5;
+      ctx.setLineDash([18, 14]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     ctx.strokeStyle = palette.border;
     ctx.lineWidth = 22;
@@ -8904,6 +9085,7 @@
   }
 
   function drawMiniBossArenas() {
+    if(currentLevel&&currentLevel.isPrologue)return;
     enemies.forEach(function(enemy){
       if(!enemy.isMiniBoss||enemy.dead||enemy.progressionLocked||!isVisible(enemy.homeX,enemy.homeY,190))return;
       ctx.save();
@@ -8925,6 +9107,7 @@
   }
 
   function drawOnlineRemotePlayers() {
+    if(currentLevel&&currentLevel.isPrologue)return;
     for (var remoteIndex = 0; remoteIndex < onlineRemotePlayers.length; remoteIndex++) {
       var remote = onlineRemotePlayers[remoteIndex];
       if (remote.stage !== state.stage || !isVisible(remote.x,remote.y,90)) continue;
@@ -8952,12 +9135,14 @@
         remote.animationElapsed,
         remoteSwitching ? remote.switchProgress : undefined,remote.legendary,remote.facingDirection
       );
-      drawEquipmentLayer(remotePose,'rear',0.92);
       var remoteRow = remote.attacking ? 2 : (remote.moving ? 1 : 0);
-      var drewRemote = drawSpriteCell('hero',remoteRow,facingColumn(remote.facing),0,20,76,0.73);
+      var remoteHeroSprite = integratedHeroSpriteName(remoteInstrumentId);
+      var remoteIntegrated = spriteAvailable(remoteHeroSprite);
+      if (!remoteIntegrated) drawEquipmentLayer(remotePose,'rear',0.92);
+      var drewRemote = drawSpriteCell(remoteIntegrated ? remoteHeroSprite : 'hero',remoteRow,facingColumn(remote.facing),0,20,76,0.73);
       if (drewRemote) {
-        if(window.MossCharacter)window.MossCharacter.decorate(ctx,remote.appearance,0,20,76);
-        drawEquipmentLayer(remotePose,'front',0.92);
+        if(window.MossCharacter)window.MossCharacter.decorate(ctx,remote.appearance,0,20,76,remotePose ? remotePose.direction : spriteDirection(remote.facing));
+        if (!remoteIntegrated) drawEquipmentLayer(remotePose,'front',0.92);
       }
       if (remote.odin) {
         drawProductionSprite('odin',(remote.moving ? 'walk_' : 'idle_') + spriteDirection(remote.facing),
@@ -8976,6 +9161,7 @@
   }
 
   function drawOnlineWorldPings() {
+    if(currentLevel&&currentLevel.isPrologue)return;
     for (var pingIndex = 0; pingIndex < onlineWorldPings.length; pingIndex++) {
       var ping = onlineWorldPings[pingIndex];
       if (ping.stage !== state.stage || !isVisible(ping.x,ping.y,110)) continue;
@@ -9030,13 +9216,15 @@
       ctx.restore();
     }
     var equipmentPose = currentEquipmentPose();
-    drawEquipmentLayer(equipmentPose,'rear');
+    var heroSprite = integratedHeroSpriteName(equipmentPose ? equipmentPose.equipmentId : visualEquipmentId());
+    var integratedEquipment = spriteAvailable(heroSprite);
+    if (!integratedEquipment) drawEquipmentLayer(equipmentPose,'rear');
     var heroRow = player.dashTimer > 0 ? 3 :
       (equipmentVisualRuntime.animationState === 'attack' || equipmentVisualRuntime.animationState === 'charged' ||
        equipmentVisualRuntime.animationState === 'special' ? 2 : (walking ? 1 : 0));
-    if (drawSpriteCell('hero', heroRow, facingColumn(player.facing), 0, 20, 76, 0.73)) {
-      if (window.MossCharacter) window.MossCharacter.decorate(ctx,state.character.appearance,0,20,76);
-      drawEquipmentLayer(equipmentPose,'front');
+    if (drawSpriteCell(integratedEquipment ? heroSprite : 'hero', heroRow, facingColumn(player.facing), 0, 20, 76, 0.73)) {
+      if (window.MossCharacter) window.MossCharacter.decorate(ctx,state.character.appearance,0,20,76,equipmentPose ? equipmentPose.direction : spriteDirection(player.facing));
+      if (!integratedEquipment) drawEquipmentLayer(equipmentPose,'front');
       updateEquipmentDiagnostics(equipmentPose);
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -9077,7 +9265,7 @@
       ctx.arc(10, -28, 9, Math.PI * 0.1, Math.PI * 1.1);
       ctx.stroke();
     }
-    drawEquipmentLayer(equipmentPose,'front');
+    if (!integratedEquipment) drawEquipmentLayer(equipmentPose,'front');
     updateEquipmentDiagnostics(equipmentPose);
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -9439,12 +9627,37 @@
     });
   }
 
+  function drawPrologueObjects(){
+    if(!currentLevel||!currentLevel.isPrologue)return;
+    PROLOGUE_OBJECTS.forEach(function(object,index){
+      if(!isVisible(object.x,object.y,90))return;
+      var pulse=settings.reducedMotion?0:Math.sin(nowTime*3+index)*3;
+      ctx.save();ctx.translate(object.x,object.y);
+      ctx.fillStyle='rgba(2,10,14,.38)';ctx.beginPath();ctx.ellipse(0,22,30,9,0,0,Math.PI*2);ctx.fill();
+      if(object.kind==='resonator'){
+        ctx.shadowColor='#56f0c4';ctx.shadowBlur=14+pulse;ctx.fillStyle='#183c43';
+        ctx.beginPath();ctx.moveTo(0,-34);ctx.lineTo(22,-4);ctx.lineTo(10,28);ctx.lineTo(-14,25);ctx.lineTo(-23,-4);ctx.closePath();ctx.fill();
+        ctx.strokeStyle='#56f0c4';ctx.lineWidth=3;ctx.stroke();
+        ctx.fillStyle='#ffc857';ctx.font='bold 22px serif';ctx.textAlign='center';ctx.fillText(String.fromCharCode(9834),0,5);
+      }else if(object.kind==='dummy'){
+        ctx.strokeStyle='#9a7047';ctx.lineWidth=8;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(0,24);ctx.lineTo(0,-20);ctx.moveTo(-20,-5);ctx.lineTo(20,-5);ctx.stroke();
+        ctx.fillStyle='#4b7863';ctx.beginPath();ctx.arc(0,-28,14,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle=index%2?'#ffc857':'#62c7ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,-5,25+pulse*.3,0,Math.PI*2);ctx.stroke();
+      }else{
+        ctx.strokeStyle='#d77cff';ctx.lineWidth=8;ctx.shadowColor='#d77cff';ctx.shadowBlur=12+pulse;
+        ctx.beginPath();ctx.moveTo(-30,28);ctx.lineTo(-30,-20);ctx.quadraticCurveTo(0,-62,30,-20);ctx.lineTo(30,28);ctx.stroke();
+        ctx.strokeStyle='#56f0c4';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-18,26);ctx.lineTo(-18,-16);ctx.quadraticCurveTo(0,-42,18,-16);ctx.lineTo(18,26);ctx.stroke();
+      }
+      ctx.shadowBlur=0;ctx.fillStyle='#e7f7df';ctx.font='700 8px monospace';ctx.textAlign='center';ctx.fillText(object.label,0,42);ctx.restore();
+    });
+  }
+
   function drawInteractionPrompt() {
     if (!started || paused || dialogue || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
     var near = nearestInteractable();
     if (!near) return;
     var item = near.item;
-    var label = near.type === 'npc' ? (touchCapable ? 'TALK' : 'E  TALK') : near.type === 'portal' ? (touchCapable ? 'ENTER' : 'E  ENTER') :
+    var label = near.type === 'npc' ? (touchCapable ? 'TALK' : 'E  TALK') : near.type === 'portal' ? (touchCapable ? 'ENTER' : 'E  ENTER') : near.type === 'tutorial' ? (touchCapable ? 'TUNE' : 'E  TUNE') :
       near.type === 'world-event' ? (touchCapable ? 'JOIN' : 'E  JOIN') : (touchCapable ? 'LISTEN' : 'E  LISTEN');
     var sx = item.x - camera.x + W / 2;
     var sy = item.y - camera.y + H / 2 - 55;
@@ -9580,7 +9793,7 @@
   }
 
   function drawFirstStageSafeZone() {
-    if (state.stage !== 1 || (state.firstStageOnboarding.graceConsumed && firstStageRuntime.respawnGrace <= 0)) return;
+    if (state.stage !== 1 || (currentLevel && currentLevel.isPrologue) || (state.firstStageOnboarding.graceConsumed && firstStageRuntime.respawnGrace <= 0)) return;
     var spawn = firstStageSpawnPoint();
     ctx.save();
     ctx.globalAlpha = settings.reducedMotion ? 0.18 : 0.14 + Math.sin(state.playSeconds * 2) * 0.025;
@@ -9620,6 +9833,7 @@
     drawDecorations();
     drawAmbientWildlife();
     drawWorldLabels();
+    drawPrologueObjects();
     shrines.forEach(drawShrine);
     drawPuzzleObjects();
     weeds.forEach(drawWeed);
@@ -9757,7 +9971,7 @@
 
   function updatePvpV2Preferences(preferences) {
     preferences = preferences && typeof preferences === 'object' ? preferences : {};
-    if (['guitar','bass'].indexOf(preferences.preferredInstrument) >= 0) {
+    if (['guitar','bass','synth','drums','microphone','violin'].indexOf(preferences.preferredInstrument) >= 0) {
       state.pvpV2.preferredInstrument = preferences.preferredInstrument;
     }
     saveGame(true);
@@ -9770,7 +9984,7 @@
       won:!!result.won,
       online:!!result.online,
       mode:'stock',
-      instrument:['guitar','bass'].indexOf(result.instrument) >= 0 ? result.instrument : 'guitar',
+      instrument:['guitar','bass','synth','drums','microphone','violin'].indexOf(result.instrument) >= 0 ? result.instrument : 'guitar',
       knockouts:clamp(Math.floor(Number(result.knockouts) || 0),0,99),
       falls:clamp(Math.floor(Number(result.falls) || 0),0,99),
       duration:clamp(Number(result.duration) || 0,0,3600),
@@ -9948,8 +10162,8 @@
      */
     firstPerson: {
       getStage: function () { return state.stage; },
-      getSceneKey: function () { return tutorialRuntime.active ? 'tutorial-'+state.stage : 'stage-'+state.stage; },
-      getLevelData: function () { return LEVELS[state.stage] || LEVELS[1]; },
+      getSceneKey: function () { return currentLevel&&currentLevel.isPrologue?'prologue':'stage-'+state.stage; },
+      getLevelData: function () { return currentLevel || LEVELS[state.stage] || LEVELS[1]; },
       getWorld: function () { return { w: WORLD.w, h: WORLD.h }; },
       getPlayer: function () { return player; },
       getEntities: function () {
@@ -9959,13 +10173,15 @@
           portals: stagePortals, drums: drums, speakers: speakers,
           odin:state.odinRecruited?odin:null,boss:boss,healthPickups:healthPickups,
           attacks:attacks,pulses:pulses,projectiles:projectiles,hazards:hazards,
-          tutorial:tutorialRuntime.active?{x:player.x+100,y:player.y-80,id:'rehearsal-crystal'}:null
+          tutorial:tutorialRuntime.active?PROLOGUE_OBJECTS[0]:null
         };
       },
       npcWorldPosition: npcWorldPosition,
       hitsObstacle: function (x, y, r) { return circleHitsObstacle(x, y, r, player); },
       nearestInteractable: nearestInteractable,
       interact: function () { interact(); },
+      beginAttack: function () { return beginAttackInput(); },
+      endAttack: function () { endAttackInput(); },
       isPlaying: function () {
         return started && !paused && !orientationBlocked && !dialogue && !mapOpen &&
           !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen &&

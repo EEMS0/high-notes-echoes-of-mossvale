@@ -26,7 +26,7 @@ vm.runInContext(read('equipment-runtime.js'), sandbox, { filename: 'equipment-ru
 
 const rig = sandbox.window.MossEquipmentRig;
 assert.ok(rig, 'MossEquipmentRig did not register');
-assert.equal(rig.schemaVersion, 1);
+assert.equal(rig.schemaVersion, 2);
 
 const description = rig.describe();
 const expectedEquipment = ['guitar', 'bass', 'synth', 'drums', 'microphone', 'violin'];
@@ -86,11 +86,38 @@ for (let i = 1; i < scriptOrder.length; i += 1) {
 const game = read('game.js');
 const network = read('v1-expansion.js');
 const arena = read('v2-platform-fighter.js');
+const arenaSandbox = {
+  window: { HighNotesV1: { multiplayerConfig: {} }, addEventListener() {} },
+  document: { addEventListener() {}, body: { classList: { add() {}, remove() {} } } },
+  Image: function Image() {},
+  performance: { now: () => 0 },
+  console
+};
+vm.createContext(arenaSandbox);
+vm.runInContext(arena, arenaSandbox, { filename: 'v2-platform-fighter.js' });
+const arenaRoster = arenaSandbox.window.HighNotesV2Arena.data.fighters;
+const requiredMoves = ['neutral','forward','up','down','dash','neutralAir','forwardAir','backAir','upAir',
+  'downAir','charge','neutralSpecial','sideSpecial','recovery','ultimate'];
+assert.deepEqual(Object.keys(arenaRoster), expectedEquipment);
+Object.values(arenaRoster).forEach((fighter) => {
+  assert.deepEqual(Object.keys(fighter.moves), requiredMoves, `${fighter.id} has an incomplete move set`);
+  assert.equal(new Set(Object.values(fighter.moves).map((move) => move.id)).size, requiredMoves.length,
+    `${fighter.id} contains duplicate move ids`);
+  assert.ok(fighter.weight >= 75 && fighter.weight <= 125, `${fighter.id} weight is outside the roster envelope`);
+  assert.ok(fighter.moves.neutralSpecial.projectile, `${fighter.id} needs a projectile identity`);
+  assert.ok(fighter.moves.recovery.recoveryImpulse, `${fighter.id} needs a recovery special`);
+});
 assert.match(game, /GAME_VERSION\s*=\s*['"]2\.0\.0['"]/);
 assert.match(game, /MossEquipmentRig/);
 assert.match(game, /equipment:\s*currentEquipmentNetworkSnapshot/);
 assert.match(game, /sanitizeOnlineEquipment/);
 assert.match(game, /remote\.facingDirection/);
+assert.match(game, /hero-instrument-guitar/);
+assert.match(game, /beginAttack:\s*function/);
+assert.match(game, /var PROLOGUE_LEVEL\s*=\s*\{/);
+assert.match(game, /isPrologue:true/);
+assert.match(game, /state\.tutorial\.prologueX/);
+assert.match(game, /getLevelData:\s*function \(\) \{ return currentLevel/);
 assert.doesNotMatch(game, /instrumentById\(remote\.instrument\)\s*\?/);
 assert.match(network, /protocolVersion\s*:\s*PROTOCOL_VERSION/);
 assert.match(network, /sanitizeEquipmentNetworkSnapshot/);
@@ -114,6 +141,17 @@ assert.match(arena, /rehydrated:true/);
 assert.match(arena, /hydrateRoomState/);
 assert.match(arena, /roomSyncRequestedFor/);
 assert.match(arena, /data-v2-action="recovery"/);
+assert.match(arena, /touchPointers/);
+assert.match(arena, /arena-match-active/);
+assert.match(arena, /releaseInputs/);
+assert.match(arena, /function synthMoves\(\)/);
+assert.match(arena, /function drumMoves\(\)/);
+assert.match(arena, /function microphoneMoves\(\)/);
+assert.match(arena, /function violinMoves\(\)/);
+assert.match(arena, /Waveform Orb/);
+assert.match(arena, /Worldbeat Cataclysm/);
+assert.match(arena, /Choir of Stars/);
+assert.match(arena, /Moonlit Concerto/);
 assert.match(arena, /previousDx/);
 assert.match(arena, /projectile\.move && projectile\.move\.id/);
 assert.match(arena, /attackHits:fighter\.attack \? Array\.from\(fighter\.attack\.hit\)/);
@@ -138,8 +176,23 @@ assert.match(relayValidation, /knockouts, falls, disconnected/);
   'multiplayer-relay/src/security.ts',
   'multiplayer-relay/wrangler.jsonc',
   'multiplayer-relay/package-lock.json',
-  'docs/HIGH_NOTES_V2_ARCHITECTURE.md'
+  'docs/HIGH_NOTES_V2_ARCHITECTURE.md',
+  'docs/V2-2-CHARACTER-ASSETS.md',
+  'docs/V2-2-PROLOGUE.md',
+  'docs/V2-2-ARENA-ROSTER.md',
+  'assets/masters/arena/high-notes-fighter-roster-v1.png',
+  'assets/arena/fighters/manifest.json',
+  'assets/sprites/runtime/hero-hair-directions.png',
+  'assets/sprites/runtime/hero-instrument-manifest.json',
+  ...expectedEquipment.map((id) => `assets/sprites/runtime/hero-instrument-${id}.png`),
+  ...expectedEquipment.map((id) => `assets/arena/fighters/${id}-portrait.webp`)
 ].forEach(exists);
+
+const integratedManifest = JSON.parse(read('assets/sprites/runtime/hero-instrument-manifest.json'));
+assert.deepEqual(Object.keys(integratedManifest.sheets), expectedEquipment);
+
+const fighterArtManifest = JSON.parse(read('assets/arena/fighters/manifest.json'));
+assert.deepEqual(fighterArtManifest.fighters.map((fighter) => fighter.id), expectedEquipment);
 
 const manifest = JSON.parse(read('manifest.webmanifest'));
 assert.match(manifest.name, /HIGH NOTES/i);
