@@ -21,6 +21,8 @@ const EYE_HEIGHT = metres(1.65);
 const STICK_LOOK_RATE = 2.6;
 /* Radians per mouse pixel, before the sensitivity setting. */
 const MOUSE_LOOK_RATE = 0.0022;
+/* A thumb covers less usable travel than a mouse, so touch has its own rate. */
+const TOUCH_LOOK_RATE = 0.0042;
 
 function bridge() {
   var api = window.__HIGH_NOTES__;
@@ -167,8 +169,8 @@ class FirstPersonController {
     }
     if (this.touchDeltaX || this.touchDeltaY) {
       var touchScale = typeof settings.mobileLookSensitivity === 'number' ? settings.mobileLookSensitivity : 1;
-      this.yaw -= this.touchDeltaX * MOUSE_LOOK_RATE * touchScale * sensX;
-      this.pitch -= this.touchDeltaY * MOUSE_LOOK_RATE * touchScale * sensY * invert;
+      this.yaw -= this.touchDeltaX * TOUCH_LOOK_RATE * touchScale * sensX;
+      this.pitch -= this.touchDeltaY * TOUCH_LOOK_RATE * touchScale * sensY * invert;
       this.touchDeltaX = 0;
       this.touchDeltaY = 0;
     }
@@ -293,6 +295,11 @@ class FirstPersonController {
     this.motor.clearRequests();
     this.sprinting = false;
   }
+
+  clearTouchLook() {
+    this.touchDeltaX = 0;
+    this.touchDeltaY = 0;
+  }
 }
 
 var controller = new FirstPersonController();
@@ -307,6 +314,7 @@ window.MossFP = {
   transformMove: function (mx, my) { return controller.transformMove(mx, my); },
   facingAngle: function () { return controller.facingAngle(); },
   clearInput: function () { controller.clearInput(); },
+  clearTouchLook: function () { controller.clearTouchLook(); },
   addTouchLook: function (x,y) { if(controller.active){controller.touchDeltaX += Number(x)||0;controller.touchDeltaY += Number(y)||0;} },
   requestPointerLock: function () { controller.requestPointerLock(); },
   releasePointerLock: function () { controller.releasePointerLock(); },
