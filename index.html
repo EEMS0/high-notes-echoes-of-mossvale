@@ -15,13 +15,14 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=28">
+  <link rel="stylesheet" href="styles.css?v=29">
   <script src="audio.js?v=12" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=3" defer></script>
   <script src="character-runtime.js?v=3" defer></script>
   <script src="input-manager.js?v=3" defer></script>
-  <script src="game.js?v=28" defer></script>
+  <script src="story-runtime.js?v=1" defer></script>
+  <script src="game.js?v=29" defer></script>
   <script src="controller-ui.js?v=2" defer></script>
   <script src="v1-expansion.js?v=10" defer></script>
   <script src="v2-platform-fighter.js?v=31" defer></script>
@@ -124,25 +125,28 @@
       </div>
 
       <div class="action-pad" aria-label="Actions">
-        <button class="touch-button action-button action-pulse" type="button" data-control="pulse" aria-label="Echo Pulse">
-          <span aria-hidden="true">♪</span><small>PULSE</small>
+        <button id="touchPulseButton" class="touch-button action-button action-pulse" type="button" data-control="pulse" aria-label="Echo Pulse">
+          <span aria-hidden="true">♪</span><small id="touchPulseLabel">PULSE</small><i class="action-progress" aria-hidden="true"></i>
         </button>
-        <button class="touch-button action-button action-dodge" type="button" data-control="dodge" aria-label="Dodge">
-          <span aria-hidden="true">↝</span><small>DODGE</small>
+        <button id="touchClassButton" class="touch-button action-button action-class" type="button" data-control="classAbility" aria-label="Use Riffblade signature ability">
+          <span id="touchClassIcon" aria-hidden="true">✦</span><small id="touchClassLabel">RIFF</small><i class="action-progress" aria-hidden="true"></i>
         </button>
-        <button class="touch-button action-button action-attack" type="button" data-control="attack" aria-label="Attack">
-          <span aria-hidden="true">⚔</span><small>STRIKE</small>
+        <button id="touchDodgeButton" class="touch-button action-button action-dodge" type="button" data-control="dodge" aria-label="Dodge">
+          <span aria-hidden="true">↝</span><small>DODGE</small><i class="action-progress" aria-hidden="true"></i>
         </button>
-        <button class="touch-button action-button action-block" type="button" data-control="block" aria-label="Hold to block">
-          <span aria-hidden="true">◈</span><small>BLOCK</small>
+        <button id="touchAttackButton" class="touch-button action-button action-attack" type="button" data-control="attack" aria-label="Attack; hold for a charged attack">
+          <span aria-hidden="true">⚔</span><small id="touchAttackLabel">STRIKE</small><i class="action-progress" aria-hidden="true"></i>
         </button>
-        <button class="touch-button action-button action-interact" type="button" data-control="interact" aria-label="Interact">
-          <span aria-hidden="true">✦</span><small>TALK</small>
+        <button id="touchBlockButton" class="touch-button action-button action-block" type="button" data-control="block" aria-label="Hold to block">
+          <span aria-hidden="true">◈</span><small id="touchBlockLabel">BLOCK</small><i class="action-progress" aria-hidden="true"></i>
+        </button>
+        <button id="touchInteractButton" class="touch-button action-button action-interact" type="button" data-control="interact" aria-label="Interact">
+          <span aria-hidden="true">✦</span><small id="touchInteractLabel">ACT</small><i class="action-progress" aria-hidden="true"></i>
         </button>
       </div>
     </section>
 
-    <section id="characterCreator" class="overlay feature-screen character-creator" role="dialog" aria-modal="true" aria-labelledby="characterCreatorTitle" hidden>
+    <section id="characterCreator" class="overlay feature-screen character-creator" role="dialog" aria-modal="true" aria-labelledby="characterCreatorTitle" data-backdrop-dismiss="protected" data-backdrop-reason="Finish or cancel character creation." hidden>
       <div class="feature-card character-creator-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">YOUR SONG, YOUR SILHOUETTE</p><h2 id="characterCreatorTitle">Create your adventurer</h2></div>
@@ -153,6 +157,7 @@
             <canvas id="characterPreview" width="320" height="320" role="img" aria-label="Preview of your adventurer"></canvas>
             <p>Appearance is cosmetic and never changes combat power.</p>
           </section>
+          <div class="character-control-column">
           <form id="characterForm" class="character-options" autocomplete="off">
             <label class="creator-field" for="characterName"><span><strong>Display name</strong><small>Used in your adventure and natural dialogue.</small></span><input id="characterName" maxlength="18" value="Echo" required aria-describedby="characterNameHint"><small id="characterNameHint">1–18 letters, numbers, spaces, apostrophes or hyphens.</small></label>
             <label class="creator-field" for="characterPronouns"><span><strong>Pronouns</strong><small>Only used where dialogue naturally refers to you.</small></span><select id="characterPronouns"><option value="they">They / them</option><option value="she">She / her</option><option value="he">He / him</option><option value="name">Use my name</option></select></label>
@@ -160,14 +165,16 @@
             <fieldset class="creator-choice"><legend>Hair / head style</legend><div id="characterHairChoices" class="choice-grid"></div></fieldset>
             <fieldset class="creator-choice"><legend>Outfit palette</legend><div id="characterOutfitChoices" class="swatch-grid"></div></fieldset>
             <fieldset class="creator-choice"><legend>Accent colour</legend><div id="characterAccentChoices" class="swatch-grid"></div></fieldset>
-            <div class="button-row creator-actions"><button id="randomizeCharacter" class="game-button button-ghost" type="button">Randomize</button><button id="resetCharacter" class="game-button button-secondary" type="button">Reset</button><button id="confirmCharacter" class="game-button button-primary" type="submit">Begin Prologue</button></div>
+            <fieldset class="creator-choice creator-class-choice"><legend>Starter class</legend><p>Class changes playstyle, never appearance or instrument choice.</p><div id="characterClassChoices" class="class-choice-grid"></div><div id="characterClassDetails" class="class-details" aria-live="polite"></div></fieldset>
           </form>
+          <div class="button-row creator-actions"><button id="randomizeCharacter" class="game-button button-ghost" type="button">Randomize</button><button id="resetCharacter" class="game-button button-secondary" type="button">Reset</button><button id="confirmCharacter" class="game-button button-primary" type="submit" form="characterForm">Begin Prologue</button></div>
+          </div>
         </div>
       </div>
     </section>
 
     <section id="tutorialPanel" class="tutorial-panel" aria-live="polite" hidden>
-      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 11</span><span id="tutorialProgressFill"></span></div>
+      <div class="tutorial-progress"><span id="tutorialStepCount">1 / 12</span><span id="tutorialProgressFill"></span></div>
       <p class="panel-kicker">REHEARSAL GROVE</p>
       <h2 id="tutorialStepTitle">Find your footing</h2>
       <p id="tutorialStepText">Move through the glowing rehearsal circle.</p>
@@ -203,7 +210,7 @@
       <p class="title-credit">Original art, world &amp; characters</p>
     </section>
 
-    <section id="howPanel" class="overlay panel-overlay" role="dialog" aria-modal="true" aria-labelledby="howTitle" hidden>
+    <section id="howPanel" class="overlay panel-overlay" role="dialog" aria-modal="true" aria-labelledby="howTitle" data-backdrop-dismiss="true" hidden>
       <div class="modal-card how-card">
         <div class="panel-heading">
           <div>
@@ -244,6 +251,7 @@
           <div><span>Dodge</span><kbd>Shift / K</kbd></div>
           <div><span>Block</span><kbd>F</kbd></div>
           <div><span>Echo Pulse</span><kbd>Q / L</kbd></div>
+          <div><span>Class ability</span><kbd>C</kbd></div>
           <div><span>Use Heartbloom</span><kbd>H</kbd></div>
           <div><span>Change Odin command</span><kbd>R</kbd></div>
           <div><span>Interact</span><kbd>E / Enter</kbd></div>
@@ -265,13 +273,14 @@
           <div><span>Map &amp; quests</span><span class="cprompt" data-btn="View">View</span></div>
           <div><span>Backpack</span><span class="cprompt" data-btn="L3">L3</span></div>
           <div><span>Instruments</span><span class="cprompt" data-btn="R3">R3</span></div>
+          <div><span>Class ability</span><span class="cprompt" data-btn="L3+R3">L3 + R3</span></div>
           <div><span>Pause / resume</span><span class="cprompt" data-btn="Menu">Menu</span></div>
           <div><span>Menus: select / back</span><span class="cprompt" data-btn="A">A</span><span class="cprompt" data-btn="B">B</span></div>
           <div><span>Menus: switch tabs</span><span class="cprompt" data-btn="LB">LB</span><span class="cprompt" data-btn="RB">RB</span></div>
         </div>
 
         <div class="touch-guide touch-only" aria-label="Touch controls">
-          <p><strong>Move</strong> with the left pad. Use <strong>Strike</strong>, <strong>Dodge</strong>, <strong>Pulse</strong>, and <strong>Talk</strong> with your right thumb.</p>
+          <p><strong>Move</strong> with the left pad. Your right thumb has <strong>Strike</strong>, <strong>Dodge</strong>, held <strong>Block</strong>, <strong>Pulse</strong>, your class signature, and a contextual action.</p>
           <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. <strong>Map</strong> and <strong>Pause</strong> are at the top-right.</p>
           <p class="audio-tip">No sound on iPhone? Turn off Silent Mode, raise media volume, then tap the game once.</p>
         </div>
@@ -279,7 +288,7 @@
       </div>
     </section>
 
-    <section id="settingsPanel" class="overlay panel-overlay settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+    <section id="settingsPanel" class="overlay panel-overlay settings-overlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" data-backdrop-dismiss="true" hidden>
       <div class="modal-card settings-card">
         <div class="panel-heading">
           <div>
@@ -454,6 +463,21 @@
             <span><strong>Swap A and B</strong><small>Use B to confirm and A to go back.</small></span>
             <input id="swapConfirmCancel" type="checkbox">
           </label>
+
+          <label class="setting-row select-row" for="touchLayout">
+            <span><strong>Touch layout</strong><small>Mirror movement, looking, and action controls for your preferred hand.</small></span>
+            <select id="touchLayout"><option value="normal" selected>Normal</option><option value="mirrored">Mirrored</option></select>
+          </label>
+
+          <label class="setting-row switch-row" for="mobileHaptics">
+            <span><strong>Mobile haptics</strong><small>Subtle vibration for success and unavailable actions.</small></span>
+            <input id="mobileHaptics" type="checkbox" checked>
+          </label>
+
+          <label class="setting-row select-row" for="chordTiming">
+            <span><strong>Chord-puzzle timing</strong><small>Extend the arpeggio window without changing puzzle answers.</small></span>
+            <select id="chordTiming"><option value="standard" selected>Standard</option><option value="forgiving">Forgiving</option><option value="relaxed">Relaxed</option></select>
+          </label>
         </div>
 
         <div class="settings-footer">
@@ -464,7 +488,7 @@
       </div>
     </section>
 
-    <section id="pauseScreen" class="overlay pause-screen" role="dialog" aria-modal="true" aria-labelledby="pauseTitle" hidden>
+    <section id="pauseScreen" class="overlay pause-screen" role="dialog" aria-modal="true" aria-labelledby="pauseTitle" data-backdrop-dismiss="true" hidden>
       <div class="pause-card">
         <p class="panel-kicker">THE GROOVE CAN WAIT</p>
         <h2 id="pauseTitle">Paused</h2>
@@ -498,7 +522,7 @@
       <button id="dialogueContinueButton" class="dialogue-continue touch-only" type="button">Next</button>
     </section>
 
-    <section id="inventoryScreen" class="overlay feature-screen inventory-screen" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle" hidden>
+    <section id="inventoryScreen" class="overlay feature-screen inventory-screen" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card inventory-card">
         <div class="panel-heading inventory-heading">
           <div>
@@ -525,7 +549,7 @@
       </div>
     </section>
 
-    <section id="shopScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="shopTitle" hidden>
+    <section id="shopScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="shopTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card shop-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">BRAD'S PREMIUM GOODS</p><h2 id="shopTitle">The Beat Boutique</h2></div>
@@ -543,7 +567,7 @@
       </div>
     </section>
 
-    <section id="skillsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="skillsTitle" hidden>
+    <section id="skillsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="skillsTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card skills-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">GROOVE TRAINING</p><h2 id="skillsTitle">Skill Tree</h2></div>
@@ -573,7 +597,7 @@
       </div>
     </section>
 
-    <section id="instrumentsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="instrumentsTitle" hidden>
+    <section id="instrumentsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="instrumentsTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card instruments-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">PLAY YOUR WAY</p><h2 id="instrumentsTitle">Instrument Mastery</h2></div>
@@ -588,7 +612,7 @@
       </div>
     </section>
 
-    <section id="homeScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="homeTitle" hidden>
+    <section id="homeScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="homeTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card home-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">A PLACE BETWEEN SONGS</p><h2 id="homeTitle">The Afterglow House</h2></div>
@@ -596,6 +620,10 @@
         </div>
         <div id="homeSummary" class="home-summary"></div>
         <div id="homeRooms" class="home-rooms" aria-live="polite"></div>
+        <section class="home-class-studio" aria-labelledby="homeClassTitle">
+          <div><p class="panel-kicker">MENTOR'S CORNER</p><h3 id="homeClassTitle">Retune your class</h3><p>Your first respec is free. Later changes cost 8 Beatcoins and never grant duplicate rewards.</p></div>
+          <div id="homeClassChoices" class="class-choice-grid"></div>
+        </section>
         <div class="home-footer">
           <label for="homeDecoration">Active decoration</label>
           <select id="homeDecoration"></select>
@@ -604,7 +632,7 @@
       </div>
     </section>
 
-    <section id="statisticsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="statisticsTitle" hidden>
+    <section id="statisticsScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="statisticsTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card statistics-card">
         <div class="panel-heading">
           <div>
@@ -635,7 +663,7 @@
       </div>
     </section>
 
-    <section id="composerScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="composerTitle" hidden>
+    <section id="composerScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="composerTitle" data-backdrop-dismiss="protected" data-backdrop-reason="Save the melody or use the close button." hidden>
       <div class="feature-card composer-card">
         <div class="panel-heading">
           <div>
@@ -656,7 +684,7 @@
       </div>
     </section>
 
-    <section id="mapScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="mapTitle" hidden>
+    <section id="mapScreen" class="overlay feature-screen" role="dialog" aria-modal="true" aria-labelledby="mapTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card map-card">
         <div class="panel-heading">
           <div>
@@ -693,7 +721,33 @@
       </div>
     </section>
 
-    <section id="productionHub" class="overlay feature-screen production-hub" role="dialog" aria-modal="true" aria-labelledby="productionHubTitle" hidden>
+    <section id="chordPanel" class="overlay feature-screen chord-screen" role="dialog" aria-modal="true" aria-labelledby="chordTitle" data-backdrop-dismiss="true" hidden>
+      <div class="feature-card chord-card">
+        <div class="panel-heading">
+          <div><p id="chordKicker" class="panel-kicker">STORY RESONATOR</p><h2 id="chordTitle">Tune the chord</h2></div>
+          <button id="closeChordButton" class="icon-button" type="button" aria-label="Close chord puzzle">&times;</button>
+        </div>
+        <div class="chord-layout">
+          <section class="chord-demonstration" aria-labelledby="chordConcept">
+            <p class="panel-kicker">HEAR · SEE · REPEAT</p><h3 id="chordConcept">C major triad</h3><p id="chordHint"></p>
+            <div id="chordPattern" class="chord-pattern" aria-label="Chord pattern"></div>
+            <button id="replayChordButton" class="game-button button-secondary" type="button">Replay pattern</button>
+          </section>
+          <section class="chord-input" aria-labelledby="chordInputTitle">
+            <h3 id="chordInputTitle">Play the resonator</h3><div id="chordInputProgress" class="chord-input-progress" aria-live="polite"></div>
+            <div class="chord-note-grid">
+              <button type="button" data-chord-note="C" aria-label="Play note C, circle">C<span aria-hidden="true">●</span></button>
+              <button type="button" data-chord-note="E" aria-label="Play note E, triangle">E<span aria-hidden="true">▲</span></button>
+              <button type="button" data-chord-note="G" aria-label="Play note G, diamond">G<span aria-hidden="true">◆</span></button>
+              <button type="button" data-chord-note="B" aria-label="Play note B, square">B<span aria-hidden="true">■</span></button>
+            </div>
+            <p id="chordStatus" class="chord-status" role="status" aria-live="polite">Listen to the pattern, then answer.</p>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section id="productionHub" class="overlay feature-screen production-hub" role="dialog" aria-modal="true" aria-labelledby="productionHubTitle" data-backdrop-dismiss="true" hidden>
       <div class="feature-card production-hub-card">
         <header class="production-hub-heading">
           <div>
@@ -724,7 +778,7 @@
       </div>
     </section>
 
-    <section id="endingScreen" class="overlay ending-screen" role="dialog" aria-modal="true" aria-labelledby="endingTitle" hidden>
+    <section id="endingScreen" class="overlay ending-screen" role="dialog" aria-modal="true" aria-labelledby="endingTitle" data-backdrop-dismiss="protected" data-backdrop-reason="Choose the explicit continue action." hidden>
       <div class="ending-card">
         <span class="ending-notes" aria-hidden="true">♪ · ♫ · ♪</span>
         <p class="panel-kicker">THE VALE REMEMBERS</p>
@@ -738,6 +792,7 @@
       <div class="rotate-device" aria-hidden="true"><span>↻</span></div>
       <strong id="rotateTitle">Turn toward the horizon</strong>
       <p>Mossvale plays best in landscape. Your game is safely paused.</p>
+      <button id="portraitSettingsButton" class="game-button button-ghost" type="button">Settings</button>
     </aside>
   </main>
 

@@ -200,8 +200,11 @@ export class MossFPBillboards {
     (entities.weeds||[]).forEach(function(item){out.push({key:'weed:'+item.id,kind:'pickup',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#7df7a1',signature:'weed'});});
     (entities.drums||[]).forEach(function(item){out.push({key:'drum:'+item.id,kind:'puzzle',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#ffc857',signature:'drum'});});
     (entities.speakers||[]).forEach(function(item){out.push({key:'speaker:'+item.id,kind:'puzzle',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#d77cff',signature:'speaker'});});
+    (entities.stageTokens||[]).forEach(function(item){out.push({key:'stage-token:'+item.id,kind:'pickup',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#86e8ff',signature:'shell-memory'});});
+    (entities.storyResonators||[]).forEach(function(item){out.push({key:'story-resonator:'+item.id,kind:'puzzle',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:'#ffc857',signature:'story-resonator'});});
     if(entities.tutorial){out.push({key:'tutorial:'+entities.tutorial.id,kind:'puzzle',x:entities.tutorial.x,y:entities.tutorial.y,id:null,animation:'idle',elapsed:now,color:'#56f0c4',signature:'tutorial'});}
     (entities.projectiles||[]).slice(0,24).forEach(function(item,index){out.push({key:'projectile:'+index,kind:'effect',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:item.color||'#62c7ff',signature:'projectile'});});
+    (entities.classFields||[]).slice(0,4).forEach(function(item,index){out.push({key:'class-field:'+index,kind:'effect',x:item.x,y:item.y,id:null,animation:'idle',elapsed:now,color:item.color||'#62dff5',signature:'class-field'});});
 
     return out;
   }

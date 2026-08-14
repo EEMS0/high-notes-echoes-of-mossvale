@@ -33,6 +33,7 @@ Launch the new **HIGH NOTES** Home Screen icon and keep the device in landscape 
 | Attack | `Space` or `J` |
 | Dodge | `Shift` or `K` |
 | Echo Pulse | `Q` or `L` |
+| Class ability | `C` |
 | Use a stored Heartbloom | `H` |
 | Interact / advance dialogue | `E` or `Enter` |
 | Open map and quest log | `Tab` |
@@ -41,7 +42,7 @@ Launch the new **HIGH NOTES** Home Screen icon and keep the device in landscape 
 | Open the Player Home | `O` |
 | Pause / back | `Esc` |
 
-Standard gamepads are supported: left stick/D-pad moves, `A` attacks, `B` dodges or closes a menu, `X` pulses, `Y` interacts, the left shoulder blocks, and Start pauses.
+Standard gamepads are supported: left stick/D-pad moves, `A` attacks, `B` dodges or closes a menu, `X` pulses, `Y` interacts, the left shoulder blocks, both stick buttons trigger the campaign class ability, and Start pauses.
 
 The composer opens when you interact with EEMS after finding four notes. Use a mouse or touchscreen to edit the melody. Landscape touch devices also get on-screen movement, attack, dodge, pulse, interact, Heal, Map, and Pause controls. Walk over a Heartbloom to store it in the medicine pouch, then tap **Heal** when hurt or use it from the backpack’s **Supplies** tab. Tap the **Pack** counter in the HUD to open the backpack.
 
@@ -92,6 +93,7 @@ node --check equipment-runtime.js
 node --check v1-expansion.js
 node --check v2-platform-fighter.js
 node tools/validate-v2-release.cjs
+node tools/validate-v2-3-upgrade.cjs
 ```
 
 The deeper production-sprite audit uses `sharp` to inspect PNG alpha data. Run `node tools/validate-production-sprites.cjs` in a tooling environment where `sharp` is available; `sharp` is not a browser/runtime dependency and is intentionally not shipped with the static game.
@@ -123,6 +125,7 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `index.html` — canvas, HUD, menus, overlays, composer, map, dialogue, and touch controls.
 - `styles.css` — responsive presentation and accessibility states.
 - `game.js` — world, story, input, combat, rendering, save state, and UI behavior.
+- `story-runtime.js` — immutable four-stage story/chord catalogs and pure chord evaluation.
 - `equipment-runtime.js` — central hybrid equipment registry, frame attachments, layer order, and combat origins.
 - `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, protocol-v2 Echo Network client, health checks, and diagnostics (the legacy filename/global is retained for compatibility).
 - `v2-platform-fighter.js` — fixed-step Stock Battle simulation, Guitar/Bass move data, local ownership, bot logic, host snapshots, and arena results.
@@ -132,10 +135,13 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
 - `assets/mossvale-key-art.png` — original generated title/menu artwork made for this project.
 - `assets/echo-arena-background.webp` — original moonlit Echo Arena environment used by the hub and competitive canvas.
+- `assets/ui/classes/` — four original transparent starter-class icons, runtime manifest, and source/usage notes.
 - `multiplayer-relay/` — deployable TypeScript Cloudflare Worker and SQLite-backed Durable Object relay with validation, rate limits, reconnect handling, tests, and deployment guide.
 - `docs/HIGH_NOTES_V2_ARCHITECTURE.md` — evidence-based architecture and migration baseline captured before the V2 client work.
 - `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md` — honest completion boundary, save notes, release checks, and external-network playtest checklist.
+- `docs/HIGH_NOTES_V2_3_UPGRADE.md` — shared overlay dismissal, mobile action states, class balance, story checkpoints, chord reasoning, assets, and schema-23 migration.
 - `tools/validate-v2-release.cjs` — dependency-free equipment, integration, and relay-structure regression checks.
+- `tools/validate-v2-3-upgrade.cjs` — focused class, story, save, asset, and integration regression checks.
 
 - `Sprites/` — the active production library: 102 transparent character sheets, 612 portraits, Odin actions, combat effects, UI art, and per-sheet animation manifests.
 - `Sprites/UI/Brad Shop/brad-shop-items-sheet.png` — dedicated 5×4 icon atlas for every item sold in Brad's shop.

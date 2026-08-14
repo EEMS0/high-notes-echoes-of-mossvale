@@ -15,7 +15,8 @@ const LABELS = {
   npc: 'Speak to',
   shrine: 'Recover note',
   portal: 'Travel to',
-  'world-event': 'Investigate'
+  'world-event': 'Investigate',
+  'story-chord': 'Play'
 };
 
 function inputLabel(action) {

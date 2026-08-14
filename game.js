@@ -18,9 +18,16 @@
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
   var GAME_VERSION = '2.0.0';
-  var SAVE_SCHEMA_VERSION = 22;
+  var SAVE_SCHEMA_VERSION = 23;
   var NOTE_ORDER = ['C', 'E', 'G', 'B'];
   var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
+  var CLASS_IDS = ['riffblade','groveguard','echo-weaver','tempo-runner'];
+  var STARTER_CLASSES = Object.freeze({
+    'riffblade':Object.freeze({id:'riffblade',name:'Riffblade',short:'RIFF',color:'#56f0c4',accent:'#ffc857',icon:'assets/ui/classes/riffblade.webp',cooldown:8,playstyle:'Balanced close-range rhythm fighter',strengths:'Reliable combos · quick charge recovery',passive:'Steady Cadence — charged attacks build 12% faster and combo grace lasts slightly longer.',ability:'Resonant Cleave',abilityText:'A compact forward chord burst that damages and staggers without replacing your instrument.' ,recommended:'New players and adaptable builds'}),
+    'groveguard':Object.freeze({id:'groveguard',name:'Groveguard',short:'WARD',color:'#8fcf65',accent:'#ffc857',icon:'assets/ui/classes/groveguard.webp',cooldown:12,playstyle:'Defence, timing and survivability',strengths:'Stable guard · perfect-guard recovery',passive:'Rooted Tempo — guard drains 18% slower; a perfect guard restores extra stamina.',ability:'Root Resonance',abilityText:'Raise a three-second barrier that softens damage. It cannot make you invulnerable.',recommended:'Methodical players and boss practice'}),
+    'echo-weaver':Object.freeze({id:'echo-weaver',name:'Echo Weaver',short:'ECHO',color:'#62dff5',accent:'#b879ff',icon:'assets/ui/classes/echo-weaver.webp',cooldown:10,playstyle:'Ranged control and Echo Pulse utility',strengths:'Wider control · faster Pulse recovery',passive:'Lingering Echo — Echo Pulse cooldown recovers 12% faster.',ability:'Echo Marker',abilityText:'Place a capped resonance field that pulses twice, staggering nearby enemies.',recommended:'Spacing, control and support-minded players'}),
+    'tempo-runner':Object.freeze({id:'tempo-runner',name:'Tempo Runner',short:'DASH',color:'#ff8fad',accent:'#66b8ff',icon:'assets/ui/classes/tempo-runner.webp',cooldown:9,playstyle:'Mobility, dodge flow and repositioning',strengths:'Quicker dodge recovery · safe repositioning',passive:'Fleet Phrase — dodge recovery is 12% shorter without adding invulnerability.',ability:'Tempo Break',abilityText:'A short collision-safe dash followed by a light afterimage strike.',recommended:'Fast movement and evasive play'} )
+  });
   var SPRITE_PATH = 'assets/sprites/runtime/';
   var spriteImages = {};
   var INTEGRATED_HERO_SPRITES = Object.freeze({
@@ -209,12 +216,23 @@
       return fallback;
     }
   }
+  var overlayReturnFocus = new WeakMap();
   function setHidden(el, hidden) {
     if (!el) return;
+    if (!hidden && el.dataset && el.dataset.backdropDismiss && document.activeElement && !el.contains(document.activeElement)) {
+      overlayReturnFocus.set(el,document.activeElement);
+    }
     el.hidden = !!hidden;
     el.classList.toggle('hidden', !!hidden);
     el.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+    syncOverlayBodyState();
     canvasDirty = true;
+  }
+
+  function syncOverlayBodyState() {
+    if (!document.body) return;
+    var menuOpen=Array.prototype.some.call(document.querySelectorAll('.overlay:not(#titleScreen), #dialogueBox'),function(panel){return !panel.hidden&&panel.getAttribute('aria-hidden')!=='true';});
+    document.body.classList.toggle('menu-overlay-open',menuOpen);
   }
   function audioCall(name) {
     var audio = window.MossAudio;
@@ -310,8 +328,9 @@
     }
 
     var wasBlocked = orientationBlocked;
-    orientationBlocked = touchCapable && size.height > size.width;
-    document.body.classList.toggle('is-portrait', orientationBlocked);
+    var portraitLayout = touchCapable && size.height > size.width;
+    orientationBlocked = portraitLayout && started;
+    document.body.classList.toggle('is-portrait', portraitLayout);
     /* devicePixelRatio can change on fullscreen, zoom or a move between screens. */
     applyRenderScale();
     canvasDirty = true;
@@ -369,7 +388,10 @@
     largeText: false,
     interfaceSize: 'standard',
     adaptiveFirstStage: true,
-    renderScale: 'balanced'
+    renderScale: 'balanced',
+    touchLayout: 'normal',
+    mobileHaptics: true,
+    chordTiming: 'standard'
   };
   function readStorage(key) {
     try {
@@ -470,8 +492,9 @@
       statistics: freshStatistics(),
       character: {
         created:false, displayName:'Echo', pronouns:'they',
-        appearance:{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'}
+        classId:'riffblade', appearance:{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'}
       },
+      classState:{cooldown:0,firstRespecUsed:false,abilityUses:0},
       tutorial: {
         status:'not-started',step:0,rewardClaimed:false,
         prologueX:210,prologueY:500,
@@ -518,6 +541,8 @@
       },
       questStates: {},
       completedQuests: [],
+      storyGuides: [],
+      puzzleStates: {},
       eliteDefeated: [],
       miniBossesDefeated: [],
       discoveredLocations: ['mossvale-hub'],
@@ -608,6 +633,8 @@
   var characterDraft = null;
   var characterPreviewFrame = 0;
   var tutorialRuntime = {active:false,replay:false,startX:0,startY:0,signals:{}};
+  var chordRuntime = {open:false,id:'',input:[],lastInputAt:0,replay:false,returnFocus:null,previewTimers:[]};
+  var classFields = [];
 
   var player = {
     x: HUB.x,
@@ -629,6 +656,10 @@
     dashX: 0,
     dashY: -1,
     pulseCooldown: 0,
+    classCooldown: 0,
+    classBarrier: 0,
+    classBarrierCharges: 0,
+    classDashTimer: 0,
     stepTimer: 0,
     blocking: false,
     blockStamina: 100,
@@ -1311,7 +1342,7 @@
     2: {
       id:2, name:'Rootsong Hollows', world:{w:2200,h:1500}, spawn:{x:220,y:750}, hub:{x:220,y:750}, boss:{x:1800,y:750}, seed:22881,
       weeds:[], shrines:[],
-      drums:[{id:'rh-d1',x:650,y:390,note:'C'},{id:'rh-d2',x:1090,y:790,note:'E'},{id:'rh-d3',x:1540,y:410,note:'G'}], speakers:[],
+      drums:[{id:'rh-d1',x:650,y:390,note:'E'},{id:'rh-d2',x:1090,y:790,note:'G'},{id:'rh-d3',x:1540,y:410,note:'B'}], speakers:[],
       npcs:[{id:'pip',name:'PIP',x:1800,y:1190,color:'#d9a85d'},{id:'nix',name:'NIX',x:1080,y:1120,color:'#b7a0ff'}],
       enemies:[['rh1','thorn',520,610,'rootsong'],['rh2','slime',720,510,'rootsong'],['rh3','buzz',920,890,'rootsong'],['rh4','thorn',1210,620,'rootsong'],['rh5','slime',1430,530,'rootsong'],['rh6','wisp',1560,1170,'rootsong'],['rh7','buzz',1500,450,'rootsong'],['rh8','slime',1300,1110,'rootsong'],['rh9','thorn',1040,460,'rootsong'],['rh10','wisp',1840,1060,'rootsong']],
       obstacles:[{x:180,y:160,r:105},{x:480,y:150,r:90},{x:790,y:170,r:82},{x:1190,y:150,r:100},{x:1580,y:150,r:92},{x:2040,y:170,r:115},{x:170,y:1320,r:120},{x:520,y:1340,r:95},{x:920,y:1320,r:105},{x:1450,y:1330,r:120},{x:2040,y:1310,r:120},{x:800,y:680,r:48},{x:1280,y:410,r:52},{x:1510,y:980,r:58},{x:470,y:980,r:48}],
@@ -1325,7 +1356,7 @@
     3: {
       id:3, name:'Skyglass Reach', world:{w:2200,h:1500}, spawn:{x:220,y:750}, hub:{x:220,y:750}, boss:{x:1800,y:750}, seed:77331,
       weeds:[], shrines:[], drums:[],
-      speakers:[{id:'sg-s1',x:650,y:390},{id:'sg-s2',x:1110,y:790},{id:'sg-s3',x:1570,y:420}],
+      speakers:[{id:'sg-s1',x:650,y:390,note:'E'},{id:'sg-s2',x:1110,y:790,note:'G'},{id:'sg-s3',x:1570,y:420,note:'C'}],
       npcs:[{id:'zephra',name:'ZEPHRA',x:1810,y:1190,color:'#9de8ff'},{id:'luma',name:'LUMA',x:1080,y:1120,color:'#ff91d5'}],
       enemies:[['sg1','wisp',520,560,'skyglass'],['sg2','buzz',730,510,'skyglass'],['sg3','wisp',930,900,'skyglass'],['sg4','thorn',1200,600,'skyglass'],['sg5','buzz',1440,530,'skyglass'],['sg6','wisp',1600,1180,'skyglass'],['sg7','slime',1500,460,'skyglass'],['sg8','buzz',1320,1130,'skyglass'],['sg9','thorn',1060,430,'skyglass'],['sg10','wisp',1880,1040,'skyglass']],
       obstacles:[{x:170,y:150,r:95},{x:480,y:155,r:80},{x:790,y:145,r:88},{x:1200,y:155,r:92},{x:1580,y:145,r:86},{x:2040,y:170,r:108},{x:170,y:1325,r:110},{x:520,y:1340,r:90},{x:920,y:1320,r:100},{x:1450,y:1335,r:105},{x:2040,y:1320,r:115},{x:820,y:690,r:45},{x:1290,y:430,r:50},{x:1500,y:1000,r:54},{x:480,y:1010,r:44}],
@@ -1343,7 +1374,7 @@
       enemies:[['mw1','slime',500,560,'moonwake'],['mw2','buzz',730,430,'moonwake'],['mw3','wisp',900,930,'moonwake'],['mw4','thorn',1190,620,'moonwake'],['mw5','slime',1430,520,'moonwake'],['mw6','wisp',1550,1160,'moonwake'],['mw7','buzz',1500,460,'moonwake'],['mw8','slime',1380,1160,'moonwake'],['mw9','wisp',760,1170,'moonwake'],['mw10','thorn',1860,390,'moonwake']],
       obstacles:[{x:170,y:150,r:100},{x:520,y:155,r:82},{x:890,y:150,r:90},{x:1280,y:155,r:84},{x:1690,y:150,r:90},{x:2150,y:170,r:112},{x:170,y:1320,r:110},{x:560,y:1340,r:88},{x:1010,y:1330,r:96},{x:1510,y:1330,r:108},{x:2150,y:1320,r:118},{x:930,y:650,r:45},{x:1320,y:420,r:48},{x:1580,y:1020,r:52},{x:520,y:970,r:42}],
       water:[{x:710,y:830,rx:170,ry:82},{x:1190,y:1080,rx:180,ry:84},{x:1530,y:710,rx:145,ry:72},{x:1930,y:1050,rx:160,ry:80}],
-      tokens:[{id:'mw-shell-1',x:650,y:390,label:'Dawn Shell'},{id:'mw-shell-2',x:1110,y:1180,label:'Deep Shell'},{id:'mw-shell-3',x:1650,y:400,label:'Star Shell'}], collectibles:[{id:'pearl-1',set:'moonwake',x:480,y:390,label:'Dawn Pearl'},{id:'pearl-2',set:'moonwake',x:880,y:1120,label:'Deep Pearl'},{id:'pearl-3',set:'moonwake',x:1390,y:350,label:'Foam Pearl'},{id:'pearl-4',set:'moonwake',x:2020,y:1110,label:'Night Pearl'}],
+      tokens:[{id:'mw-shell-1',x:650,y:390,note:'C',label:'Dawn Shell'},{id:'mw-shell-2',x:1110,y:1180,note:'E',label:'Deep Shell'},{id:'mw-shell-3',x:1650,y:400,note:'G',label:'Star Shell'}], collectibles:[{id:'pearl-1',set:'moonwake',x:480,y:390,label:'Dawn Pearl'},{id:'pearl-2',set:'moonwake',x:880,y:1120,label:'Deep Pearl'},{id:'pearl-3',set:'moonwake',x:1390,y:350,label:'Foam Pearl'},{id:'pearl-4',set:'moonwake',x:2020,y:1110,label:'Night Pearl'}],
       portals:[{id:'mw-return',x:110,y:750,target:3,name:'Skyglass Reach',back:true}],
       labels:[[1140,235,'MOONWAKE COAST'],[650,330,'TIDELIGHT STRAND'],[1500,1200,'ECHOING SHOALS']],
       zones:[[620,590,620,520,'rgba(27,76,78,0.98)','rgba(24,59,66,0.86)'],[1320,720,760,610,'rgba(33,58,86,0.98)','rgba(28,48,72,0.86)'],[1900,720,500,520,'rgba(62,48,89,0.98)','rgba(45,41,72,0.84)']],
@@ -1351,6 +1382,13 @@
       palette:{ground:'#102c35',fade:'rgba(16,44,53,0)',routeOuter:'rgba(36,80,83,0.92)',route:'#8a8269',routeGlow:'rgba(126,235,220,0.24)',border:'#386d75',waterA:'#287f95',waterB:'#153e66',waterLine:'#61d8c8',grass:['#3e7c70','#34675f'],flowers:['#61d8c8','#86cfff','#ff91d5','#d8e7a2'],obstacle:'coast'}
     }
   };
+
+  var STORY_RESONATORS = Object.freeze({
+    1:Object.freeze({id:'story-resonator-1',stage:1,x:1545,y:790,label:'GROVE HARMONY',chord:'mossvale-major'}),
+    2:Object.freeze({id:'story-resonator-2',stage:2,x:1090,y:675,label:'ROOTSONG ANSWER',chord:'rootsong-minor'}),
+    3:Object.freeze({id:'story-resonator-3',stage:3,x:1110,y:660,label:'TRUE REFLECTION',chord:'skyglass-inversion'}),
+    4:Object.freeze({id:'story-resonator-4',stage:4,x:1180,y:760,label:'MOONWAKE MEMORY',chord:'moonwake-seventh'})
+  });
 
   /*
    * The prologue is deliberately not LEVELS[0]. Campaign stage numbers, map
@@ -1509,11 +1547,16 @@
     clean.character.displayName = window.MossCharacter ? window.MossCharacter.sanitizeName(rawCharacter.displayName) :
       String(rawCharacter.displayName || 'Echo').replace(/[^\w \-']/g,'').trim().slice(0,18) || 'Echo';
     clean.character.pronouns = ['they','she','he','name'].indexOf(rawCharacter.pronouns) >= 0 ? rawCharacter.pronouns : 'they';
+    clean.character.classId = CLASS_IDS.indexOf(rawCharacter.classId) >= 0 ? rawCharacter.classId : 'riffblade';
     clean.character.appearance = window.MossCharacter ? window.MossCharacter.sanitizeAppearance(rawCharacter.appearance) : clean.character.appearance;
+    var rawClassState = raw.classState && typeof raw.classState === 'object' ? raw.classState : {};
+    clean.classState.cooldown = clamp(Number(rawClassState.cooldown) || 0,0,30);
+    clean.classState.firstRespecUsed = !!rawClassState.firstRespecUsed;
+    clean.classState.abilityUses = clamp(Math.floor(Number(rawClassState.abilityUses) || 0),0,999999);
     var rawTutorial = raw.tutorial && typeof raw.tutorial === 'object' ? raw.tutorial : {};
     clean.tutorial.status = isLegacySave ? 'completed' :
       (['not-started','in-progress','completed','skipped'].indexOf(rawTutorial.status) >= 0 ? rawTutorial.status : 'not-started');
-    clean.tutorial.step = clamp(Math.floor(Number(rawTutorial.step) || 0),0,10);
+    clean.tutorial.step = clamp(Math.floor(Number(rawTutorial.step) || 0),0,11);
     clean.tutorial.rewardClaimed = isLegacySave ? true : !!rawTutorial.rewardClaimed;
     clean.tutorial.prologueX = clamp(Number(rawTutorial.prologueX) || PROLOGUE_LEVEL.spawn.x,40,PROLOGUE_LEVEL.world.w-40);
     clean.tutorial.prologueY = clamp(Number(rawTutorial.prologueY) || PROLOGUE_LEVEL.spawn.y,40,PROLOGUE_LEVEL.world.h-40);
@@ -1581,8 +1624,16 @@
     clean.home.activeDecoration = clean.home.decorations.indexOf(rawHome.activeDecoration) >= 0 ? rawHome.activeDecoration : clean.home.decorations[0];
     clean.completedQuests = validUnique(raw.completedQuests, [
       'forest-amplifiers','ancient-speakers','lost-vinyl','travelling-band','missing-musicians','corrupted-resonance','dream-realm','final-concert',
-      'mara-pantry','jimbo-garden','eems-remix','blu-silence','pip-practice','zephra-parts','nix-relics','tavi-tides','luma-festival','brad-contract'
+      'mara-pantry','jimbo-garden','eems-remix','blu-silence','pip-practice','zephra-parts','nix-relics','tavi-tides','luma-festival','brad-contract',
+      'story-mossvale','story-rootsong','story-skyglass','story-moonwake'
     ]);
+    clean.storyGuides = validUnique(raw.storyGuides,['pip','zephra','tavi']);
+    if (window.MossStory) {
+      Object.keys(window.MossStory.chords).forEach(function (chordId) {
+        var record = window.MossStory.sanitizePuzzleState(chordId,raw.puzzleStates && raw.puzzleStates[chordId]);
+        if (record) clean.puzzleStates[chordId] = record;
+      });
+    }
     clean.eliteDefeated = validUnique(raw.eliteDefeated, ELITE_VARIANTS.map(function (elite) { return elite.id; }));
     clean.miniBossesDefeated = validUnique(raw.miniBossesDefeated, MINIBOSS_DEFS.map(function (mini) { return mini.id; }));
     clean.discoveredLocations = validUnique(raw.discoveredLocations, [
@@ -1602,9 +1653,14 @@
     ]);
     clean.weather = ['clear','rain','fog','wind','crystal-storm','blood-moon','forest-bloom'].indexOf(raw.weather) >= 0 ? raw.weather : 'clear';
     clean.questStates = {};
+    var knownQuestStateIds = [
+      'forest-amplifiers','ancient-speakers','lost-vinyl','travelling-band','missing-musicians','corrupted-resonance','dream-realm','final-concert',
+      'mara-pantry','jimbo-garden','eems-remix','blu-silence','pip-practice','zephra-parts','nix-relics','tavi-tides','luma-festival','brad-contract',
+      'story-mossvale','story-rootsong','story-skyglass','story-moonwake'
+    ];
     if (raw.questStates && typeof raw.questStates === 'object') {
       Object.keys(raw.questStates).slice(0, 40).forEach(function (id) {
-        if (!/^[a-z0-9-]{1,40}$/.test(id)) return;
+        if (knownQuestStateIds.indexOf(id) < 0) return;
         clean.questStates[id] = clamp(Math.floor(Number(raw.questStates[id]) || 0), 0, 99);
       });
     }
@@ -1811,7 +1867,43 @@
     if (clean.home.unlocked && clean.unlockedInstruments.indexOf('microphone') < 0) clean.unlockedInstruments.push('microphone');
     if ((clean.chapterRelics.indexOf('moonwake') >= 0 || clean.metTavi) && clean.unlockedInstruments.indexOf('violin') < 0) clean.unlockedInstruments.push('violin');
     if (clean.unlockedInstruments.indexOf(clean.equippedInstrument) < 0) clean.equippedInstrument = 'guitar';
+    migrateStoryState(clean,savedVersion);
     return clean;
+  }
+
+  function migrateStoryState(clean,savedVersion) {
+    if (!window.MossStory) return;
+    Object.keys(window.MossStory.arcs).forEach(function (stageKey) {
+      var stage = Number(stageKey);
+      var arc = window.MossStory.arcs[stage];
+      var chord = arc.chord;
+      var puzzle = clean.puzzleStates[chord] || window.MossStory.sanitizePuzzleState(chord,{});
+      clean.puzzleStates[chord] = puzzle;
+      var bossDone = stage === 1 ? clean.bossDefeated : clean.stageBosses.indexOf(bossDefForStage(stage).id) >= 0;
+      var laterStage = clean.stage > stage || clean.chapter > stage;
+      var relicId = stage === 2 ? 'rootsong' : stage === 3 ? 'skyglass' : stage === 4 ? 'moonwake' : '';
+      var relicDone = stage === 1 ? clean.composed : clean.chapterRelics.indexOf(relicId) >= 0;
+      if (savedVersion < 23) {
+        if (bossDone || laterStage) {
+          clean.questStates[arc.id] = arc.steps.length;
+          puzzle.status = 'completed'; puzzle.input = window.MossStory.chords[chord].notes.slice(); puzzle.rewardClaimed = true;
+          if (clean.completedQuests.indexOf(arc.id) < 0) clean.completedQuests.push(arc.id);
+        } else if (relicDone) {
+          clean.questStates[arc.id] = Math.max(0,arc.steps.length - 1);
+          puzzle.status = 'completed'; puzzle.input = window.MossStory.chords[chord].notes.slice(); puzzle.rewardClaimed = true;
+        } else if (stage === 1) {
+          clean.questStates[arc.id] = clean.notes.length === 4 ? 5 : clean.pulse ? 4 : clean.pruner ? 3 : clean.weeds.length >= 6 ? 2 : clean.metEems ? 1 : 0;
+        } else if (stage === 2) {
+          clean.questStates[arc.id] = clean.drums.length >= 3 ? 2 : clean.storyGuides.indexOf('pip') >= 0 || clean.metPip ? 1 : 0;
+        } else if (stage === 3) {
+          clean.questStates[arc.id] = clean.speakers.length >= 3 ? 2 : clean.storyGuides.indexOf('zephra') >= 0 || clean.metZephra ? 1 : 0;
+        } else {
+          clean.questStates[arc.id] = clean.stageTokens.length >= 3 ? 2 : clean.storyGuides.indexOf('tavi') >= 0 || clean.metTavi ? 1 : 0;
+        }
+      }
+      clean.questStates[arc.id] = clamp(Math.floor(Number(clean.questStates[arc.id]) || 0),0,arc.steps.length);
+      if (clean.questStates[arc.id] >= arc.steps.length && clean.completedQuests.indexOf(arc.id) < 0) clean.completedQuests.push(arc.id);
+    });
   }
 
   function saveSettings() {
@@ -1819,6 +1911,7 @@
   }
   function saveGame(force) {
     if (!started || (!force && nowTime - lastSaveTime < 4)) return;
+    state.classState.cooldown=clamp(player.classCooldown,0,30);
     if (tutorialRuntime.active && currentLevel && currentLevel.isPrologue) {
       state.tutorial.prologueX = clamp(Math.round(player.x),40,PROLOGUE_LEVEL.world.w-40);
       state.tutorial.prologueY = clamp(Math.round(player.y),40,PROLOGUE_LEVEL.world.h-40);
@@ -2156,8 +2249,12 @@
   }
 
   function applySettings() {
+    settings.touchLayout = settings.touchLayout === 'mirrored' ? 'mirrored' : 'normal';
+    settings.mobileHaptics = settings.mobileHaptics !== false;
+    settings.chordTiming = ['standard','forgiving','relaxed'].indexOf(settings.chordTiming) >= 0 ? settings.chordTiming : 'standard';
     document.body.classList.toggle('large-text', !!settings.largeText);
     document.body.classList.toggle('reduced-motion', !!settings.reducedMotion);
+    document.body.classList.toggle('touch-controls-mirrored', settings.touchLayout === 'mirrored');
     var interfaceSizes = { compact: 0.88, standard: 1, large: 1.14 };
     var interfaceSize = interfaceSizes[settings.interfaceSize] ? settings.interfaceSize : 'standard';
     settings.interfaceSize = interfaceSize;
@@ -2170,6 +2267,9 @@
     var objectiveArrow = byId('objectiveArrow');
     var largeText = byId('largeText');
     var interfaceSize = byId('interfaceSize');
+    var touchLayout = byId('touchLayout');
+    var mobileHaptics = byId('mobileHaptics');
+    var chordTiming = byId('chordTiming');
     if (difficulty) difficulty.value = settings.difficulty;
     if (music) music.value = settings.musicVolume;
     if (sfx) sfx.value = settings.sfxVolume;
@@ -2178,6 +2278,9 @@
     if (objectiveArrow) objectiveArrow.checked = !!settings.objectiveArrow;
     if (largeText) largeText.checked = !!settings.largeText;
     if (interfaceSize) interfaceSize.value = settings.interfaceSize;
+    if (touchLayout) touchLayout.value = settings.touchLayout;
+    if (mobileHaptics) mobileHaptics.checked = !!settings.mobileHaptics;
+    if (chordTiming) chordTiming.value = settings.chordTiming;
     var renderScale = byId('renderScale');
     if (renderScale) renderScale.value = settings.renderScale;
     applyRenderScale();
@@ -2325,6 +2428,8 @@
     var spawn = currentLevel ? currentLevel.spawn : {x:HUB.x,y:HUB.y+115};
     player.x = useSavedPosition ? state.x : spawn.x;
     player.y = useSavedPosition ? state.y : spawn.y;
+    player.classCooldown=clamp(Number(state.classState.cooldown)||0,0,30);
+    player.classBarrier=0;player.classBarrierCharges=0;player.classDashTimer=0;classFields=[];
     if (state.stage === 1 && distance(player, BOSS_CENTER) < 370) {
       player.x = 1900;
       player.y = 1320;
@@ -2413,29 +2518,33 @@
   }
 
   function creatorDefault() {
-    return {created:true,displayName:'Echo',pronouns:'they',appearance:{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'}};
+    return {created:true,displayName:'Echo',pronouns:'they',classId:'riffblade',appearance:{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'}};
   }
 
   var activeSettingsCategory='gameplay';
   var SETTINGS_CATEGORIES = {
     gameplay:['difficultySelect','objectiveArrow'],
     audio:['musicVolume','sfxVolume'],
-    controls:['promptStyle','swapConfirmCancel'],
+    controls:['promptStyle','swapConfirmCancel','touchLayout'],
     controller:['controllerEnabled','moveDeadzone','lookDeadzone','lookSensitivityX','lookSensitivityY','triggerThreshold','controllerVibration','southpaw'],
     display:['fullscreenToggle','renderScale','interfaceSize'],
     firstPerson:['viewMode','fov','mouseSensitivity','mobileLookSensitivity','invertLookY','headBob','cameraEffects','reticle'],
-    accessibility:['reducedMotion','largeText','screenShake']
+    accessibility:['reducedMotion','largeText','screenShake','mobileHaptics','chordTiming']
   };
   function enhanceSettingsPanel(){var list=document.querySelector('#settingsPanel .settings-list'),tabs=byId('settingsTabs');if(!list||!tabs||list.dataset.enhanced)return;list.dataset.enhanced='true';var fragments={};Object.keys(SETTINGS_CATEGORIES).forEach(function(category){var panel=document.createElement('section');panel.className='settings-category';panel.dataset.settingsCategory=category;panel.setAttribute('role','tabpanel');panel.hidden=category!==activeSettingsCategory;fragments[category]=panel;list.appendChild(panel);});Object.keys(SETTINGS_CATEGORIES).forEach(function(category){SETTINGS_CATEGORIES[category].forEach(function(id){var control=byId(id);if(!control)return;var row=control.closest('.setting-row')||control;fragments[category].appendChild(row);});});list.querySelectorAll('.settings-section-heading').forEach(function(heading){heading.hidden=true;});tabs.innerHTML='';Object.keys(SETTINGS_CATEGORIES).forEach(function(category){var button=document.createElement('button');button.type='button';button.setAttribute('role','tab');button.className='settings-tab';button.setAttribute('aria-selected',category===activeSettingsCategory?'true':'false');button.textContent=category==='firstPerson'?'First Person':category.charAt(0).toUpperCase()+category.slice(1);button.onclick=function(){activeSettingsCategory=category;syncSettingsCategory();};tabs.appendChild(button);});document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){var output=document.createElement('output');output.className='setting-value';output.htmlFor=range.id;function render(){var number=Number(range.value),percent=(range.max==='1'&&range.min==='0');output.textContent=percent?Math.round(number*100)+'%':(range.id==='fov'?Math.round(number)+'°':number.toFixed(number%1?2:0));}range.closest('.setting-row').appendChild(output);range.addEventListener('input',render);render();});syncSettingsCategory();}
   function syncSettingsCategory(){document.querySelectorAll('.settings-category').forEach(function(panel){panel.hidden=panel.dataset.settingsCategory!==activeSettingsCategory;});document.querySelectorAll('.settings-tab').forEach(function(tab){var selected=tab.textContent.toLowerCase().replace(' ','')===activeSettingsCategory.toLowerCase();tab.setAttribute('aria-selected',selected?'true':'false');tab.tabIndex=selected?0:-1;});}
-  function resetSettingsCategory(){var gameDefaults={difficultySelect:'standard',musicVolume:.62,sfxVolume:.78,screenShake:true,reducedMotion:false,objectiveArrow:true,largeText:false,interfaceSize:'standard',renderScale:'balanced'};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var el=byId(id);if(!el)return;if(Object.prototype.hasOwnProperty.call(gameDefaults,id)){var key={difficultySelect:'difficulty',musicVolume:'musicVolume',sfxVolume:'sfxVolume',screenShake:'screenShake',reducedMotion:'reducedMotion',objectiveArrow:'objectiveArrow',largeText:'largeText',interfaceSize:'interfaceSize',renderScale:'renderScale'}[id];settings[key]=gameDefaults[id];} });saveSettings();applySettings();if(window.MossInput){var controllerDefaults={controllerEnabled:true,moveDeadzone:.18,lookDeadzone:.2,lookSensitivityX:1,lookSensitivityY:1,invertLookY:false,vibration:true,promptStyle:'auto',triggerThreshold:.5,southpaw:false,swapConfirmCancel:false,viewMode:'topDown',fov:70,mouseSensitivity:1,mobileLookSensitivity:1,headBob:true,cameraEffects:true,reticle:true};var patch={};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var key=id==='controllerVibration'?'vibration':id;if(Object.prototype.hasOwnProperty.call(controllerDefaults,key))patch[key]=controllerDefaults[key];});window.MossInput.applySettings(patch);}applyControllerSettings();enhanceRangeOutputs();}
+  function resetSettingsCategory(){var gameDefaults={difficultySelect:'standard',musicVolume:.62,sfxVolume:.78,screenShake:true,reducedMotion:false,objectiveArrow:true,largeText:false,interfaceSize:'standard',renderScale:'balanced',touchLayout:'normal',mobileHaptics:true,chordTiming:'standard'};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var el=byId(id);if(!el)return;if(Object.prototype.hasOwnProperty.call(gameDefaults,id)){var key={difficultySelect:'difficulty',musicVolume:'musicVolume',sfxVolume:'sfxVolume',screenShake:'screenShake',reducedMotion:'reducedMotion',objectiveArrow:'objectiveArrow',largeText:'largeText',interfaceSize:'interfaceSize',renderScale:'renderScale',touchLayout:'touchLayout',mobileHaptics:'mobileHaptics',chordTiming:'chordTiming'}[id];settings[key]=gameDefaults[id];} });saveSettings();applySettings();if(window.MossInput){var controllerDefaults={controllerEnabled:true,moveDeadzone:.18,lookDeadzone:.2,lookSensitivityX:1,lookSensitivityY:1,invertLookY:false,vibration:true,promptStyle:'auto',triggerThreshold:.5,southpaw:false,swapConfirmCancel:false,viewMode:'topDown',fov:70,mouseSensitivity:1,mobileLookSensitivity:1,headBob:true,cameraEffects:true,reticle:true};var patch={};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var key=id==='controllerVibration'?'vibration':id;if(Object.prototype.hasOwnProperty.call(controllerDefaults,key))patch[key]=controllerDefaults[key];});window.MossInput.applySettings(patch);}applyControllerSettings();enhanceRangeOutputs();}
   function enhanceRangeOutputs(){document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){range.dispatchEvent(new Event('input'));});}
   function renderCharacterCreator() {
     if (!characterDraft || !window.MossCharacter) return;
     var groups=[['body','characterBodyChoices'],['hair','characterHairChoices'],['outfit','characterOutfitChoices'],['accent','characterAccentChoices']];
     groups.forEach(function(pair){var group=pair[0],host=byId(pair[1]);if(!host)return;host.innerHTML='';window.MossCharacter.options[group].forEach(function(option){var button=document.createElement('button');button.type='button';button.className='creator-option'+(characterDraft.appearance[group]===option.id?' selected':'');button.setAttribute('aria-pressed',characterDraft.appearance[group]===option.id?'true':'false');button.title=option.label;button.innerHTML='<span style="--swatch:'+(option.color||window.MossCharacter.color('accent',characterDraft.appearance.accent))+'"></span><small>'+option.label+'</small>';button.onclick=function(){characterDraft.appearance[group]=option.id;renderCharacterCreator();};host.appendChild(button);});});
+    renderClassChoices(byId('characterClassChoices'),characterDraft.classId,function(id){characterDraft.classId=id;renderCharacterCreator();},false);
+    var selectedClass=starterClass(characterDraft.classId),details=byId('characterClassDetails');
+    if(details)details.innerHTML='<strong>'+selectedClass.name+'</strong><span><b>Strengths</b> '+selectedClass.strengths+'</span><span><b>Playstyle</b> '+selectedClass.playstyle+'</span><span><b>Passive</b> '+selectedClass.passive+'</span><span><b>Signature</b> '+selectedClass.ability+' — '+selectedClass.abilityText+'</span><span><b>Recommended for</b> '+selectedClass.recommended+'</span>';
     if(byId('characterName'))byId('characterName').value=characterDraft.displayName;
     if(byId('characterPronouns'))byId('characterPronouns').value=characterDraft.pronouns;
+    if(byId('confirmCharacter')){byId('confirmCharacter').textContent='Begin as '+selectedClass.name;byId('confirmCharacter').setAttribute('aria-label','Begin the prologue as '+selectedClass.name);}
     drawCharacterPreview();
   }
   function drawCharacterPreview() {
@@ -2443,6 +2552,7 @@
     var previewSprite=integratedHeroSpriteName(state && state.equippedInstrument ? state.equippedInstrument : 'guitar');
     var pc=preview.getContext('2d'),hero=spriteAvailable(previewSprite)?spriteImages[previewSprite]:spriteImages.hero;pc.clearRect(0,0,preview.width,preview.height);
     var gradient=pc.createRadialGradient(160,190,18,160,190,150);gradient.addColorStop(0,'rgba(86,240,196,.24)');gradient.addColorStop(1,'rgba(7,27,24,0)');pc.fillStyle=gradient;pc.fillRect(0,0,320,320);
+    var classDef=starterClass(characterDraft.classId);pc.strokeStyle=classDef.color;pc.lineWidth=5;pc.globalAlpha=.8;pc.beginPath();pc.arc(160,160,118+(settings.reducedMotion?0:Math.sin(Date.now()/380)*4),0,Math.PI*2);pc.stroke();pc.globalAlpha=1;
     pc.fillStyle='rgba(2,8,10,.5)';pc.beginPath();pc.ellipse(160,252,60,17,0,0,Math.PI*2);pc.fill();
     if(hero&&hero.complete&&hero.naturalWidth){var cell=hero.naturalWidth/4,col=Math.floor((Date.now()/700)%4),directions=['south','north','west','east'];pc.imageSmoothingEnabled=false;pc.drawImage(hero,col*cell,cell,cell,cell,70,56,180,180);if(window.MossCharacter)window.MossCharacter.decorate(pc,characterDraft.appearance,160,236,180,directions[col]);}else{pc.fillStyle='#56f0c4';pc.fillRect(125,90,70,150);}
     if(!settings.reducedMotion&&!byId('characterCreator').hidden)characterPreviewFrame=requestAnimationFrame(drawCharacterPreview);
@@ -2456,14 +2566,14 @@
   function confirmCharacter(event) {
     if(event)event.preventDefault();if(!characterDraft)return;
     characterDraft.displayName=window.MossCharacter?window.MossCharacter.sanitizeName(byId('characterName').value):'Echo';characterDraft.pronouns=byId('characterPronouns').value;
-    var confirmed={displayName:characterDraft.displayName,pronouns:characterDraft.pronouns,appearance:Object.assign({},characterDraft.appearance)};
+    var confirmed={displayName:characterDraft.displayName,pronouns:characterDraft.pronouns,classId:CLASS_IDS.indexOf(characterDraft.classId)>=0?characterDraft.classId:'riffblade',appearance:Object.assign({},characterDraft.appearance)};
     closeCharacterCreator();startFreshAdventure(confirmed);
   }
   function newGame() { openCharacterCreator(); }
   function startFreshAdventure(character) {
     removeStoredSaves();
     state = freshState();
-    state.character={created:true,displayName:character.displayName,pronouns:character.pronouns,appearance:window.MossCharacter.sanitizeAppearance(character.appearance)};
+    state.character={created:true,displayName:character.displayName,pronouns:character.pronouns,classId:CLASS_IDS.indexOf(character.classId)>=0?character.classId:'riffblade',appearance:window.MossCharacter.sanitizeAppearance(character.appearance)};
     campaignFinaleShown = false;
     clearTransient();
     activateLevel(1);
@@ -2472,10 +2582,13 @@
     resetFirstStageRuntime('new');
     spawnStageHeartblooms(1);
     started = true;
+    document.body.classList.add('game-started');
     setHidden(byId('titleScreen'), true);
     beginAudio();
     beginTutorial(false);
+    syncViewport();
     if (orientationBlocked) togglePause(true);
+    syncStoryProgress(true);
     updateHUD();
   }
 
@@ -2487,6 +2600,7 @@
     {title:'Step through danger',text:'Dodge in any direction.',signal:'dodge'},
     {title:'Guard the rest',text:'Hold Block. A perfect guard is optional in this safe rehearsal.',signal:'block'},
     {title:'Send an Echo',text:'Use the temporary tutorial Echo Pulse.',signal:'pulse'},
+    {title:'Play your signature',text:'Use your chosen class ability once. Its icon shows when it is ready.',signal:'classAbility'},
     {title:'Collect your field kit',text:'Pick up the rehearsal pack.',signal:'pickup',button:'Pick up kit'},
     {title:'Use what you carry',text:'Open the backpack and use a stored Field Tonic.',signal:'item'},
     {title:'Dress for the road',text:'Equip one of your new tutorial items.',signal:'equip'},
@@ -2508,6 +2622,25 @@
     resetFirstStageRuntime('prologue');
     if(window.MossFP)window.MossFP.rebuild();
     canvasDirty=true;
+  }
+
+  function starterClass(id) {
+    return STARTER_CLASSES[CLASS_IDS.indexOf(id) >= 0 ? id : 'riffblade'];
+  }
+
+  function renderClassChoices(host,selected,onChoose,compact) {
+    if (!host) return;
+    host.innerHTML='';
+    CLASS_IDS.forEach(function(id){
+      var def=STARTER_CLASSES[id],button=document.createElement('button');
+      button.type='button';button.className='class-choice'+(selected===id?' selected':'');
+      button.dataset.classId=id;
+      button.setAttribute('aria-pressed',selected===id?'true':'false');
+      button.setAttribute('aria-label',def.name+', '+def.playstyle+'. Signature ability: '+def.ability);
+      button.innerHTML='<img src="'+def.icon+'" width="64" height="64" alt=""><span><strong>'+def.name+'</strong><small>'+def.playstyle+'</small></span>'+(compact?'':'<em>'+def.ability+'</em>');
+      button.onclick=function(){if(typeof onChoose==='function')onChoose(id);};
+      host.appendChild(button);
+    });
   }
   function beginTutorial(replay){
     var resume=!replay&&state.tutorial.status==='in-progress';
@@ -2577,9 +2710,11 @@
     resetFirstStageRuntime('load');
     spawnStageHeartblooms(state.stage);
     started = true;
+    document.body.classList.add('game-started');
     setHidden(byId('titleScreen'), true);
     beginAudio();
     if(state.tutorial.status==='in-progress')beginTutorial(false);
+    syncViewport();
     if (orientationBlocked) togglePause(true);
     showToast('WELCOME BACK', getObjective().text, '#56f0c4', 3.4);
     updateHUD();
@@ -2675,11 +2810,98 @@
     setHidden(byId('dialogueBox'), true);
     focusSoon('gameCanvas');
     if (typeof onClose === 'function') onClose();
+    syncStoryProgress(true);
     saveGame(true);
   }
 
   function hasAllNotes() {
     return NOTE_ORDER.every(function (n) { return state.notes.indexOf(n) >= 0; });
+  }
+
+  var STORY_COMBAT_IDS={2:['rh4','rh7','rh9'],3:['sg3','sg6','sg10'],4:['mw3','mw6','mw9']};
+  function storyArc(stage){return window.MossStory&&window.MossStory.arcs[stage]||null;}
+  function storyPuzzle(chordId){
+    if(!window.MossStory||!window.MossStory.chords[chordId])return null;
+    if(!state.puzzleStates[chordId])state.puzzleStates[chordId]=window.MossStory.sanitizePuzzleState(chordId,{});
+    return state.puzzleStates[chordId];
+  }
+  function storyCombatCount(stage){return (STORY_COMBAT_IDS[stage]||[]).filter(function(id){return state.defeated.indexOf(id)>=0;}).length;}
+  function storyStepSatisfied(stage,index){
+    var arc=storyArc(stage),puzzle=arc&&storyPuzzle(arc.chord);
+    if(!arc)return false;
+    if(stage===1)return [state.metEems,state.weeds.length>=6,state.pruner,state.pulse,hasAllNotes(),puzzle&&puzzle.status==='completed',state.composed,bossDefeatedForStage(1)][index]===true;
+    if(stage===2)return [state.storyGuides.indexOf('pip')>=0||state.metPip,countCollected(LEVELS[2].drums,state.drums)>=3,puzzle&&puzzle.status==='completed',storyCombatCount(2)>=3,state.chapterRelics.indexOf('rootsong')>=0,bossDefeatedForStage(2)][index]===true;
+    if(stage===3)return [state.storyGuides.indexOf('zephra')>=0||state.metZephra,countCollected(LEVELS[3].speakers,state.speakers)>=3,puzzle&&puzzle.status==='completed',storyCombatCount(3)>=3,state.chapterRelics.indexOf('skyglass')>=0,bossDefeatedForStage(3)][index]===true;
+    return [state.storyGuides.indexOf('tavi')>=0||state.metTavi,countCollected(LEVELS[4].tokens,state.stageTokens)>=3,storyCombatCount(4)>=3,puzzle&&puzzle.status==='completed',state.chapterRelics.indexOf('moonwake')>=0,bossDefeatedForStage(4)][index]===true;
+  }
+  function syncStoryProgress(announce){
+    if(!window.MossStory)return;
+    Object.keys(window.MossStory.arcs).forEach(function(stageKey){
+      var arc=window.MossStory.arcs[stageKey],before=clamp(Math.floor(Number(state.questStates[arc.id])||0),0,arc.steps.length),step=before;
+      while(step<arc.steps.length&&storyStepSatisfied(Number(stageKey),step))step++;
+      if(step===before)return;
+      state.questStates[arc.id]=step;
+      var chordStep=arc.steps.findIndex(function(item){return item.kind==='chord';});
+      var puzzle=storyPuzzle(arc.chord);if(puzzle&&step>=chordStep&&puzzle.status==='locked')puzzle.status='available';
+      if(step>=arc.steps.length&&state.completedQuests.indexOf(arc.id)<0){state.completedQuests.push(arc.id);state.statistics.questsCompleted++;gainProfessionXp('questing',20,'Completing '+arc.title);state.regionalReputation[regionIdForStage(Number(stageKey))]=clamp(state.regionalReputation[regionIdForStage(Number(stageKey))]+5,0,100);if(announce){state.beatcoins+=5;state.statistics.beatcoinsEarned+=5;showToast('STORY COMPLETE · '+arc.region.toUpperCase(),arc.title+' · +5 Beatcoins','#ffc857',4);mobileHaptic([22,30,38]);}}
+      else if(announce&&Number(stageKey)===state.stage){var next=arc.steps[step];if(next)showToast('MAIN STORY UPDATED',next.objective,'#56f0c4',2.8);mobileHaptic(22);}
+    });
+  }
+  function storyCanAwardRelic(stage){var arc=storyArc(stage);if(!arc)return true;var relicStep=arc.steps.findIndex(function(step){return step.id.indexOf('claim-')===0;});return (state.questStates[arc.id]||0)>=relicStep;}
+  function storyNpc(stage){var id=stage===2?'pip':stage===3?'zephra':stage===4?'tavi':'eems';return npcById(id)||{x:stage===1?1435:stage===2?1800:stage===3?1810:1840,y:stage===1?880:stage===4?1220:1190};}
+  function storyEnemyTarget(stage){var ids=STORY_COMBAT_IDS[stage]||[];for(var i=0;i<ids.length;i++){if(state.defeated.indexOf(ids[i])>=0)continue;var live=enemies.find(function(enemy){return enemy.id===ids[i]&&!enemy.dead;});if(live)return live;var blueprint=(LEVELS[stage].enemies||[]).find(function(entry){return entry[0]===ids[i];});if(blueprint)return{x:blueprint[2],y:blueprint[3]};}return STORY_RESONATORS[stage];}
+  function getActiveStoryObjective(){
+    var arc=storyArc(state.stage);if(!arc)return null;var index=clamp(Math.floor(Number(state.questStates[arc.id])||0),0,arc.steps.length);if(index>=arc.steps.length)return null;
+    var step=arc.steps[index],target=STORY_RESONATORS[state.stage]||currentLevel.hub;
+    if(step.kind==='talk')target=storyNpc(state.stage);
+    else if(step.kind==='pulse')target=(state.stage===2?drums:speakers).find(function(item){return (state.stage===2?state.drums:state.speakers).indexOf(item.id)<0;})||target;
+    else if(step.kind==='collect'&&state.stage===1)target=state.weeds.length<6?{x:1175,y:930}:(shrines.find(function(item){return state.notes.indexOf(item.note)<0;})||target);
+    else if(step.kind==='collect'&&state.stage===4)target=stageTokens.find(function(item){return state.stageTokens.indexOf(item.id)<0;})||target;
+    else if(step.kind==='combat')target=state.stage===1?{x:1760,y:740}:storyEnemyTarget(state.stage);
+    else if(step.kind==='compose')target={x:1435,y:880};
+    else if(step.kind==='boss')target=BOSS_CENTER;
+    var progressValue=step.kind==='combat'?storyCombatCount(state.stage):step.kind==='pulse'?countCollected(state.stage===2?drums:speakers,state.stage===2?state.drums:state.speakers):step.id==='recover-notes'?state.notes.length:step.kind==='collect'&&state.stage===4?countCollected(stageTokens,state.stageTokens):state.weeds.length;
+    var suffix=step.goal?' · '+progressValue+'/'+step.goal:'';
+    return{text:step.objective+suffix,x:target.x,y:target.y,story:true,step:step,arc:arc};
+  }
+
+  function clearChordPreview(){chordRuntime.previewTimers.forEach(function(timer){clearTimeout(timer);});chordRuntime.previewTimers=[];document.querySelectorAll('#chordPattern .playing').forEach(function(el){el.classList.remove('playing');});}
+  function renderChordPanel(){
+    var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord)return;
+    if(byId('chordTitle'))byId('chordTitle').textContent=chord.name;
+    if(byId('chordConcept'))byId('chordConcept').textContent=chord.concept;
+    if(byId('chordHint'))byId('chordHint').textContent=chord.hint+' Notes are shown with labels and shapes as well as colour.';
+    var pattern=byId('chordPattern');if(pattern){pattern.innerHTML='';chord.notes.forEach(function(note,index){var chip=document.createElement('span'),label=document.createElement('span');var noteDef=window.MossStory.notes[note];chip.className='chord-note '+noteDef.shape;chip.dataset.patternIndex=String(index);chip.style.setProperty('--note-color',noteDef.color);label.textContent=note;chip.appendChild(label);chip.setAttribute('aria-label','Note '+note+', '+noteDef.shape);pattern.appendChild(chip);});}
+    var progress=byId('chordInputProgress');if(progress){progress.innerHTML='';chord.notes.forEach(function(note,index){var chip=document.createElement('span');chip.textContent=index<chordRuntime.input.length?chordRuntime.input[index]:'—';chip.className=index<chordRuntime.input.length?'filled':'';progress.appendChild(chip);});}
+  }
+  function replayChordPattern(){
+    var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord)return;clearChordPreview();
+    chord.notes.forEach(function(note,index){var timer=setTimeout(function(){audioCall('previewNote',note);var chip=document.querySelector('#chordPattern [data-pattern-index="'+index+'"]');if(chip){chip.classList.add('playing');setTimeout(function(){chip.classList.remove('playing');},260);}},index*390);chordRuntime.previewTimers.push(timer);});
+  }
+  function openChordPanel(chordId,replay){
+    var chord=window.MossStory&&window.MossStory.chords[chordId],arc=chord&&storyArc(chord.stage);if(!chord||!arc)return false;
+    var puzzle=storyPuzzle(chordId),step=state.questStates[arc.id]||0,chordStep=arc.steps.findIndex(function(item){return item.kind==='chord';});
+    if(step<chordStep&&puzzle.status!=='completed'){showToast('RESONATOR DORMANT','Follow the current story objective first.','#8e9ba0',2.4);mobileHaptic(18);return false;}
+    releaseHeldInputs();chordRuntime.open=true;chordRuntime.id=chordId;chordRuntime.input=puzzle.status==='completed'&&replay?[]:(puzzle.input||[]).slice();chordRuntime.lastInputAt=0;chordRuntime.replay=!!replay||puzzle.status==='completed';chordRuntime.returnFocus=document.activeElement;chordRuntime.returnToMap=mapOpen;
+    if(puzzle.status!=='completed')puzzle.status='in-progress';
+    if(mapOpen){setOverlayIsolation('map','mapScreen',false);setHidden(byId('mapScreen'),true);}
+    setHidden(byId('chordPanel'),false);setOverlayIsolation('chord','chordPanel',true);renderChordPanel();replayChordPattern();focusSoon('replayChordButton');return true;
+  }
+  function closeChordPanel(){
+    if(!chordRuntime.open)return;clearChordPreview();setOverlayIsolation('chord','chordPanel',false);setHidden(byId('chordPanel'),true);chordRuntime.open=false;
+    if(chordRuntime.returnToMap&&mapOpen){setHidden(byId('mapScreen'),false);setOverlayIsolation('map','mapScreen',true);focusSoon('closeMapButton');}else if(chordRuntime.returnFocus&&chordRuntime.returnFocus.isConnected){var target=chordRuntime.returnFocus;requestAnimationFrame(function(){target.focus({preventScroll:true});});}else focusSoon('gameCanvas');
+    chordRuntime.id='';chordRuntime.input=[];chordRuntime.returnToMap=false;updateHUD(true);
+  }
+  function submitChordNote(note){
+    var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord||NOTE_ORDER.indexOf(note)<0)return false;
+    var now=performance.now()/1000,windowSeconds=window.MossStory.timingWindow(settings.chordTiming);
+    if(chordRuntime.input.length&&chordRuntime.lastInputAt&&now-chordRuntime.lastInputAt>windowSeconds){chordRuntime.input=[];var timed=storyPuzzle(chord.id);timed.attempts++;if(timed.status!=='completed')timed.input=[];if(byId('chordStatus'))byId('chordStatus').textContent='The phrase faded. Take your time and begin again.';}
+    chordRuntime.lastInputAt=now;chordRuntime.input.push(note);audioCall('previewNote',note);
+    var result=window.MossStory.evaluateChord(chord.id,chordRuntime.input),puzzle=storyPuzzle(chord.id);
+    if(result.status==='wrong'){puzzle.attempts++;chordRuntime.input=[];if(puzzle.status!=='completed')puzzle.input=[];audioCall('sfx','error');mobileHaptic([16,28,16]);if(byId('chordStatus'))byId('chordStatus').textContent='That echo bent away. Watch the shapes and try the phrase again.';}
+    else if(result.complete){var firstCompletion=puzzle.status!=='completed';puzzle.status='completed';puzzle.input=chord.notes.slice();chordRuntime.input=chord.notes.slice();if(firstCompletion&&!puzzle.rewardClaimed){puzzle.rewardClaimed=true;state.beatcoins+=3;state.statistics.beatcoinsEarned+=3;}audioCall('sfx','unlock');mobileHaptic([20,30,42]);if(byId('chordStatus'))byId('chordStatus').textContent=firstCompletion?'Chord complete. The region answers in harmony. +3 Beatcoins':'Replay complete. No progression reward was repeated.';syncStoryProgress(true);saveGame(true);}
+    else {if(puzzle.status!=='completed'){puzzle.status='in-progress';puzzle.input=chordRuntime.input.slice();}if(byId('chordStatus'))byId('chordStatus').textContent='Good. '+result.matched+' of '+chord.notes.length+' tones are holding.';saveGame(true);}
+    renderChordPanel();return result.complete;
   }
 
   function getObjective() {
@@ -2690,6 +2912,8 @@
         tutorialStep.signal==='finish'?PROLOGUE_OBJECTS[3]:{x:790,y:500};
       return {text:tutorialStep.text,x:tutorialTarget.x,y:tutorialTarget.y};
     }
+    var storyObjective=getActiveStoryObjective();
+    if(storyObjective)return storyObjective;
     if (state.stage === 1) {
       if (!state.metEems) return { text: 'Meet EEMS at the mix-stone', x: 1435, y: 880 };
       if (state.weeds.length < 6) return { text: 'Gather Glowweed for Jimbo · ' + state.weeds.length + '/6', x: 1175, y: 930 };
@@ -2797,6 +3021,7 @@
     questSyncTimer-=dt;
     if(questSyncTimer>0)return;
     questSyncTimer=1;
+    syncStoryProgress(true);
     EXPANSION_QUESTS.forEach(function(quest){
       if(!quest.unlock()||state.completedQuests.indexOf(quest.id)>=0)return;
       var progress=clamp(Math.floor(quest.progress()),0,quest.goal);
@@ -2894,7 +3119,7 @@
   function updateRhythmCombo(dt) {
     rhythmCombo.flash = Math.max(0, rhythmCombo.flash - dt);
     if (rhythmCombo.count > 0) {
-      rhythmCombo.timer -= dt;
+      rhythmCombo.timer -= dt * (state.character.classId === 'riffblade' ? .9 : 1);
       if (rhythmCombo.timer <= 0) resetCombo('timeout');
     }
   }
@@ -2916,7 +3141,7 @@
     var objectiveInfo = getObjective();
     var nextSignature = [
       player.health, player.maxHealth, state.heartblooms, state.weeds.length, state.notes.join(','), state.collectibles.join(','), state.melody.join(','),
-      state.pulse ? 1 : 0, state.charged ? 1 : 0, state.pruner ? 1 : 0, state.activeResonance, state.equippedInstrument,
+      state.pulse ? 1 : 0, state.charged ? 1 : 0, state.pruner ? 1 : 0, state.activeResonance, state.equippedInstrument,state.character.classId,
       Math.floor(instrumentUltimateCharge/5), state.weather, state.stage, rhythmCombo.count, rhythmCombo.lastQuality,
       Math.ceil(rhythmCombo.timer*10), rhythmCombo.flash>0?1:0, Math.round(player.blockStamina), player.blocking?1:0,
       player.guardBroken>0?1:0, player.counterWindow>0?1:0, objectiveInfo.text
@@ -2942,7 +3167,7 @@
     if (backpackHudButton) backpackHudButton.setAttribute('aria-label', 'Open backpack, ' + state.weeds.length + ' of 30 Glowweed collected');
     if (objective) objective.textContent = tutorialRuntime.active && TUTORIAL_STEPS[state.tutorial.step] ? TUTORIAL_STEPS[state.tutorial.step].text : objectiveInfo.text;
     if (stageName) stageName.textContent = tutorialRuntime.active ? 'PROLOGUE · REHEARSAL GROVE' : (STAGE_KICKERS[state.stage] || STAGE_KICKERS[1]);
-    if (pauseLocation) pauseLocation.textContent = STAGE_NAMES[state.stage] + ' is holding your place · ' + equippedInstrument().name + ' · ' + state.weather.replace('-',' ');
+    if (pauseLocation) pauseLocation.textContent = STAGE_NAMES[state.stage] + ' is holding your place · ' + starterClass(state.character.classId).name + ' · ' + equippedInstrument().name + ' · ' + state.weather.replace('-',' ');
     var comboCount = byId('comboCount'), comboMultiplier = byId('comboMultiplier'), comboFill = byId('comboFill'), comboQuality = byId('comboQuality'), comboHud = byId('comboHud');
     if (comboCount) comboCount.textContent = rhythmCombo.count;
     if (comboMultiplier) comboMultiplier.textContent = '×' + rhythmCombo.multiplier;
@@ -2970,6 +3195,7 @@
       var abilities = touchCapable ? [instrument.name.toUpperCase(), 'BLOCK', 'DODGE'] : ['SPACE  '+instrument.attack.toUpperCase(), 'F  BLOCK', 'SHIFT  DASH'];
       if (!touchCapable) abilities.push('H  HEAL ×' + state.heartblooms);
       if (state.pulse) abilities.push((touchCapable ? 'PULSE · ' : 'Q  ') + (instrumentUltimateCharge>=100?instrument.ultimate.toUpperCase():instrument.special.toUpperCase()));
+      var classDef=starterClass(state.character.classId);abilities.push((touchCapable?'CLASS · ':'C  ')+classDef.ability.toUpperCase());
       abilities.push(touchCapable ? 'HOLD STRIKE  CHARGE' : 'HOLD SPACE  CHARGE');
       if (state.activeResonance) abilities.push(state.activeResonance.toUpperCase() + ' RESONANCE');
       abilityBar.textContent = abilities.join('   ·   ');
@@ -3058,10 +3284,10 @@
     }
     var expansionDialogue = {
       mara: ['Odin found you before I did. That means the old roads are waking.', 'Take him with you. His nose can find songs buried deeper than stone.'],
-      pip: ['The Rootsong Hollows keep a bass line under the marsh.', 'Wake the three drums. Their rhythm will draw the Rootbound Colossus out of the old arena.'],
-      zephra: ['Skyglass only holds a bridge while its chimes agree.', 'Retune them and the Prism Choir will descend. Break its orbiting shards before it breaks the road.'],
+      pip: ['The buried Rootsong has lost the rhythm that lets every root breathe together.', 'Wake the three resonators, then answer their call in E, G, B. The note labels and shapes will guide you.', 'Three discord roots are feeding on the restored beat. Quiet them before we bind the relic.'],
+      zephra: ['The sky prisms split one melody into convincing lies.', 'Retune the three chimes, then follow the true reflection: E, G, C. It is C major heard from a different starting point.', 'Break the three false echoes and the bridge will hold one voice again.'],
       nix: ['Courier rule one: never trust a silent mailbox.', 'Bring me a Rootsong, a Skyglass tone, and a Moonwake shell.'],
-      tavi: ['Moonwake paths move with the tide, but rhythm remembers where they were.', 'Find the three singing shells. Their tide-song will open the Tidebreaker shoal.'],
+      tavi: ['The resonance tide is carrying unfinished memories instead of water.', 'Recover the three shells and free the echoes holding them apart.', 'The keeper supplies the missing upper voice. Play C, E, G, B and the whole memory can return.'],
       luma: ['Melody is a path. Rhythm is a footprint. Harmony is everyone arriving together.', 'Your final song will need all three.']
     };
     if (expansionDialogue[npc.id]) {
@@ -3078,6 +3304,8 @@
       openDialogue(npc.name, reactiveLines, function () {
         var flag = 'met' + npc.id.charAt(0).toUpperCase() + npc.id.slice(1);
         state[flag] = true;
+        if(['pip','zephra','tavi'].indexOf(npc.id)>=0&&state.storyGuides.indexOf(npc.id)<0)state.storyGuides.push(npc.id);
+        syncStoryProgress(true);
         if (npc.id === 'mara' && !state.odinRecruited) {
           state.odinRecruited = true;
           state.home.unlocked = true;
@@ -3090,12 +3318,13 @@
         if(npc.id==='zephra')unlockInstrument('synth','Zephra assembles a portable Skyglass synth.');
         if(npc.id==='tavi')unlockInstrument('violin','Tavi lends you a precision tidewood violin.');
         if(npc.id==='luma')unlockInstrument('microphone','Luma shares a supportive moon-silver microphone.');
-        if (npc.id === 'pip' && state.stage === 2 && countCollected(drums,state.drums) === drums.length) awardStageRelic('rootsong','ROOTSONG RESTORED');
-        if (npc.id === 'zephra' && state.stage === 3 && countCollected(speakers,state.speakers) === speakers.length) awardStageRelic('skyglass','SKYGLASS IN TUNE');
-        if (npc.id === 'tavi' && state.stage === 4 && countCollected(stageTokens,state.stageTokens) === stageTokens.length) awardStageRelic('moonwake','MOONWAKE SINGS');
+        if (npc.id === 'pip' && state.stage === 2 && storyCanAwardRelic(2)) awardStageRelic('rootsong','ROOTSONG RESTORED');
+        if (npc.id === 'zephra' && state.stage === 3 && storyCanAwardRelic(3)) awardStageRelic('skyglass','SKYGLASS IN TUNE');
+        if (npc.id === 'tavi' && state.stage === 4 && storyCanAwardRelic(4)) awardStageRelic('moonwake','MOONWAKE SINGS');
         state.chapter = Math.max(state.chapter, Math.min(4, 1 + state.chapterRelics.length));
         applyInstrumentUnlocks();
         syncExpansionQuests(99);
+        syncStoryProgress(true);
         updateHUD(true);
       });
       return;
@@ -3128,10 +3357,11 @@
           updateHUD();
         });
       } else if (hasAllNotes()) {
+        var grovePuzzle=storyPuzzle('mossvale-major');
         openDialogue('EEMS', [
-          state.composed ? '[COMPOSITION STABLE. ABSOLUTELY WIGGLY.]' : '[ALL FREQUENCIES FOUND.]',
-          state.composed ? 'Your gate-tone is saved. The amphitheatre can hear you coming.' : 'Eight beats. Use every recovered note. Leave rests where the groove needs air.'
-        ], function () { openComposer(); });
+          state.composed ? '[COMPOSITION STABLE. ABSOLUTELY WIGGLY.]' : grovePuzzle.status!=='completed' ? '[FOUR FREQUENCIES FOUND. HARMONY TEST READY.]' : '[HARMONY STABLE. COMPOSER READY.]',
+          state.composed ? 'Your gate-tone is saved. The amphitheatre can hear you coming.' : grovePuzzle.status!=='completed' ? 'Play C, E and G at the Story Resonator beside the mix-stone. Any order works.' : 'Eight beats. Use every recovered note. Leave rests where the groove needs air.'
+        ], function () { if(grovePuzzle.status==='completed'||state.composed)openComposer(); });
       } else {
         openDialogue('EEMS', [
           '[SEARCH MODE.] Notes recovered: ' + state.notes.length + '/4.',
@@ -3240,11 +3470,12 @@
     audioCall('previewNote', shrine.note);
     shake = 6;
     showToast('NOTE ' + shrine.note + ' RECOVERED', shrine.title + ' joins the song · ' + state.notes.length + '/4', NOTE_COLORS[shrine.note], 4);
+    syncStoryProgress(true);
     updateHUD();
     saveGame(true);
     if (hasAllNotes()) {
       setTimeout(function () {
-        showToast('THE SET IS COMPLETE', 'Return to EEMS and compose your eight-beat gate-tone.', '#d77cff', 4.2);
+        showToast('THE SET IS COMPLETE', 'Tune C, E and G at the Story Resonator beside EEMS.', '#d77cff', 4.2);
       }, 1300);
     }
   }
@@ -3276,6 +3507,7 @@
       audioCall('sfx', 'quest');
       showToast('PERFECT HARVEST', 'The golden bloom will join your finale.', '#f6e36d', 4);
     }
+    syncStoryProgress(true);
     updateHUD();
     saveGame(false);
   }
@@ -3287,6 +3519,7 @@
     for (var i = 0; i < 18; i++) spawnParticle(token.x, token.y, '#86e8ff', 80, 4);
     showFloat(token.x, token.y - 18, '+ ' + token.label.toUpperCase(), '#bdefff');
     showToast('MOONWAKE SHELL FOUND', countCollected(stageTokens,state.stageTokens) + '/3 shells are singing.', '#61d8c8', 3);
+    syncStoryProgress(true);
     updateHUD(true);
     saveGame(true);
   }
@@ -3807,6 +4040,7 @@
     if (isEquipped('tempo-ring')) player.attackCooldown *= 0.85;
     if (activeBuffs.tempoTimer > 0) player.attackCooldown *= 0.85;
     audioCall('sfx', charged || instrument.id === 'bass' || instrument.id === 'drums' ? 'pulse' : 'attack');
+    mobileHaptic(charged?[20,24,32]:12);
     if (charged) {
       shake = instrument.id === 'bass' ? 8 : 5;
       for (var i = 0; i < 18; i++) spawnParticle(player.x, player.y, instrument.color, 90, 3);
@@ -3835,6 +4069,7 @@
     player.dashY = n.y;
     player.dashTimer = 0.19;
     player.dashCooldown = state.skills.indexOf('fleet-foot') >= 0 ? 0.56 : 0.72;
+    if (state.character.classId === 'tempo-runner') player.dashCooldown *= 0.88;
     if (activeResonance('conductor')) player.dashCooldown *= 0.8;
     player.invuln = Math.max(player.invuln, 0.27 + (touchCapable ? FIRST_STAGE_BALANCE.mobileDodgeForgivenessSeconds : 0));
     if (state.skills.indexOf('shield-harmony') >= 0) {
@@ -3847,6 +4082,53 @@
       if (boss && !boss.dead && distance(player,boss)<72+boss.r) hitBoss(1);
     }
     for (var i = 0; i < 7; i++) spawnParticle(player.x, player.y, '#7ce4d1', 50, 3);
+  }
+
+  function mobileHaptic(pattern) {
+    if (!settings.mobileHaptics || !touchCapable || typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return false;
+    try { return navigator.vibrate(pattern) !== false; } catch (error) { return false; }
+  }
+
+  function useClassAbility() {
+    if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue || chordRuntime.open) return false;
+    var def=starterClass(state.character.classId);
+    if (player.classCooldown > 0) {
+      audioCall('sfx','error');mobileHaptic(18);
+      showToast(def.ability.toUpperCase()+' RECHARGING',Math.ceil(player.classCooldown)+' seconds remaining.',def.color,1.5);
+      return false;
+    }
+    player.classCooldown=def.cooldown;state.classState.cooldown=def.cooldown;state.classState.abilityUses++;
+    signalTutorial('classAbility');audioCall('sfx','pulse');mobileHaptic([18,28,24]);
+    if (def.id==='riffblade') {
+      var origin=equipmentWorldOrigin(state.equippedInstrument,'special',player.facing,0.15,'hitbox',0);
+      attacks.push({x:origin.x,y:origin.y,angle:player.facing,charged:true,classAttack:true,counter:false,life:.34,maxLife:.34,hit:new Set(),instrument:state.equippedInstrument,profile:{damage:1,range:105,arc:.78,cooldown:.2,crit:0,knockback:28},chainTriggered:false});
+      for(var r=0;r<18;r++)spawnParticle(origin.x,origin.y,r%2?def.color:def.accent,105,3);
+    } else if (def.id==='groveguard') {
+      player.classBarrier=3;player.classBarrierCharges=1;player.blockStamina=Math.min(player.blockMaxStamina,player.blockStamina+32);
+      for(var g=0;g<20;g++)spawnParticle(player.x,player.y,g%2?def.color:def.accent,75,3);
+    } else if (def.id==='echo-weaver') {
+      if(classFields.length>=4)classFields.shift();
+      classFields.push({type:'echo',x:player.x+Math.cos(player.facing)*58,y:player.y+Math.sin(player.facing)*58,life:2.4,maxLife:2.4,tick:0,hits:0,color:def.color});
+    } else {
+      var dx=player.moveX||Math.cos(player.facing),dy=player.moveY||Math.sin(player.facing),n=normalize(dx,dy);
+      player.dashX=n.x;player.dashY=n.y;player.classDashTimer=.26;player.dashTimer=Math.max(player.dashTimer,.26);player.invuln=Math.max(player.invuln,.18);
+      attacks.push({x:player.x,y:player.y,angle:player.facing,charged:false,classAttack:true,counter:false,life:.28,maxLife:.28,hit:new Set(),instrument:state.equippedInstrument,profile:{damage:1,range:76,arc:.55,cooldown:.2,crit:0,knockback:18},chainTriggered:false});
+    }
+    showFloat(player.x,player.y-38,def.ability.toUpperCase(),def.color);showToast(def.ability.toUpperCase(),def.abilityText,def.color,2.5);
+    saveGame(true);updateHUD(true);return true;
+  }
+
+  function updateClassAbilities(dt) {
+    var recovery=1;
+    player.classCooldown=Math.max(0,player.classCooldown-dt*recovery);
+    state.classState.cooldown=player.classCooldown;
+    player.classBarrier=Math.max(0,player.classBarrier-dt);
+    player.classDashTimer=Math.max(0,player.classDashTimer-dt);
+    for(var i=classFields.length-1;i>=0;i--){
+      var field=classFields[i];field.life-=dt;field.tick-=dt;
+      if(field.tick<=0&&field.life>0){field.tick=.9;field.hits++;pulses.push({x:field.x,y:field.y,life:.42,maxLife:.42,r:0,color:field.color});enemies.forEach(function(enemy){if(!enemy.dead&&distance(field,enemy)<112){hitEnemy(enemy,1,field.x,field.y);enemy.stun=Math.max(enemy.stun,.75);}});if(boss&&!boss.dead&&distance(field,boss)<112+boss.r)hitBoss(1);}
+      if(field.life<=0)classFields.splice(i,1);
+    }
   }
 
   function applyInstrumentSpecial() {
@@ -3938,7 +4220,7 @@
     speakers.forEach(function (s, index) {
       if (state.speakers.indexOf(s.id) < 0 && distance(player, s) < puzzlePulseRadius) {
         state.speakers.push(s.id);
-        audioCall('previewNote', NOTE_ORDER[index + 1] || 'B');
+        audioCall('previewNote', s.note || NOTE_ORDER[index + 1] || 'B');
         var speakerName = state.stage === 3 ? 'Skyglass chimes are clear.' : 'static speakers online.';
         showToast(state.stage === 3 ? 'CHIME RETUNED' : 'SPEAKER RETUNED', countCollected(speakers,state.speakers) + '/3 ' + speakerName, '#d77cff', 2.4);
         for (var i = 0; i < 14; i++) spawnParticle(s.x, s.y, '#d77cff', 75, 3);
@@ -3972,6 +4254,7 @@
         showFloat(player.x, player.y - 30, 'ECHO BLAST!', '#d77cff');
       }
     }
+    syncStoryProgress(true);
     updateHUD();
   }
 
@@ -3987,6 +4270,8 @@
     });
     shrines.forEach(function (s) { consider('shrine', s, 70); });
     stagePortals.forEach(function (p) { consider('portal', p, 76); });
+    var story=storyArc(state.stage),resonator=STORY_RESONATORS[state.stage];
+    if(story&&resonator){var storyIndex=state.questStates[story.id]||0,chordStep=story.steps.findIndex(function(step){return step.kind==='chord';}),puzzle=storyPuzzle(story.chord);if(storyIndex===chordStep||(puzzle&&puzzle.status==='completed'))consider('story-chord',resonator,78);}
     if(currentLevel&&currentLevel.isPrologue)consider('tutorial',PROLOGUE_OBJECTS[0],76);
     if(encounterDirector.activeEvent)consider('world-event',encounterDirector.activeEvent,72);
     return best;
@@ -3995,7 +4280,7 @@
   function interact(fromBuffer) {
     if (dialogue) { advanceDialogue(); return; }
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
-    var near = nearestInteractable();
+    var near = firstPersonActive()&&window.MossFP&&window.MossFP.getInteractionTarget?window.MossFP.getInteractionTarget():nearestInteractable();
     if (!near) {
       if (!fromBuffer) inputBuffer.interact = FIRST_STAGE_BALANCE.inputBufferSeconds;
       if (fromBuffer) return;
@@ -4008,6 +4293,7 @@
     if (near.type === 'npc') talkToNpc(near.item.npc||near.item);
     else if (near.type === 'portal') enterStage(near.item);
     else if (near.type === 'world-event') resolveWorldEvent(near.item);
+    else if (near.type === 'story-chord') openChordPanel(near.item.chord,storyPuzzle(near.item.chord).status==='completed');
     else if (near.type === 'tutorial') showToast('RESONATOR TUNED','Its answering note opens the rhythm clearing.','#56f0c4',2.5);
     else collectNote(near.item);
   }
@@ -4102,12 +4388,14 @@
     if (perfect) {
       state.statistics.perfectBlocks = (state.statistics.perfectBlocks || 0) + 1;
       player.counterWindow = 1.15;
+      if (state.character.classId === 'groveguard') player.blockStamina=Math.min(player.blockMaxStamina,player.blockStamina+18);
       rhythmCombo.count += activeResonance('conductor') ? 3 : 2;
       rhythmCombo.timer = 2.4;
       rhythmCombo.lastQuality = 'PERFECT BLOCK';
       rhythmCombo.multiplier = rhythmCombo.count >= 100 ? 2.5 : rhythmCombo.count >= 50 ? 2 : rhythmCombo.count >= 25 ? 1.5 : rhythmCombo.count >= 10 ? 1.25 : 1;
       showFloat(player.x, player.y - 38, 'PERFECT BLOCK!', '#62c7ff');
       audioCall('sfx', 'pulse');
+      mobileHaptic([18,20,30]);
       for (var i = 0; i < 16; i++) spawnParticle(player.x, player.y, '#62c7ff', 95, 3);
     } else {
       showFloat(player.x, player.y - 32, 'BLOCK', '#7ce4d1');
@@ -4121,6 +4409,7 @@
 
   function damagePlayer(amount, fromX, fromY) {
     if(tutorialRuntime.active){player.invuln=Math.max(player.invuln,.35);return false;}
+    if(player.classBarrier>0&&player.classBarrierCharges>0){player.classBarrierCharges--;showFloat(player.x,player.y-30,'ROOT WARD','#8fcf65');for(var wardFx=0;wardFx<12;wardFx++)spawnParticle(player.x,player.y,'#8fcf65',75,3);if(amount<=1){player.invuln=.35;return false;}amount-=1;}
     if(isEquipped('grooveguard-vest')&&activeBuffs.grooveguardCooldown<=0&&amount>1){amount=Math.max(1,amount-1);activeBuffs.grooveguardCooldown=12;showFloat(player.x,player.y-28,'GROOVEGUARD','#56f0c4');}
     if (firstStageHostilesSuspended()) return;
     if (player.invuln > 0 || player.dashTimer > 0) return;
@@ -4332,6 +4621,7 @@
       showToast('FIRST ENCORE', 'The grove restores you after your first practice fight.', '#ff9cab', 3);
     }
     if (enemy.id.indexOf('summon_') !== 0 && state.defeated.indexOf(enemy.id) < 0) state.defeated.push(enemy.id);
+    syncStoryProgress(true);
     audioCall('sfx', 'quest');
     showFloat(enemy.x, enemy.y - 22, 'QUIET!', '#ffc857');
     var deathParticleCount = lightweightEffects ? 8 : 14;
@@ -5504,6 +5794,12 @@
       });
       decoration.onchange = function () { state.home.activeDecoration = decoration.value; saveGame(true); renderHome(); };
     }
+    renderClassChoices(byId('homeClassChoices'),state.character.classId,function(id){
+      if(id===state.character.classId)return;var cost=state.classState.firstRespecUsed?8:0,def=starterClass(id);
+      if(state.beatcoins<cost){showToast('NOT ENOUGH BEATCOINS','Class retuning costs '+cost+' Beatcoins.','#ff7892',2.4);return;}
+      if(!window.confirm('Retune as '+def.name+(cost?' for '+cost+' Beatcoins':' for free')+'? Instruments and progression stay unchanged.'))return;
+      if(cost){state.beatcoins-=cost;state.statistics.beatcoinsSpent+=cost;}state.classState.firstRespecUsed=true;state.character.classId=id;player.classCooldown=0;state.classState.cooldown=0;classFields=[];saveGame(true);updateHUD(true);renderHome();showToast('CLASS RETUNED',def.name+' · '+def.ability,def.color,3);
+    },true);
   }
 
   function savedStateForStatistics() {
@@ -5574,6 +5870,7 @@
       ['Adventure', [
         ['Play time', formatTime(model.playSeconds)],
         ['Stage reached', model.stage + ' / 4'],
+        ['Starter class', starterClass(model.character&&model.character.classId).name],
         ['Glowweed', model.weeds.length + ' / 30'],
         ['Lost notes', model.notes.length + ' / 4'],
         ['Skills learned', model.skills.length + ' / ' + SKILL_ITEMS.length],
@@ -5621,7 +5918,8 @@
         ['Mini bosses defeated', model.miniBossesDefeated.length + ' / ' + MINIBOSS_DEFS.length],
         ['World events completed', formatStatistic(stats.worldEventsCompleted || 0)],
         ['Event types discovered', model.worldEventsSeen.length + ' / 16'],
-        ['Expanded quests complete', model.completedQuests.length + ' / ' + EXPANSION_QUESTS.length],
+        ['Quest chains complete', model.completedQuests.length + ' / ' + (EXPANSION_QUESTS.length + 4)],
+        ['Class abilities used', formatStatistic(model.classState&&model.classState.abilityUses)],
         ['Secret paths found', model.discoveredSecrets.length + ' / 5'],
         ['Odin friendship', model.home.odinFriendship + ' / 100'],
         ['Home level', model.home.level + ' / 4']
@@ -5801,15 +6099,8 @@
     });
     var tasks=[];
     if(questLogFilter==='main'){
-      tasks=[
-        [state.metEems,'Meet EEMS and recover the scattered frequencies'],
-        [hasAllNotes(),'Recover C · E · G · B'],
-        [state.composed,'Compose an eight-beat gate-tone'],
-        [bossDefeatedForStage(1),'Defeat the Nullspeaker'],
-        [bossDefeatedForStage(2),'Defeat the Rootbound Colossus'],
-        [bossDefeatedForStage(3),'Defeat the Prism Choir'],
-        [bossDefeatedForStage(4),'Defeat the Tidebreaker']
-      ];
+      tasks=[];
+      if(window.MossStory)Object.keys(window.MossStory.arcs).forEach(function(stageKey){var arc=window.MossStory.arcs[stageKey],progress=clamp(state.questStates[arc.id]||0,0,arc.steps.length),complete=progress>=arc.steps.length,current=arc.steps[progress];tasks.push([complete,'MAIN STORY · '+arc.region+' · '+progress+'/'+arc.steps.length,current?current.objective:arc.title+' complete.',complete?'Chord replay available · progression rewards disabled':arc.summary,arc.chord]);});
       EXPANSION_QUESTS.filter(function(quest){return quest.category==='main'&&quest.unlock();}).forEach(function(quest){
         var complete=state.completedQuests.indexOf(quest.id)>=0;
         tasks.push([complete,quest.name+' · '+Math.min(quest.goal,quest.progress())+'/'+quest.goal,quest.objective,quest.reward]);
@@ -5841,6 +6132,7 @@
       li.appendChild(title);
       if(task[2]){var objective=document.createElement('small');objective.textContent=task[2];li.appendChild(objective);}
       if(task[3]){var reward=document.createElement('small');reward.textContent='Reward: '+task[3];li.appendChild(reward);}
+      if(task[4]){var puzzle=storyPuzzle(task[4]),arcForChord=Object.keys(window.MossStory.arcs).map(function(key){return window.MossStory.arcs[key];}).find(function(arc){return arc.chord===task[4];}),progress=arcForChord?state.questStates[arcForChord.id]||0:0,chordStep=arcForChord?arcForChord.steps.findIndex(function(step){return step.kind==='chord';}):-1;if(puzzle.status==='completed'||progress===chordStep){var replay=document.createElement('button');replay.type='button';replay.className='quest-chord-button';replay.textContent=puzzle.status==='completed'?'Replay chord':'Play chord';replay.onclick=function(){openChordPanel(task[4],puzzle.status==='completed');};li.appendChild(replay);}}
       el.appendChild(li);
     });
   }
@@ -6197,6 +6489,7 @@
     }
     state.composed = true;
     audioCall('sfx', 'unlock');
+    syncStoryProgress(true);
     saveGame(true);
     updateHUD();
     closeComposer();
@@ -6264,12 +6557,47 @@
     if (joystickBase) joystickBase.classList.remove('active');
     document.querySelectorAll('[data-control].pressed, [data-control].is-pressed').forEach(function (button) {
       button.classList.remove('pressed', 'is-pressed');
+      button.setAttribute('aria-pressed','false');
     });
+    updateTouchActionUi();
+  }
+
+  function setTouchActionState(id,progress,classes,label,ariaLabel) {
+    var button=byId(id);if(!button)return;
+    button.style.setProperty('--action-progress',String(clamp(progress||0,0,1)));
+    ['is-held','is-charging','is-cooling','is-ready','is-unavailable','is-perfect'].forEach(function(name){button.classList.toggle(name,classes&&classes.indexOf(name)>=0);});
+    if(label){var small=button.querySelector('small');if(small)small.textContent=label;}
+    if(ariaLabel)button.setAttribute('aria-label',ariaLabel);
+  }
+
+  function interactionDescription(near) {
+    if(!near)return{verb:'ACT',label:'Interact; no target nearby'};
+    if(near.type==='npc')return{verb:'TALK',label:'Talk to '+((near.item.npc||near.item).name||'character')};
+    if(near.type==='portal')return{verb:'ENTER',label:'Enter '+near.item.name};
+    if(near.type==='tutorial')return{verb:'TUNE',label:'Tune the rehearsal resonator'};
+    if(near.type==='world-event')return{verb:'JOIN',label:'Join '+(near.item.name||'world event')};
+    if(near.type==='story-chord')return{verb:'PLAY',label:'Play '+(near.item.label||'the story chord')};
+    return{verb:'LISTEN',label:'Listen to the musical object'};
+  }
+
+  function updateTouchActionUi() {
+    if(!touchCapable)return;
+    var classDef=starterClass(state.character.classId);
+    var chargeTime=(state.skills.indexOf('rhythm-master')>=0?.48:.68)*(state.character.classId==='riffblade'?.88:1);
+    setTouchActionState('touchAttackButton',player.attackHeld?player.attackHold/chargeTime:Math.max(0,1-player.attackCooldown/.55),player.attackHeld?['is-held','is-charging']:player.attackCooldown>0?['is-cooling']:['is-ready'],player.attackHeld?'CHARGE':'STRIKE',player.attackHeld?'Charged attack building, '+Math.round(clamp(player.attackHold/chargeTime,0,1)*100)+' percent':'Attack; hold for charged attack');
+    setTouchActionState('touchDodgeButton',1-player.dashCooldown/.72,player.dashCooldown>0?['is-cooling']:['is-ready'],'DODGE',player.dashCooldown>0?'Dodge recharging':'Dodge ready');
+    setTouchActionState('touchPulseButton',1-player.pulseCooldown/1.2,player.pulseCooldown>0?['is-cooling']:state.pulse||state.tutorialPulse?['is-ready']:['is-unavailable'],instrumentUltimateCharge>=100?'ULT':'PULSE',state.pulse||state.tutorialPulse?'Echo Pulse '+(player.pulseCooldown>0?'recharging':'ready'):'Echo Pulse unavailable; help Blu');
+    setTouchActionState('touchBlockButton',player.blockStamina/player.blockMaxStamina,player.blockFlash>0?['is-perfect']:player.blocking?['is-held']:player.guardBroken>0?['is-unavailable']:['is-ready'],player.blockFlash>0?'PERFECT':player.blocking?'HOLD':'BLOCK',player.guardBroken>0?'Guard broken':player.blocking?'Blocking, '+Math.ceil(player.blockStamina)+' stamina':'Hold to block');
+    setTouchActionState('touchClassButton',1-player.classCooldown/classDef.cooldown,player.classCooldown>0?['is-cooling']:['is-ready'],classDef.short,classDef.ability+', '+(player.classCooldown>0?'recharging, '+Math.ceil(player.classCooldown)+' seconds':'ready'));
+    var classButton=byId('touchClassButton');if(classButton){classButton.style.setProperty('--class-color',classDef.color);classButton.style.setProperty('--class-icon','url("'+classDef.icon+'")');}
+    var interaction=interactionDescription(nearestInteractable());
+    setTouchActionState('touchInteractButton',1,interaction.verb==='ACT'?['is-unavailable']:['is-ready'],interaction.verb,interaction.label);
   }
 
   function runControlAction(action) {
     if (action === 'dodge') doDash();
     else if (action === 'pulse') doPulse();
+    else if (action === 'classAbility') useClassAbility();
     else if (action === 'block') beginBlock();
     else if (action === 'heal') useStoredHeartbloom();
     else if (action === 'odin') cycleOdinCommand();
@@ -6352,6 +6680,7 @@
 
     if (input.padPressed('dodge')) runControlAction('dodge');
     if (input.padPressed('pulse')) runControlAction('pulse');
+    if (input.padPressed('classAbility')) runControlAction('classAbility');
     if (input.padPressed('interact')) runControlAction('interact');
     if (input.padPressed('odin')) runControlAction('odin');
     if (input.padPressed('heal')) runControlAction('heal');
@@ -6370,6 +6699,7 @@
     var alreadyActive = contactUsesAction(action);
     controlContacts.set(contactId, { button: button, action: action });
     button.classList.add('pressed');
+    button.setAttribute('aria-pressed','true');
 
     if (directionActions[action]) {
       keys.add('touch-' + action);
@@ -6392,6 +6722,7 @@
         if (other.button === contact.button) buttonStillActive = true;
       });
       if (!buttonStillActive) contact.button.classList.remove('pressed', 'is-pressed');
+      if (!buttonStillActive) contact.button.setAttribute('aria-pressed','false');
     }
     if (!contactUsesAction(contact.action)) {
       if (directionActions[contact.action]) keys.delete('touch-' + contact.action);
@@ -6450,7 +6781,7 @@
       var pauseHome=byId('pauseHomeButton');
       if(pauseHome){pauseHome.disabled=!state.home.unlocked;pauseHome.textContent=state.home.unlocked?'Player Home':'Player Home · Locked';}
       var pauseLocation=byId('pauseLocation');
-      if(pauseLocation)pauseLocation.textContent=STAGE_NAMES[state.stage]+' is holding your place · '+equippedInstrument().name+' · '+state.weather.replace('-',' ');
+      if(pauseLocation)pauseLocation.textContent=STAGE_NAMES[state.stage]+' is holding your place · '+starterClass(state.character.classId).name+' · '+equippedInstrument().name+' · '+state.weather.replace('-',' ');
       saveGame(true);
       focusSoon('resumeButton');
     } else {
@@ -6465,7 +6796,7 @@
     return key;
   }
   var controlledKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
-    'space', 'j', 'shift', 'k', 'q', 'l', 'f', 'h', 'r', 'e', 'enter', 'tab', 'i', 'b', 'v', 'o', 'escape']);
+    'space', 'j', 'shift', 'k', 'q', 'l', 'c', 'f', 'h', 'r', 'e', 'enter', 'tab', 'i', 'b', 'v', 'o', 'escape','1','2','3','4']);
 
   function panelIsOpen(id) {
     var panel = byId(id);
@@ -6485,6 +6816,14 @@
   }
 
   var settingsReturnsToPause = false;
+  var settingsOpenedFromOrientation = false;
+  function openPortraitSettings() {
+    if (!orientationBlocked) return;
+    settingsOpenedFromOrientation = true;
+    document.body.classList.add('orientation-settings-open');
+    setOrientationIsolation(false);
+    openSettingsPanel();
+  }
   function openSettingsPanel() {
     releaseHeldInputs();
     settingsReturnsToPause = paused && panelIsOpen('pauseScreen');
@@ -6499,7 +6838,11 @@
     setHidden(byId('settingsPanel'), true);
     if (settingsReturnsToPause && paused) setOverlayIsolation('pause', 'pauseScreen', true);
     settingsReturnsToPause = false;
-    focusSoon(paused ? 'pauseSettingsButton' : 'settingsButton');
+    if (settingsOpenedFromOrientation && orientationBlocked) {
+      settingsOpenedFromOrientation = false;
+      document.body.classList.remove('orientation-settings-open');
+      setOrientationIsolation(true);
+    } else focusSoon(paused ? 'pauseSettingsButton' : 'settingsButton');
   }
 
   function recoverAudioFromGesture() {
@@ -6531,6 +6874,7 @@
   function closeTopOverlay() {
     if (panelIsOpen('settingsPanel')) closeSettingsPanel();
     else if (panelIsOpen('howPanel')) closeHowPanel();
+    else if (chordRuntime.open) closeChordPanel();
     else if (inventoryOpen) closeInventory();
     else if (shopOpen) closeShop();
     else if (skillsOpen) closeSkills();
@@ -6543,9 +6887,46 @@
     else if (paused) togglePause(false);
   }
 
+  var backdropPointers=new Map(),suppressBackdropClickUntil=0;
+  function topVisibleBackdropOverlay() {
+    var candidates=Array.prototype.slice.call(document.querySelectorAll('[data-backdrop-dismiss]')).filter(function(panel){return !panel.hidden&&!panel.inert&&panel.getAttribute('aria-hidden')!=='true';});
+    var best=null,bestZ=-Infinity;
+    candidates.forEach(function(panel){var z=parseInt(getComputedStyle(panel).zIndex,10);if(!isFinite(z))z=0;if(z>=bestZ){best=panel;bestZ=z;}});
+    return best;
+  }
+  function pulseProtectedBackdrop(panel) {
+    panel.classList.remove('backdrop-denied');void panel.offsetWidth;panel.classList.add('backdrop-denied');
+    window.setTimeout(function(){panel.classList.remove('backdrop-denied');},420);
+    var reason=panel.dataset.backdropReason||'Use an explicit choice to close this screen.';
+    showToast('CHOICE REQUIRED',reason,'#ffc857',2);mobileHaptic(18);
+  }
+  function dismissBackdropOverlay(panel) {
+    if(!panel)return false;
+    if(panel.dataset.backdropDismiss==='protected'||(panel.id==='productionHub'&&document.body.classList.contains('arena-match-active'))){pulseProtectedBackdrop(panel);return false;}
+    releaseHeldInputs();
+    var opener=overlayReturnFocus.get(panel);
+    var id=panel.id;
+    if(id==='settingsPanel')closeSettingsPanel();else if(id==='howPanel')closeHowPanel();else if(id==='inventoryScreen')closeInventory();else if(id==='shopScreen')closeShop();else if(id==='skillsScreen')closeSkills();else if(id==='instrumentsScreen')closeInstruments();else if(id==='homeScreen')closeHome();else if(id==='statisticsScreen')closeStatistics();else if(id==='composerScreen')return false;else if(id==='mapScreen')closeMap();else if(id==='chordPanel')closeChordPanel();else if(id==='pauseScreen')togglePause(false);else if(id==='productionHub'){var close=byId('closeProductionHub');if(close)close.click();}else return false;
+    if(opener&&opener.isConnected&&typeof opener.focus==='function')window.requestAnimationFrame(function(){try{opener.focus({preventScroll:true});}catch(_){opener.focus();}});
+    return true;
+  }
+  function bindBackdropDismissal() {
+    if(document.documentElement.dataset.backdropDismissBound)return;document.documentElement.dataset.backdropDismissBound='true';
+    document.addEventListener('pointerdown',function(event){var panel=topVisibleBackdropOverlay();if(!panel||event.target!==panel)return;backdropPointers.set(event.pointerId,{panel:panel,target:event.target});event.preventDefault();event.stopImmediatePropagation();},{capture:true,passive:false});
+    document.addEventListener('pointerup',function(event){var record=backdropPointers.get(event.pointerId);if(!record)return;backdropPointers.delete(event.pointerId);if(event.target!==record.target||record.panel!==topVisibleBackdropOverlay())return;event.preventDefault();event.stopImmediatePropagation();dismissBackdropOverlay(record.panel);suppressBackdropClickUntil=performance.now()+450;},{capture:true,passive:false});
+    document.addEventListener('pointercancel',function(event){backdropPointers.delete(event.pointerId);},{capture:true});
+    document.addEventListener('click',function(event){if(performance.now()>suppressBackdropClickUntil)return;if(event.target&&event.target.closest&&event.target.closest('[data-backdrop-dismiss]')){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
+  }
+
   window.addEventListener('keydown', function (event) {
     var key = keyName(event);
     recoverAudioFromGesture();
+    if(chordRuntime.open){
+      var chordKeys={'1':'C','2':'E','3':'G','4':'B'};
+      if(chordKeys[key]){event.preventDefault();submitChordNote(chordKeys[key]);return;}
+      if(key==='escape'){event.preventDefault();closeChordPanel();return;}
+      return;
+    }
     var target = event.target;
     var interactiveTarget = target && target.closest &&
       target.closest('button, input, select, textarea, [contenteditable="true"], a[href]');
@@ -6570,11 +6951,12 @@
       return;
     }
     if (controlledKeys.has(key)) event.preventDefault();
-    if (event.repeat && ['e', 'enter', 'tab', 'i', 'b', 'escape', 'shift', 'k', 'q', 'l', 'f', 'h', 'r'].indexOf(key) >= 0) return;
+    if (event.repeat && ['e', 'enter', 'tab', 'i', 'b', 'escape', 'shift', 'k', 'q', 'l', 'c', 'f', 'h', 'r'].indexOf(key) >= 0) return;
     keys.add(key);
     if (key === 'e' || key === 'enter') interact();
     else if (key === 'shift' || key === 'k') doDash();
     else if (key === 'q' || key === 'l') doPulse();
+    else if (key === 'c') useClassAbility();
     else if (key === 'f') beginBlock();
     else if (key === 'h') useStoredHeartbloom();
     else if (key === 'r') cycleOdinCommand();
@@ -6629,6 +7011,7 @@
   }
 
   function bindControls() {
+    bindBackdropDismissal();
     var start = byId('startButton');
     var cont = byId('continueButton');
     var how = byId('howButton');
@@ -6636,6 +7019,7 @@
     var settingsButton = byId('settingsButton');
     var statisticsButton = byId('statisticsButton');
     var closeSettings = byId('closeSettingsButton');
+    var portraitSettingsButton = byId('portraitSettingsButton');
     var resume = byId('resumeButton');
     var pauseMapButton = byId('pauseMapButton');
     var pauseBackpackButton = byId('pauseBackpackButton');
@@ -6699,6 +7083,7 @@
     if (settingsButton) settingsButton.addEventListener('click', openSettingsPanel);
     if (statisticsButton) statisticsButton.addEventListener('click', openStatistics);
     if (closeSettings) closeSettings.addEventListener('click', closeSettingsPanel);
+    if (portraitSettingsButton) portraitSettingsButton.addEventListener('click', openPortraitSettings);
     if (resume) resume.addEventListener('click', function () { togglePause(false); });
     if (pauseMapButton) pauseMapButton.addEventListener('click', openMap);
     if (pauseBackpackButton) pauseBackpackButton.addEventListener('click', openInventory);
@@ -6716,10 +7101,13 @@
     if(homeLeaveButton)homeLeaveButton.addEventListener('click',closeHome);
     if (closeStatisticsButton) closeStatisticsButton.addEventListener('click', closeStatistics);
     if(characterForm)characterForm.addEventListener('submit',confirmCharacter);
+    if(byId('closeChordButton'))byId('closeChordButton').addEventListener('click',closeChordPanel);
+    if(byId('replayChordButton'))byId('replayChordButton').addEventListener('click',replayChordPattern);
+    document.querySelectorAll('[data-chord-note]').forEach(function(button){button.addEventListener('click',function(){submitChordNote(button.dataset.chordNote);});});
     if(closeCharacter)closeCharacter.addEventListener('click',closeCharacterCreator);
     if(byId('characterName'))byId('characterName').addEventListener('input',function(){if(characterDraft)characterDraft.displayName=this.value;});
     if(byId('characterPronouns'))byId('characterPronouns').addEventListener('change',function(){if(characterDraft)characterDraft.pronouns=this.value;});
-    if(randomizeCharacter)randomizeCharacter.addEventListener('click',function(){if(!characterDraft||!window.MossCharacter)return;['body','hair','outfit','accent'].forEach(function(group){var options=window.MossCharacter.options[group];characterDraft.appearance[group]=options[Math.floor(Math.random()*options.length)].id;});renderCharacterCreator();});
+    if(randomizeCharacter)randomizeCharacter.addEventListener('click',function(){if(!characterDraft||!window.MossCharacter)return;['body','hair','outfit','accent'].forEach(function(group){var options=window.MossCharacter.options[group];characterDraft.appearance[group]=options[Math.floor(Math.random()*options.length)].id;});characterDraft.classId=CLASS_IDS[Math.floor(Math.random()*CLASS_IDS.length)];renderCharacterCreator();});
     if(resetCharacter)resetCharacter.addEventListener('click',function(){if(!characterDraft)return;characterDraft=creatorDefault();renderCharacterCreator();});
     if(tutorialSkipButton)tutorialSkipButton.addEventListener('click',skipTutorial);
     if(replayTutorialButton)replayTutorialButton.addEventListener('click',replayTutorial);
@@ -6769,6 +7157,9 @@
     bindSetting('largeText', 'largeText', false);
     bindSetting('interfaceSize', 'interfaceSize', false);
     bindSetting('renderScale', 'renderScale', false);
+    bindSetting('touchLayout', 'touchLayout', false);
+    bindSetting('mobileHaptics', 'mobileHaptics', false);
+    bindSetting('chordTiming', 'chordTiming', false);
 
     bindControllerSetting('controllerEnabled', 'controllerEnabled', 'check');
     bindControllerSetting('moveDeadzone', 'moveDeadzone', 'number');
@@ -6996,7 +7387,7 @@
     player.attackCooldown = Math.max(0, player.attackCooldown - dt);
     player.dashCooldown = Math.max(0, player.dashCooldown - dt);
     player.dashTimer = Math.max(0, player.dashTimer - dt);
-    player.pulseCooldown = Math.max(0, player.pulseCooldown - dt);
+    player.pulseCooldown = Math.max(0, player.pulseCooldown - dt * (state.character.classId==='echo-weaver'?1.12:1));
     player.guardBroken = Math.max(0, player.guardBroken - dt);
     player.counterWindow = Math.max(0, player.counterWindow - dt);
     player.blockFlash = Math.max(0, player.blockFlash - dt);
@@ -7010,7 +7401,7 @@
     else if (inputBuffer.attack > 0 && player.attackCooldown <= 0 && !player.blocking) performAttack(false,true);
     if (inputBuffer.interact > 0) interact(true);
     if (player.blocking) {
-      player.blockStamina = Math.max(0, player.blockStamina - 7 * dt);
+      player.blockStamina = Math.max(0, player.blockStamina - 7 * dt * (state.character.classId==='groveguard'?.82:1));
       if (player.blockStamina <= 0) breakGuard();
     } else if (player.guardBroken <= 0) {
       player.blockStamina = Math.min(player.blockMaxStamina, player.blockStamina + 24 * dt);
@@ -7018,6 +7409,7 @@
     if (!player.blocking && player.attackHeld && !player.chargedThisHold) {
       player.attackHold += dt;
       var chargeTime = state.skills.indexOf('rhythm-master') >= 0 ? 0.48 : 0.68;
+      if (state.character.classId === 'riffblade') chargeTime *= .88;
       if (player.attackHold >= chargeTime) {
         player.chargedThisHold = true;
         player.attackCooldown = 0;
@@ -7126,7 +7518,7 @@
         if (hit) {
           a.hit.add(e.id);
           var dmg = attackDamageFor(a,e,false);
-          if (hitEnemy(e, dmg, a.x, a.y)) registerInstrumentHit(a,e);
+          if (hitEnemy(e, dmg, a.x, a.y) && !a.classAttack) registerInstrumentHit(a,e);
         }
       });
       hitBossWeakPoints(a);
@@ -7137,7 +7529,7 @@
           a.hit.add('boss');
           var bossDmg = attackDamageFor(a,boss,true);
           hitBoss(bossDmg);
-          gainInstrumentMastery(a.charged ? 4 : 2);
+          if (!a.classAttack) gainInstrumentMastery(a.charged ? 4 : 2);
         }
       }
       a.progress = progress;
@@ -7945,11 +8337,13 @@
     }
     var menuHandled = window.MossControllerUI ? window.MossControllerUI.update(dt) : false;
     pollGamepad(menuHandled);
-    if (!started || paused || orientationBlocked || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    updateTouchActionUi();
+    if (!started || paused || orientationBlocked || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     state.playSeconds += dt;
     syncExpansionQuests(dt);
     updateRhythmCombo(dt);
     updatePlayer(dt);
+    updateClassAbilities(dt);
     updateEquipmentVisual(dt);
     updateFirstStageBalance(dt);
     updateOdin(dt);
@@ -7965,6 +8359,7 @@
     updateParticles(dt);
     updateCamera(dt);
     updateHUD();
+    updateTouchActionUi();
     saveGame(false);
   }
 
@@ -9627,6 +10022,19 @@
     });
   }
 
+  function drawClassEffects(){
+    classFields.forEach(function(field){var t=1-clamp(field.life/field.maxLife,0,1);ctx.save();ctx.translate(field.x,field.y);ctx.rotate(t*Math.PI*.7);ctx.globalAlpha=.45+.3*Math.sin(nowTime*8);ctx.strokeStyle='#62dff5';ctx.lineWidth=4;ctx.shadowColor='#b879ff';ctx.shadowBlur=14;for(var i=0;i<3;i++){ctx.rotate(Math.PI*2/3);ctx.beginPath();ctx.moveTo(16,0);ctx.quadraticCurveTo(34,-18,48,0);ctx.quadraticCurveTo(34,18,16,0);ctx.stroke();}ctx.restore();});
+    if(player.classBarrier>0){ctx.save();ctx.translate(player.x,player.y);ctx.globalAlpha=.62;ctx.strokeStyle='#8fcf65';ctx.lineWidth=5;ctx.shadowColor='#ffc857';ctx.shadowBlur=12;ctx.beginPath();for(var n=0;n<8;n++){var a=n*Math.PI/4,r=n%2?29:35;if(n===0)ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);}ctx.closePath();ctx.stroke();ctx.restore();}
+  }
+
+  function drawStoryResonator() {
+    var arc=storyArc(state.stage),item=STORY_RESONATORS[state.stage];if(!arc||!item||!isVisible(item.x,item.y,90))return;
+    var index=state.questStates[arc.id]||0,chordStep=arc.steps.findIndex(function(step){return step.kind==='chord';}),puzzle=storyPuzzle(arc.chord);
+    if(index<chordStep&&puzzle.status!=='completed')return;
+    var active=index===chordStep&&puzzle.status!=='completed',pulse=settings.reducedMotion?0:Math.sin(nowTime*4)*4;
+    ctx.save();ctx.translate(item.x,item.y);ctx.fillStyle='rgba(3,12,18,.48)';ctx.beginPath();ctx.ellipse(0,24,34,10,0,0,Math.PI*2);ctx.fill();ctx.shadowColor=active?'#ffc857':'#56f0c4';ctx.shadowBlur=18+pulse;ctx.fillStyle='#102c35';ctx.strokeStyle=active?'#ffc857':'#56f0c4';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(0,-38);ctx.lineTo(27,-8);ctx.lineTo(18,31);ctx.lineTo(-18,31);ctx.lineTo(-27,-8);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle=ctx.strokeStyle;ctx.font='bold 24px monospace';ctx.textAlign='center';ctx.fillText('♫',0,7);ctx.shadowBlur=0;ctx.font='bold 9px monospace';ctx.fillStyle='#e8f6dd';ctx.fillText(puzzle.status==='completed'?'REPLAY '+item.label:item.label,0,48);ctx.restore();
+  }
+
   function drawPrologueObjects(){
     if(!currentLevel||!currentLevel.isPrologue)return;
     PROLOGUE_OBJECTS.forEach(function(object,index){
@@ -9657,8 +10065,7 @@
     var near = nearestInteractable();
     if (!near) return;
     var item = near.item;
-    var label = near.type === 'npc' ? (touchCapable ? 'TALK' : 'E  TALK') : near.type === 'portal' ? (touchCapable ? 'ENTER' : 'E  ENTER') : near.type === 'tutorial' ? (touchCapable ? 'TUNE' : 'E  TUNE') :
-      near.type === 'world-event' ? (touchCapable ? 'JOIN' : 'E  JOIN') : (touchCapable ? 'LISTEN' : 'E  LISTEN');
+    var description=interactionDescription(near),label=(touchCapable?'':'E  ')+description.verb;
     var sx = item.x - camera.x + W / 2;
     var sy = item.y - camera.y + H / 2 - 55;
     ctx.save();
@@ -9836,6 +10243,7 @@
     drawPrologueObjects();
     shrines.forEach(drawShrine);
     drawPuzzleObjects();
+    drawStoryResonator();
     weeds.forEach(drawWeed);
     stageTokens.forEach(drawStageToken);
     collectibles.forEach(drawCollectible);
@@ -9854,6 +10262,7 @@
     drawPlayer();
     drawAttacks();
     drawPulses();
+    drawClassEffects();
     drawParticles();
     drawObstacles();
     ctx.restore();
@@ -9867,7 +10276,7 @@
   var lastFrame = performance.now();
   function shouldAnimateCanvas() {
     var ending = byId('endingScreen');
-    return !document.hidden && !orientationBlocked && started && !paused && !mapOpen && !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen && !statisticsOpen && !instrumentsOpen && !homeOpen &&
+    return !document.hidden && !orientationBlocked && started && !paused && !mapOpen && !chordRuntime.open && !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen && !statisticsOpen && !instrumentsOpen && !homeOpen &&
       !dialogue && (!ending || ending.hidden);
   }
 
@@ -9906,6 +10315,7 @@
     setHidden(byId('dialogueBox'), true);
     setHidden(byId('composerScreen'), true);
     setHidden(byId('mapScreen'), true);
+    setHidden(byId('chordPanel'), true);
     setHidden(byId('inventoryScreen'), true);
     setHidden(byId('shopScreen'), true); setHidden(byId('skillsScreen'), true); setHidden(byId('statisticsScreen'), true);
     setHidden(byId('instrumentsScreen'), true); setHidden(byId('homeScreen'), true);
@@ -10094,6 +10504,7 @@
         attacking:attacking,
         odin:!!remote.odin,
         stage:clamp(Math.floor(Number(remote.stage) || 1),1,4),
+        classId:CLASS_IDS.indexOf(remote.classId)>=0?remote.classId:'riffblade',
         instrument:instrument,
         appearance:window.MossCharacter?window.MossCharacter.sanitizeAppearance(remote.appearance):{body:'fern',hair:'tuft',outfit:'grove',accent:'mint'},
         equipmentId:equipment.equipmentId,
@@ -10138,6 +10549,8 @@
   window.__HIGH_NOTES__ = {
     version: SAVE_SCHEMA_VERSION,
     gameVersion: GAME_VERSION,
+    classes:{catalog:function(){return JSON.parse(JSON.stringify(STARTER_CLASSES));},current:function(){return state.character.classId;},useAbility:useClassAbility},
+    story:{catalog:function(){return window.MossStory?JSON.parse(JSON.stringify({arcs:window.MossStory.arcs,chords:window.MossStory.chords})):null;},openChord:openChordPanel,submitNote:submitChordNote,state:function(){return JSON.parse(JSON.stringify({questStates:state.questStates,puzzleStates:state.puzzleStates,completedQuests:state.completedQuests}));}},
     startNew: newGame,
     continueGame: continueGame,
     /* Surface for MossControllerUI so menu navigation never pokes internals. */
@@ -10171,8 +10584,9 @@
           npcs: npcs, enemies: enemies, obstacles: obstacles, water: waterPools,
           shrines: shrines, weeds: weeds, collectibles: collectibles,
           portals: stagePortals, drums: drums, speakers: speakers,
+          stageTokens:stageTokens,storyResonators:STORY_RESONATORS[state.stage]?[STORY_RESONATORS[state.stage]]:[],
           odin:state.odinRecruited?odin:null,boss:boss,healthPickups:healthPickups,
-          attacks:attacks,pulses:pulses,projectiles:projectiles,hazards:hazards,
+          attacks:attacks,pulses:pulses,projectiles:projectiles,hazards:hazards,classFields:classFields,
           tutorial:tutorialRuntime.active?PROLOGUE_OBJECTS[0]:null
         };
       },
@@ -10185,7 +10599,7 @@
       isPlaying: function () {
         return started && !paused && !orientationBlocked && !dialogue && !mapOpen &&
           !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen &&
-          !statisticsOpen && !instrumentsOpen && !homeOpen;
+          !statisticsOpen && !instrumentsOpen && !homeOpen && !chordRuntime.open;
       },
       markDirty: function () { canvasDirty = true; }
     },
@@ -10293,6 +10707,8 @@
       save: function () { saveGame(true); return true; }
     },
     debug: {
+      sanitizeSave:function(raw){return sanitizeState(raw);},
+      syncStory:function(){syncStoryProgress(false);return window.__HIGH_NOTES__.story.state();},
       teleport: function (x, y) {
         player.x = clamp(Number(x), 30, WORLD.w - 30);
         player.y = clamp(Number(y), 30, WORLD.h - 30);

@@ -1131,6 +1131,7 @@
         moving:remoteMoving,attacking:remoteAttacking,
         odin:!!payload.odin,
         stage:clamp(Math.floor(Number(payload.stage)||1),1,4),
+        classId:['riffblade','groveguard','echo-weaver','tempo-runner'].indexOf(payload.classId)>=0?payload.classId:'riffblade',
         instrument:remoteInstrument,equipment:remoteEquipment,resonance:cleanText(payload.resonance,16),
         quests:clamp(Math.floor(Number(payload.quests)||0),0,999),
         bosses:clamp(Math.floor(Number(payload.bosses)||0),0,99),
@@ -1199,6 +1200,7 @@
       x:Math.round(current.player.x*10)/10,y:Math.round(current.player.y*10)/10,
       facing:current.player.facing,moving:moving,attacking:current.runtime.attacks>0,
       stage:current.state.stage,instrument:current.state.equippedInstrument,
+      classId:current.state.character&&['riffblade','groveguard','echo-weaver','tempo-runner'].indexOf(current.state.character.classId)>=0?current.state.character.classId:'riffblade',
       equipment:equipment,
       odin:!!current.state.odinRecruited,
       quests:(current.state.completedQuests || []).length,bosses:(current.state.stageBosses || []).length
@@ -1258,7 +1260,7 @@
       var targetY = remote.y + clamp(remote.vy || 0,-260,260)*predictionSeconds;
       visual.x += (targetX-visual.x)*0.42;
       visual.y += (targetY-visual.y)*0.42;
-      ['name','cosmetic','facing','moving','attacking','odin','stage','instrument','ping','appearance'].forEach(function (key) {
+      ['name','cosmetic','facing','moving','attacking','odin','stage','instrument','classId','ping','appearance'].forEach(function (key) {
         visual[key] = remote[key];
       });
       // Advance only from the last validated packet and cap extrapolation to

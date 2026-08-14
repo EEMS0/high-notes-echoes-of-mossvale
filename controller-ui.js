@@ -24,7 +24,7 @@
    * cancel always dismisses the panel the player believes is on top.
    */
   var OVERLAYS = [
-    'settingsPanel', 'howPanel', 'inventoryScreen', 'shopScreen', 'skillsScreen',
+    'characterCreator', 'chordPanel', 'settingsPanel', 'howPanel', 'inventoryScreen', 'shopScreen', 'skillsScreen',
     'instrumentsScreen', 'homeScreen', 'statisticsScreen', 'mapScreen',
     'composerScreen', 'productionHub', 'endingScreen', 'pauseScreen', 'titleScreen'
   ];
@@ -230,6 +230,9 @@
     if (!overlay) return;
     /* The run is over; Play Again is the only meaningful exit. */
     if (overlay.id === 'endingScreen') return;
+    if (overlay.id === 'characterCreator') {
+      var cancelCreator=byId('closeCharacterCreator');if(cancelCreator)cancelCreator.click();return;
+    }
     if (overlay.id === 'productionHub') {
       var close = byId('closeProductionHub');
       if (close) close.click();

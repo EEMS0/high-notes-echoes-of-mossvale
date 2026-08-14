@@ -69,6 +69,7 @@ describe("versioned protocol validation", () => {
       odin: true,
       stage: 1,
       instrument: "electric-guitar",
+      classId: "echo-weaver",
       resonance: "nature",
       quests: 3,
       bosses: 0,
@@ -96,15 +97,29 @@ describe("versioned protocol validation", () => {
       attackId: "HIT234",
     }), ROOM);
     expect(snapshot.ok).toBe(true);
-    if (snapshot.ok) expect(snapshot.value.payload.equipment).toMatchObject({
-      equipmentId: "guitar",
-      animationState: "switch",
-      facingDirection: "east",
-      switchFrom: "bass",
-      switchTo: "guitar",
-      switchProgress: 0.55,
-    });
+    if (snapshot.ok) {
+      expect(snapshot.value.payload.classId).toBe("echo-weaver");
+      expect(snapshot.value.payload.equipment).toMatchObject({
+        equipmentId: "guitar",
+        animationState: "switch",
+        facingDirection: "east",
+        switchFrom: "bass",
+        switchTo: "guitar",
+        switchProgress: 0.55,
+      });
+    }
     expect(hit.ok).toBe(true);
+  });
+
+  it("rejects unknown campaign class IDs in co-op snapshots", () => {
+    const result = validateClientFrame(packet("snapshot", {
+      x: 120,
+      y: 420,
+      stage: 1,
+      instrument: "guitar",
+      classId: "future-admin-class",
+    }), ROOM);
+    expect(result.ok).toBe(false);
   });
 
   it("accepts the legacy empty value for no active resonance", () => {

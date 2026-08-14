@@ -46,6 +46,8 @@
     pause: [STANDARD_BUTTONS.menu],
     inventory: [STANDARD_BUTTONS.leftStick],
     instruments: [STANDARD_BUTTONS.rightStick],
+    /* L3 + R3 is handled as a chord in padPressed/padHeld below. */
+    classAbility: [],
     recentre: [STANDARD_BUTTONS.rightStick],
     tabPrev: [STANDARD_BUTTONS.leftBumper],
     tabNext: [STANDARD_BUTTONS.rightBumper],
@@ -83,6 +85,7 @@
     map: ['tab'],
     inventory: ['i', 'b'],
     instruments: ['v'],
+    classAbility: ['c'],
     home: ['o'],
     pause: ['escape'],
     confirm: ['enter', 'e', 'space'],
@@ -99,7 +102,7 @@
     xbox: {
       confirm: 'A', cancel: 'B', attack: 'A', dodge: 'B', pulse: 'X', interact: 'Y',
       block: 'LB', odin: 'RB', heal: 'LT', map: 'View', pause: 'Menu',
-      inventory: 'L3', instruments: 'R3', tabPrev: 'LB', tabNext: 'RB',
+      inventory: 'L3', instruments: 'R3', classAbility: 'L3+R3', tabPrev: 'LB', tabNext: 'RB',
       moveUp: 'D-pad', moveDown: 'D-pad', moveLeft: 'D-pad', moveRight: 'D-pad',
       menuUp: 'D-pad', menuDown: 'D-pad', menuLeft: 'D-pad', menuRight: 'D-pad',
       home: 'Menu'
@@ -107,7 +110,7 @@
     keyboard: {
       confirm: 'E', cancel: 'Esc', attack: 'Space', dodge: 'Shift', pulse: 'Q', interact: 'E',
       block: 'F', odin: 'R', heal: 'H', map: 'Tab', pause: 'Esc',
-      inventory: 'I', instruments: 'V', tabPrev: 'Q', tabNext: 'E',
+      inventory: 'I', instruments: 'V', classAbility: 'C', tabPrev: 'Q', tabNext: 'E',
       moveUp: 'W', moveDown: 'S', moveLeft: 'A', moveRight: 'D',
       menuUp: 'W', menuDown: 'S', menuLeft: 'A', menuRight: 'D',
       home: 'O'
@@ -668,6 +671,12 @@
 
   function padPressed(name) {
     if (!padConnected || !settings.controllerEnabled) return false;
+    if (name === 'classAbility') {
+      return !!(buttonNow[STANDARD_BUTTONS.leftStick] && buttonNow[STANDARD_BUTTONS.rightStick] &&
+        (!buttonPrev[STANDARD_BUTTONS.leftStick] || !buttonPrev[STANDARD_BUTTONS.rightStick]));
+    }
+    if ((name === 'inventory' || name === 'instruments') &&
+        buttonNow[STANDARD_BUTTONS.leftStick] && buttonNow[STANDARD_BUTTONS.rightStick]) return false;
     var buttons = padBindings[resolvePadAction(name)];
     if (!buttons) return false;
     for (var i = 0; i < buttons.length; i++) {
@@ -678,6 +687,7 @@
 
   function padHeld(name) {
     if (!padConnected || !settings.controllerEnabled) return false;
+    if (name === 'classAbility') return !!(buttonNow[STANDARD_BUTTONS.leftStick] && buttonNow[STANDARD_BUTTONS.rightStick]);
     var buttons = padBindings[resolvePadAction(name)];
     if (!buttons) return false;
     for (var i = 0; i < buttons.length; i++) {
@@ -688,6 +698,10 @@
 
   function padReleased(name) {
     if (!padConnected || !settings.controllerEnabled) return false;
+    if (name === 'classAbility') {
+      return !!(buttonPrev[STANDARD_BUTTONS.leftStick] && buttonPrev[STANDARD_BUTTONS.rightStick] &&
+        (!buttonNow[STANDARD_BUTTONS.leftStick] || !buttonNow[STANDARD_BUTTONS.rightStick]));
+    }
     var buttons = padBindings[resolvePadAction(name)];
     if (!buttons) return false;
     var anyNow = false;

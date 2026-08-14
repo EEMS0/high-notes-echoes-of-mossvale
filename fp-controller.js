@@ -201,7 +201,8 @@ class FirstPersonController {
       var look = window.MossInput.getVector('look');
       if (look && (look.x || look.y)) {
         this.yaw -= look.x * STICK_LOOK_RATE * dt;
-        this.pitch -= look.y * STICK_LOOK_RATE * dt * invert;
+        /* MossInput has already applied the user's invert-Y preference. */
+        this.pitch -= look.y * STICK_LOOK_RATE * dt;
       }
     }
 

@@ -274,6 +274,11 @@ function sanitizeWorldSnapshot(payload: JsonObject): JsonObject | null {
     if (!optionalBoolean(payload, key, result)) return null;
   }
   if (!optionalSlug(payload, "instrument", result)) return null;
+  if (payload.classId !== undefined) {
+    const classId = cleanText(payload.classId, 20);
+    if (!classId || !["riffblade", "groveguard", "echo-weaver", "tempo-runner"].includes(classId)) return null;
+    result.classId = classId;
+  }
   // Empty means "no active resonance" in older cached game clients. Accept it
   // explicitly so a harmless optional field cannot disconnect a whole lobby.
   if (payload.resonance === "") result.resonance = "";
