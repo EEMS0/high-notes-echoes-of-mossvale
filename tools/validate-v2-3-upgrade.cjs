@@ -49,13 +49,13 @@ for (const id of ['howPanel', 'settingsPanel', 'pauseScreen', 'inventoryScreen',
 for (const id of ['characterCreator', 'composerScreen', 'endingScreen']) {
   assert.match(index, new RegExp(`id=["']${id}["'][^>]*data-backdrop-dismiss=["']protected["']`), `${id} must be protected`);
 }
-assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*23/);
+assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*24/, 'newer schemas must retain the v2.3 migration surface');
 for (const id of ['riffblade', 'groveguard', 'echo-weaver', 'tempo-runner']) {
   assert.match(game, new RegExp(`['"]${id}['"]`), `Missing class ${id}`);
 }
 assert.match(game, /knownQuestStateIds/);
 assert.match(game, /migrateStoryState\(clean,savedVersion\)/);
-assert.match(game, /classFields\.length>=4/);
+assert.match(game, /classFields\.length>=fieldLimit/, 'Echo fields retain an explicit bounded cap');
 assert.match(input, /classAbility:\s*\['c'\]/);
 assert.match(input, /L3\+R3/);
 assert.match(styles, /touch-controls-mirrored/);

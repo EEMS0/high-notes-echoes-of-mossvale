@@ -153,7 +153,7 @@ Settings defaults include difficulty, volume, shake/motion, objective arrow, tex
 
 ## 6. World and content data flow
 
-The world is data-driven inside the `game.js` closure rather than external JSON. `LEVELS` contains each stage's dimensions, spawn/hub/boss coordinates, NPCs, compact enemy blueprints, obstacle/water geometry, puzzle items, collectibles, portals, labels, route splines, zones, and palette (`game.js:1124-1177`). `activateLevel(stage)` assigns the selected record's arrays to the live world variables, updates dimensions/anchors, preloads relevant art, and marks the canvas dirty (`game.js:1260-1274`).
+The world is data-driven inside the `game.js` closure rather than external JSON. `LEVELS` contains each stage's dimensions, spawn/hub/boss coordinates, NPCs, compact enemy blueprints, obstacle/water geometry, puzzle items, collectibles, portals, labels, route splines, zones, and palette. `activateLevel(stage)` assigns the selected record's arrays to the live world variables, updates dimensions/anchors, normally preloads relevant art, and marks the canvas dirty. The dormant title boot explicitly skips that preload; starting or continuing an adventure takes the normal path.
 
 Enemy blueprints select one of ten stage species by index in `makeEnemy()`. The factory combines species identity/AI/loot with stage scaling, deterministic elite selection from the enemy ID hash, mutable combat timers, and animation state (`game.js:1020-1055`). Mini-bosses are appended by `resetEnemies()` from the stage-filtered definition catalog (`game.js:1056-1085`).
 
@@ -176,7 +176,7 @@ The standard contract is 12 columns × 26 rows with 64 px normal frames, 96 px e
 
 The enemy renderer currently has a three-level resilience chain: production sheet, retained expanded/legacy atlas, then canvas-drawn shapes (`game.js:8000-8080`). NPCs similarly fall back to retained atlases and then shapes (`game.js:7882-7974`). Odin falls back to its retained atlas (`game.js:8335-8345`). These fallbacks help a partially loaded page remain interactive but mean a missing production asset can silently change visual quality after a logged load error.
 
-The player, world items, and instrument art still use retained runtime atlases loaded eagerly from `assets/sprites/runtime/`; character art is intentionally omitted from that eager list to avoid duplicate texture decoding (`game.js:22-39`). The illustrated world map is loaded separately (`game.js:40-47`).
+The title loads only presentation/creator essentials. `warmGameplayAssets()` requests the retained item and instrument atlases plus the illustrated world map after the player begins or continues; the dormant game canvas cannot demand-load active-stage production sheets behind the title. Stage-specific NPC, enemy, boss, Odin, and effect records still lazy-load through `MossSprites`. The platform fighter follows the same rule: its stage layers, effects, and six-fighter presentation sheets are requested once when Echo Arena is opened, not at application boot.
 
 ### Asset generation and validation
 

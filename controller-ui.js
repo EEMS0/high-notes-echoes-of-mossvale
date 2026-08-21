@@ -24,13 +24,16 @@
    * cancel always dismisses the panel the player believes is on top.
    */
   var OVERLAYS = [
-    'characterCreator', 'chordPanel', 'settingsPanel', 'howPanel', 'inventoryScreen', 'shopScreen', 'skillsScreen',
+    'livingConfirmOverlay', 'rehearsalResultsOverlay', 'characterCreator', 'chordPanel', 'livingPanel',
+    'settingsPanel', 'howPanel', 'inventoryScreen', 'shopScreen', 'skillsScreen',
     'instrumentsScreen', 'homeScreen', 'statisticsScreen', 'mapScreen',
     'composerScreen', 'productionHub', 'endingScreen', 'pauseScreen', 'titleScreen'
   ];
 
   /* Tab strips that the bumpers should cycle, per overlay. */
   var TAB_GROUPS = {
+    livingPanel: '#livingTabs button',
+    settingsPanel: '#settingsTabs button',
     inventoryScreen: '#inventoryTabs button',
     productionHub: '#productionTabs button',
     skillsScreen: '#skillFilters button',
@@ -233,6 +236,21 @@
     if (overlay.id === 'characterCreator') {
       var cancelCreator=byId('closeCharacterCreator');if(cancelCreator)cancelCreator.click();return;
     }
+    if (overlay.id === 'livingConfirmOverlay') {
+      var cancelLiving = byId('livingConfirmCancel');
+      if (cancelLiving) cancelLiving.click();
+      return;
+    }
+    if (overlay.id === 'rehearsalResultsOverlay') {
+      var returnHome = byId('rehearsalReturnButton');
+      if (returnHome) returnHome.click();
+      return;
+    }
+    if (overlay.id === 'livingPanel') {
+      var closeLiving = byId('closeLivingButton');
+      if (closeLiving) closeLiving.click();
+      return;
+    }
     if (overlay.id === 'productionHub') {
       var close = byId('closeProductionHub');
       if (close) close.click();
@@ -348,12 +366,12 @@
     if (abilityBar && abilityBar.dataset.padManaged !== 'off') {
       if (firstPerson) {
         abilityBar.innerHTML = pad
-          ? chip('A') + ' JUMP · ' + chip('RT') + ' STRIKE · ' + chip('Y') + ' TALK'
-          : 'SPACE JUMP · J STRIKE · E TALK';
+          ? chip('A') + ' JUMP · ' + chip('RT') + ' STRIKE · ' + chip('View') + ' HOLD WHEEL'
+          : 'SPACE JUMP · J STRIKE · G WHEEL';
       } else {
         abilityBar.innerHTML = pad
-          ? chip('A') + ' STRIKE · ' + chip('B') + ' DODGE · ' + chip('X') + ' PULSE'
-          : 'SPACE SWING · SHIFT DASH';
+          ? chip('A') + ' STRIKE · ' + chip('X') + ' PULSE · ' + chip('View') + ' HOLD WHEEL'
+          : 'SPACE SWING · SHIFT DASH · G WHEEL';
       }
     }
     var titleHint = document.querySelector('.title-hint');

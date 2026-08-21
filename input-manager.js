@@ -43,6 +43,8 @@
     odin: [STANDARD_BUTTONS.rightBumper],
     heal: [STANDARD_BUTTONS.leftTrigger],
     map: [STANDARD_BUTTONS.view],
+    /* A short View press remains Map; gameplay owns the hold threshold. */
+    quickWheel: [STANDARD_BUTTONS.view],
     pause: [STANDARD_BUTTONS.menu],
     inventory: [STANDARD_BUTTONS.leftStick],
     instruments: [STANDARD_BUTTONS.rightStick],
@@ -86,6 +88,7 @@
     inventory: ['i', 'b'],
     instruments: ['v'],
     classAbility: ['c'],
+    quickWheel: ['g'],
     home: ['o'],
     pause: ['escape'],
     confirm: ['enter', 'e', 'space'],
@@ -102,7 +105,7 @@
     xbox: {
       confirm: 'A', cancel: 'B', attack: 'A', dodge: 'B', pulse: 'X', interact: 'Y',
       block: 'LB', odin: 'RB', heal: 'LT', map: 'View', pause: 'Menu',
-      inventory: 'L3', instruments: 'R3', classAbility: 'L3+R3', tabPrev: 'LB', tabNext: 'RB',
+      quickWheel: 'View hold', inventory: 'L3', instruments: 'R3', classAbility: 'L3+R3', tabPrev: 'LB', tabNext: 'RB',
       moveUp: 'D-pad', moveDown: 'D-pad', moveLeft: 'D-pad', moveRight: 'D-pad',
       menuUp: 'D-pad', menuDown: 'D-pad', menuLeft: 'D-pad', menuRight: 'D-pad',
       home: 'Menu'
@@ -110,7 +113,7 @@
     keyboard: {
       confirm: 'E', cancel: 'Esc', attack: 'Space', dodge: 'Shift', pulse: 'Q', interact: 'E',
       block: 'F', odin: 'R', heal: 'H', map: 'Tab', pause: 'Esc',
-      inventory: 'I', instruments: 'V', classAbility: 'C', tabPrev: 'Q', tabNext: 'E',
+      quickWheel: 'G', inventory: 'I', instruments: 'V', classAbility: 'C', tabPrev: 'Q', tabNext: 'E',
       moveUp: 'W', moveDown: 'S', moveLeft: 'A', moveRight: 'D',
       menuUp: 'W', menuDown: 'S', menuLeft: 'A', menuRight: 'D',
       home: 'O'

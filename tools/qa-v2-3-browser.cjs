@@ -25,6 +25,12 @@ function inside(rect, viewport, tolerance = 1) {
     rect.y + rect.height <= viewport.height + tolerance;
 }
 
+function overlaps(a, b, tolerance = 1) {
+  return !!a && !!b && a.x + a.width > b.x + tolerance &&
+    b.x + b.width > a.x + tolerance && a.y + a.height > b.y + tolerance &&
+    b.y + b.height > a.y + tolerance;
+}
+
 async function appReady(page) {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__HIGH_NOTES__ && window.MossStory && window.MossInput);
@@ -134,7 +140,7 @@ async function desktopChecks(browser, failures) {
     });
     return { fresh, hostile, oldStageOne, oldStageThree, completed, interrupted };
   });
-  assert.equal(migration.fresh.version, 23);
+  assert.equal(migration.fresh.version, 24);
   assert.equal(migration.fresh.character.classId, 'riffblade');
   assert.equal(migration.hostile.character.classId, 'riffblade');
   assert.equal(migration.hostile.classState.cooldown, 30);
@@ -367,7 +373,7 @@ async function chordChecks(browser, failures) {
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('highNotesSaveV7')).beatcoins);
   await page.locator('[data-chord-note="B"]').click();
   const afterFirst = await page.evaluate(() => JSON.parse(localStorage.getItem('highNotesSaveV7')).beatcoins);
-  assert.equal(afterFirst, before + 3, 'first chord completion awards once');
+  assert.equal(afterFirst, before + 6, 'first chord completion and first restoration tier each award once');
   await page.locator('#closeChordButton').click();
   assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.story.openChord('rootsong-minor', true)), true);
   for (const note of ['E', 'G', 'B']) await page.locator(`[data-chord-note="${note}"]`).click();
@@ -405,6 +411,12 @@ async function landscapePhoneChecks(browser, failures, viewport, label, firstPer
     assert.ok(inside(rect, viewport, 2), `${label}: ${id} must stay inside viewport`);
     assert.ok(rect.width >= 44 && rect.height >= 44, `${label}: ${id} must remain touch-sized`);
   }
+  const livingHud = await page.locator('#livingHud').boundingBox();
+  const touchUtility = await page.locator('.touch-utility').boundingBox();
+  const objectiveCard = await page.locator('.objective-card').boundingBox();
+  assert.ok(inside(livingHud, viewport, 2), `${label}: Living Resonance HUD must stay inside viewport`);
+  assert.equal(overlaps(livingHud, touchUtility, 2), false, `${label}: Living Resonance HUD must not cover touch menu controls`);
+  assert.equal(overlaps(livingHud, objectiveCard, 2), false, `${label}: Living Resonance HUD must not cover the current objective`);
   await assertNoOverflow(page, `${label} gameplay`);
   await shot(page, `${label}-${firstPerson ? 'first-person' : 'gameplay'}`);
 

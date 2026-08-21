@@ -9,7 +9,7 @@
  * Camera convention: yaw 0 looks down world -Z, which is the 2D game's -y
  * ("north"), matching the player's default facing of -PI/2.
  */
-import { MossFPScene, metres } from './fp-scene.js';
+import { MossFPScene, metres, normaliseRestorationState } from './fp-scene.js?v=6';
 import { PlayerMotor } from './fp-motor.js';
 import { MossFPEffects } from './fp-effects.js';
 import { MossFPBillboards } from './fp-billboards.js';
@@ -163,10 +163,19 @@ class FirstPersonController {
     var api = bridge();
     if (!api) return;
     var stage = api.getStage();
-    var sceneKey = api.getSceneKey ? api.getSceneKey() : stage;
+    var restorationSource = null;
+    if (typeof api.getRestoration === 'function') {
+      try { restorationSource = api.getRestoration(); } catch (error) { restorationSource = null; }
+    }
+    var restoration = normaliseRestorationState(restorationSource, stage);
+    var baseSceneKey = api.getSceneKey ? api.getSceneKey() : stage;
+    /* Restoration dressing is static, so rebuilding only when one of these
+       sanitized values changes keeps the per-frame path allocation-free. */
+    var sceneKey = String(baseSceneKey) + '|restoration:' + restoration.stage + ':' +
+      restoration.tier + ':' + (restoration.reducedAmbient ? 'reduced' : 'full');
     if (!force && sceneKey === this.builtStage) return;
     this.builtStage = sceneKey;
-    this.scene.build(api.getLevelData());
+    this.scene.build(api.getLevelData(), restoration);
     this.billboards.rebuild(api);
   }
 
@@ -355,6 +364,8 @@ window.MossFP = {
       grounded: controller.motor ? controller.motor.grounded : false,
       pointerLocked: controller.pointerLocked,
       stage: controller.builtStage,
+      restoration: controller.scene && controller.scene.restorationSummary ?
+        Object.assign({}, controller.scene.restorationSummary) : null,
       target: controller.interaction ? controller.interaction.describe() : null
     };
   }

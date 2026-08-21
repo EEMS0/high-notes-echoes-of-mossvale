@@ -1784,8 +1784,8 @@
 
   function openHub() {
     if (hubOpen) return;
+    if (gameApi().production.setHubOpen(true) === false) return;
     hubOpen = true;
-    gameApi().production.setHubOpen(true);
     if (pauseScreen) {
       pauseScreen.hidden = true;
       pauseScreen.inert = true;

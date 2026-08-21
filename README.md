@@ -32,8 +32,10 @@ Launch the new **HIGH NOTES** Home Screen icon and keep the device in landscape 
 | Move | `WASD` or arrow keys |
 | Attack | `Space` or `J` |
 | Dodge | `Shift` or `K` |
+| Block / perfect guard | `F` |
 | Echo Pulse | `Q` or `L` |
 | Class ability | `C` |
+| Hold quick wheel | `G` |
 | Use a stored Heartbloom | `H` |
 | Interact / advance dialogue | `E` or `Enter` |
 | Open map and quest log | `Tab` |
@@ -48,12 +50,25 @@ The composer opens when you interact with EEMS after finding four notes. Use a m
 
 Open **Statistics** from the title screen or pause menu to see completion, combat, exploration, economy, and boss-clear records.
 
+## Living Resonance
+
+Open **Living Resonance** from the pause menu or its region/synergy HUD chips. The schema-24 progression layer is integrated with the existing campaign rather than running as a separate game:
+
+- Four classes each have two three-node mastery paths, earned through valid combat, story, timing, and rehearsal performance. Mastery can be refunded only at the Player Home.
+- All 24 class × instrument pairings have bounded combat behaviours, visual identity, and procedural audio feedback.
+- Story, chord, quest, and boss milestones restore each region through four visible and audible tiers without changing gameplay objects when ambient effects are reduced.
+- Defeated bosses unlock five-arrangement, five-feedback-level rehearsals. Starting and ending practice are confirmed; currency, consumables, health, equipment, location, rewards, and story state restore from the canonical snapshot. Pause exposes **End Rehearsal** and disables side modes that could violate that isolation.
+- Three named loadouts preserve owned equipment arrangements. Hold `G`, the gamepad quick-wheel binding, or the touch **Wheel** control to select from eight accessible shortcuts.
+- Defeating Tidebreaker and viewing the campaign finale unlocks one bounded **Encore Adventure** cycle. Normal and Encore saves remain reversible and do not exchange earned currency or progression.
+
+The complete catalog, save boundary, balance rules, asset provenance, and extension constraints are documented in `docs/LIVING-RESONANCE.md`.
+
 ## Version 2.0 hub and Echo Arena
 
 Open **Version 2.0 Hub** from the pause menu. It preserves the connected production systems from the first release—84 regional contracts, ten professions, crafting, relationships, reputation, Dream Encore, private rooms, chat, emotes, and adventure presence—while adding a complete, deliberately bounded platform-fighter slice:
 
 - **Stock Battle** on the original Mossvale Amphitheatre stage, with fixed-step gravity, solid and drop-through platforms, blast zones, three stocks, respawn protection, hit pause, hitstun, launch scaling, recovery, guard durability, perfect guards, dodges, a match timer, results, and rematches.
-- **Guitar Virtuoso** and **Bass Breaker**, each backed by central move data for grounded directions, aerial directions, dash attacks, charge attacks, specials, recovery, projectiles, and an ultimate.
+- Six instrument fighters—Electric Guitar, Bass, Synth, Drumsticks, Microphone, and Violin—each backed by central move data for grounded directions, aerial directions, dash attacks, charge attacks, specials, recovery, projectiles, and an ultimate.
 - Offline training against a recovery-aware bot, two-player split keyboard, automatic controller ownership, touch controls, and synchronized private-room play.
 - PvP history and cosmetic milestones remain isolated from PvE power. Internet results are explicitly casual and never trusted for currency, ratings, inventory, achievements, or progression.
 
@@ -79,7 +94,7 @@ The production relay is deployed at `wss://high-notes-v2-relay.jl-bmfx.workers.d
 
 ## Weapon-aware equipment rendering
 
-The player no longer uses one fixed instrument transform for every pose. `equipment-runtime.js` provides a hybrid layered rig with per-instrument pivots, primary/secondary hand anchors, explicit direction overrides, frame-level motion, front/rear ordering, switch visibility, and attack/projectile/effect origins. The six existing instrument atlas cells remain the active item art, while the hero and complete Guitar/Bass PvP sheets remain the authored body layers.
+The player no longer uses one fixed instrument transform for every pose. `equipment-runtime.js` provides a hybrid layered rig with per-instrument pivots, primary/secondary hand anchors, explicit direction overrides, frame-level motion, front/rear ordering, switch visibility, and attack/projectile/effect origins. The six existing instrument atlas cells remain the active item art, while integrated campaign-hero sheets and the six production instrument-performer sheets provide authored body layers.
 
 This is a functional original attachment system, not a claim that six new hand-authored body-and-arm sprite libraries were produced. Its registry intentionally supports future combined attack sheets without changing saves or combat code.
 
@@ -94,9 +109,22 @@ node --check v1-expansion.js
 node --check v2-platform-fighter.js
 node tools/validate-v2-release.cjs
 node tools/validate-v2-3-upgrade.cjs
+node tools/validate-v2-4-living-resonance.cjs
 ```
 
 The deeper production-sprite audit uses `sharp` to inspect PNG alpha data. Run `node tools/validate-production-sprites.cjs` in a tooling environment where `sharp` is available; `sharp` is not a browser/runtime dependency and is intentionally not shipped with the static game.
+
+With Playwright available in the tooling environment and a local server running at port `4173`, run the real-browser suites:
+
+```bash
+python -m http.server 4173 --bind 127.0.0.1
+node tools/qa-v2-3-browser.cjs
+node tools/qa-v2-4-living-resonance-browser.cjs
+node tools/qa-release-playthrough-browser.cjs
+node tools/qa-performance-browser.cjs
+```
+
+The suites cover supported viewport/input modes, accessibility-safe overlays, save migration, all four class abilities, chord rewards, touch/controller concurrency, rehearsal restoration, Encore separation, all four bosses, both endings, post-finale reload, deferred asset loading, frame-time/heap budgets, and an Echo Arena training smoke test. They use installed Chrome or Edge and expect the `playwright` package to be resolvable by Node.
 
 Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between completed V2 gameplay and labelled future foundations is documented in `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md`.
 
@@ -126,9 +154,10 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `styles.css` — responsive presentation and accessibility states.
 - `game.js` — world, story, input, combat, rendering, save state, and UI behavior.
 - `story-runtime.js` — immutable four-stage story/chord catalogs and pure chord evaluation.
+- `living-resonance-runtime.js` — immutable schema-24 mastery, synergy, restoration, rehearsal, loadout, wheel, and Encore catalog plus pure sanitation.
 - `equipment-runtime.js` — central hybrid equipment registry, frame attachments, layer order, and combat origins.
 - `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, protocol-v2 Echo Network client, health checks, and diagnostics (the legacy filename/global is retained for compatibility).
-- `v2-platform-fighter.js` — fixed-step Stock Battle simulation, Guitar/Bass move data, local ownership, bot logic, host snapshots, and arena results.
+- `v2-platform-fighter.js` — fixed-step Stock Battle simulation, six instrument-fighter move catalogs, local ownership, bot logic, host snapshots, and arena results.
 - `sprite-runtime.js` — manifest-driven production sprite loading, animation timing, and frame rendering.
 - `audio.js` — music and sound synthesis.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
@@ -140,8 +169,13 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `docs/HIGH_NOTES_V2_ARCHITECTURE.md` — evidence-based architecture and migration baseline captured before the V2 client work.
 - `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md` — honest completion boundary, save notes, release checks, and external-network playtest checklist.
 - `docs/HIGH_NOTES_V2_3_UPGRADE.md` — shared overlay dismissal, mobile action states, class balance, story checkpoints, chord reasoning, assets, and schema-23 migration.
+- `docs/LIVING-RESONANCE.md` — schema-24 architecture, balance contracts, mode isolation, generated-asset provenance, and extension rules.
 - `tools/validate-v2-release.cjs` — dependency-free equipment, integration, and relay-structure regression checks.
 - `tools/validate-v2-3-upgrade.cjs` — focused class, story, save, asset, and integration regression checks.
+- `tools/validate-v2-4-living-resonance.cjs` — exhaustive Living Resonance catalog, corrupt-save, integration, asset-manifest, and Stock Battle isolation checks.
+- `tools/qa-v2-4-living-resonance-browser.cjs` — browser validation for rehearsal restoration, mastery, quick-wheel accessibility, and reversible Encore state.
+- `tools/qa-release-playthrough-browser.cjs` — four-boss, ending, continuation, and post-finale save/reload smoke playthrough.
+- `tools/qa-performance-browser.cjs` — title/gameplay transfer budgets, frame-time and heap sampling, Living asset bounds, and deferred Echo Arena training validation.
 
 - `Sprites/` — the active production library: 102 transparent character sheets, 612 portraits, Odin actions, combat effects, UI art, and per-sheet animation manifests.
 - `Sprites/UI/Brad Shop/brad-shop-items-sheet.png` — dedicated 5×4 icon atlas for every item sold in Brad's shop.
@@ -150,6 +184,8 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 Additional production assets:
 
 - `assets/world-map-illustrated.png` — the new four-region handcrafted world atlas.
+- `assets/ui/living-resonance/` — sixteen optimized transparent Living Resonance emblems plus their runtime manifest.
+- `assets/masters/living-resonance/` — approved generated atlas masters and the source/provenance record used by the deterministic slicer.
 - `assets/sprites/runtime/instrument-mastery-sheet.png` — normal and legendary instrument artwork.
 - `Sprites/manifest.json` — central catalog used by the runtime to lazy-load the active region.
 - `Sprites/qa-report.json` — dimension, transparency, portrait, and duplicate-sheet validation results.

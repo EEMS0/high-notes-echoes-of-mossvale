@@ -15,20 +15,21 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=29">
-  <script src="audio.js?v=12" defer></script>
+  <link rel="stylesheet" href="styles.css?v=34">
+  <script src="audio.js?v=13" defer></script>
   <script src="sprite-runtime.js?v=12" defer></script>
   <script src="equipment-runtime.js?v=3" defer></script>
   <script src="character-runtime.js?v=3" defer></script>
-  <script src="input-manager.js?v=3" defer></script>
+  <script src="input-manager.js?v=5" defer></script>
   <script src="story-runtime.js?v=1" defer></script>
-  <script src="game.js?v=29" defer></script>
-  <script src="controller-ui.js?v=2" defer></script>
-  <script src="v1-expansion.js?v=10" defer></script>
-  <script src="v2-platform-fighter.js?v=31" defer></script>
+  <script src="living-resonance-runtime.js?v=2" defer></script>
+  <script src="game.js?v=36" defer></script>
+  <script src="controller-ui.js?v=4" defer></script>
+  <script src="v1-expansion.js?v=11" defer></script>
+  <script src="v2-platform-fighter.js?v=32" defer></script>
   <!-- First-person view. ES modules defer by default and load after the classic
        scripts above, so game.js feature-detects window.MossFP every frame. -->
-  <script type="module" src="fp-controller.js?v=5"></script>
+  <script type="module" src="fp-controller.js?v=6"></script>
 </head>
 <body>
   <a class="skip-link" href="#gameCanvas">Skip to game</a>
@@ -91,6 +92,17 @@
         </div>
         <div id="abilityBar" class="ability-bar">SPACE SWING · SHIFT DASH</div>
       </div>
+
+      <div id="livingHud" class="living-hud" aria-label="Living Resonance status">
+        <button id="restorationHudChip" class="hud-chip living-hud-chip restoration-hud-chip" type="button" aria-label="Regional restoration: Mossvale is disturbed" aria-haspopup="dialog" aria-controls="livingPanel">
+          <span class="living-hud-glyph" aria-hidden="true">♧</span>
+          <span><small>REGION</small><strong id="restorationHudValue">DISTURBED</strong></span>
+        </button>
+        <button id="synergyHudChip" class="hud-chip living-hud-chip synergy-hud-chip" type="button" aria-label="Active class and instrument synergy: none" aria-haspopup="dialog" aria-controls="livingPanel">
+          <span class="living-hud-glyph" aria-hidden="true">✦</span>
+          <span><small>SYNERGY</small><strong id="synergyHudValue">UNTUNED</strong></span>
+        </button>
+      </div>
     </section>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -103,6 +115,9 @@
         </button>
         <button class="touch-button utility-button utility-odin" type="button" data-control="odin" aria-label="Change Odin command">
           <span aria-hidden="true">🐾</span><small>ODIN</small>
+        </button>
+        <button id="quickWheelButton" class="touch-button utility-button utility-wheel" type="button" data-control="quickWheel" aria-label="Hold to open the quick wheel" aria-haspopup="dialog" aria-controls="quickWheelOverlay" aria-expanded="false">
+          <span aria-hidden="true">◉</span><small>WHEEL</small>
         </button>
         <button class="touch-button utility-button" type="button" data-control="map" aria-label="Open map and quests">
           <span aria-hidden="true">◇</span><small>MAP</small>
@@ -143,6 +158,42 @@
         <button id="touchInteractButton" class="touch-button action-button action-interact" type="button" data-control="interact" aria-label="Interact">
           <span aria-hidden="true">✦</span><small id="touchInteractLabel">ACT</small><i class="action-progress" aria-hidden="true"></i>
         </button>
+      </div>
+    </section>
+
+    <section id="quickWheelOverlay" class="quick-wheel-layer" role="dialog" aria-modal="true" aria-labelledby="quickWheelTitle" aria-describedby="quickWheelStatus" hidden>
+      <div class="quick-wheel-frame">
+        <header class="quick-wheel-heading">
+          <div><p class="panel-kicker">HOLD · CHOOSE · RELEASE</p><h2 id="quickWheelTitle">Quick wheel</h2></div>
+          <span id="quickWheelWorldState" class="quick-wheel-world-state">SOLO · WORLD PAUSED</span>
+        </header>
+        <div class="quick-wheel-layout">
+          <div id="quickWheelSectors" class="quick-wheel-sectors" aria-hidden="true">
+            <span class="quick-wheel-sector" data-wheel-index="0"><i aria-hidden="true">♥</i><b>Field item</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="1"><i aria-hidden="true">⚡</i><b>Tempo item</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="2"><i aria-hidden="true">Ⅰ</i><b>Loadout</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="3"><i aria-hidden="true">▣</i><b>Backpack</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="4"><i aria-hidden="true">◇</i><b>Map</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="5"><i aria-hidden="true">✦</i><b>Class</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="6"><i aria-hidden="true">♫</i><b>Instrument</b></span>
+            <span class="quick-wheel-sector" data-wheel-index="7"><i aria-hidden="true">♧</i><b>Odin</b></span>
+            <span class="quick-wheel-centre" aria-hidden="true"><b>Cancel</b><small>Return here</small></span>
+          </div>
+          <div class="quick-wheel-accessible">
+            <p class="quick-wheel-instruction">Choose with the arrow keys or right stick, then confirm. Return to the centre or press Back to cancel.</p>
+            <div id="quickWheelLinear" class="quick-wheel-linear" role="menu" aria-label="Quick wheel choices">
+              <button type="button" role="menuitem" data-wheel-index="0">1 · Field item</button>
+              <button type="button" role="menuitem" data-wheel-index="1">2 · Tempo item</button>
+              <button type="button" role="menuitem" data-wheel-index="2">3 · Loadout</button>
+              <button type="button" role="menuitem" data-wheel-index="3">4 · Backpack</button>
+              <button type="button" role="menuitem" data-wheel-index="4">5 · Map</button>
+              <button type="button" role="menuitem" data-wheel-index="5">6 · Class</button>
+              <button type="button" role="menuitem" data-wheel-index="6">7 · Instrument</button>
+              <button type="button" role="menuitem" data-wheel-index="7">8 · Odin</button>
+            </div>
+          </div>
+        </div>
+        <p id="quickWheelStatus" class="quick-wheel-status" role="status" aria-live="polite">Return to the centre to cancel.</p>
       </div>
     </section>
 
@@ -197,6 +248,10 @@
           <button id="continueButton" class="game-button button-secondary" type="button" hidden>
             Continue Adventure
           </button>
+          <button id="encoreButton" class="game-button button-encore" type="button" aria-describedby="encoreTitleHint" hidden>
+            Begin Encore Adventure
+          </button>
+          <span id="encoreTitleHint" class="visually-hidden">Starts the separate remixed adventure without overwriting normal campaign progress.</span>
           <div class="button-row compact-row">
             <button id="howButton" class="game-button button-ghost" type="button">How to Play</button>
             <button id="statisticsButton" class="game-button button-ghost" type="button">Statistics</button>
@@ -252,6 +307,7 @@
           <div><span>Block</span><kbd>F</kbd></div>
           <div><span>Echo Pulse</span><kbd>Q / L</kbd></div>
           <div><span>Class ability</span><kbd>C</kbd></div>
+          <div><span>Quick wheel (hold)</span><kbd>G</kbd></div>
           <div><span>Use Heartbloom</span><kbd>H</kbd></div>
           <div><span>Change Odin command</span><kbd>R</kbd></div>
           <div><span>Interact</span><kbd>E / Enter</kbd></div>
@@ -271,6 +327,7 @@
           <div><span>Change Odin command</span><span class="cprompt" data-btn="RB">RB</span></div>
           <div><span>Use Heartbloom</span><span class="cprompt" data-btn="LT">LT</span></div>
           <div><span>Map &amp; quests</span><span class="cprompt" data-btn="View">View</span></div>
+          <div><span>Quick wheel (hold)</span><span class="cprompt" data-btn="View Hold">View hold</span></div>
           <div><span>Backpack</span><span class="cprompt" data-btn="L3">L3</span></div>
           <div><span>Instruments</span><span class="cprompt" data-btn="R3">R3</span></div>
           <div><span>Class ability</span><span class="cprompt" data-btn="L3+R3">L3 + R3</span></div>
@@ -281,7 +338,7 @@
 
         <div class="touch-guide touch-only" aria-label="Touch controls">
           <p><strong>Move</strong> with the left pad. Your right thumb has <strong>Strike</strong>, <strong>Dodge</strong>, held <strong>Block</strong>, <strong>Pulse</strong>, your class signature, and a contextual action.</p>
-          <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. <strong>Map</strong> and <strong>Pause</strong> are at the top-right.</p>
+          <p>Walk over Heartblooms to store them, then tap <strong>Heal</strong> when hurt. Hold <strong>Wheel</strong> for items and loadouts; <strong>Map</strong> and <strong>Pause</strong> stay nearby.</p>
           <p class="audio-tip">No sound on iPhone? Turn off Silent Mode, raise media volume, then tap the game once.</p>
         </div>
         <button id="replayTutorialButton" class="game-button button-secondary" type="button">Replay tutorial</button>
@@ -362,6 +419,11 @@
               <option value="balanced" selected>Balanced</option>
               <option value="sharp">Sharp</option>
             </select>
+          </label>
+
+          <label class="setting-row switch-row" for="ambientRestoration">
+            <span><strong>Living-region ambience</strong><small>Show restored wildlife, particles, repaired props, and other non-essential regional flourishes.</small></span>
+            <input id="ambientRestoration" type="checkbox" checked>
           </label>
 
           <p class="settings-section-heading">View<small id="viewModeStatusLine">Top-down is the classic Mossvale view.</small></p>
@@ -493,13 +555,20 @@
         <p class="panel-kicker">THE GROOVE CAN WAIT</p>
         <h2 id="pauseTitle">Paused</h2>
         <p id="pauseLocation">Mossvale is holding your place.</p>
+        <div id="pauseProfileChips" class="pause-profile-chips" aria-label="Current adventure profile">
+          <span id="pauseClassChip"><small>CLASS</small><strong>Riffblade</strong></span>
+          <span id="pauseSynergyChip"><small>SYNERGY</small><strong>Lead Guitar</strong></span>
+          <span id="pauseRestorationChip"><small>REGION</small><strong>Disturbed</strong></span>
+        </div>
         <div class="pause-actions">
           <button id="resumeButton" class="game-button button-primary" type="button">Resume</button>
+          <button id="pauseEndRehearsalButton" class="game-button button-danger" type="button" hidden>End Rehearsal</button>
           <button id="pauseMapButton" class="game-button button-secondary" type="button">Map &amp; Quests</button>
           <button id="pauseBackpackButton" class="game-button button-secondary" type="button">Backpack</button>
           <button id="pauseInstrumentsButton" class="game-button button-secondary" type="button">Instruments</button>
           <button id="pauseSkillsButton" class="game-button button-secondary" type="button">Skills</button>
           <button id="pauseHomeButton" class="game-button button-secondary" type="button">Player Home</button>
+          <button id="pauseLivingButton" class="game-button button-living" type="button" aria-haspopup="dialog" aria-controls="livingPanel">Living Resonance</button>
           <button id="pauseProductionButton" class="game-button button-secondary production-launch" type="button">Version 2.0 Hub</button>
           <button id="pauseStatisticsButton" class="game-button button-secondary" type="button">Statistics</button>
           <button id="pauseSettingsButton" class="game-button button-ghost" type="button">Settings</button>
@@ -774,6 +843,86 @@
               <p>Co-op uses adventure progression. Echo Arena ratings and rewards stay separate from PvE balance.</p>
             </div>
           </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="livingPanel" class="overlay feature-screen living-screen" role="dialog" aria-modal="true" aria-labelledby="livingTitle" data-backdrop-dismiss="true" hidden>
+      <div class="feature-card living-card">
+        <header class="panel-heading living-heading">
+          <div>
+            <p class="panel-kicker">LIVING RESONANCE · ADVENTURE SYSTEMS</p>
+            <h2 id="livingTitle">Your evolving song</h2>
+          </div>
+          <button id="closeLivingButton" class="icon-button" type="button" aria-label="Close Living Resonance">&times;</button>
+        </header>
+
+        <nav id="livingTabs" class="living-tabs" role="tablist" aria-label="Living Resonance sections">
+          <button id="livingTabMastery" class="active" type="button" role="tab" aria-selected="true" aria-controls="livingContent" data-living-tab="mastery">Class mastery</button>
+          <button id="livingTabSynergies" type="button" role="tab" aria-selected="false" aria-controls="livingContent" data-living-tab="synergies">Synergies</button>
+          <button id="livingTabRestoration" type="button" role="tab" aria-selected="false" aria-controls="livingContent" data-living-tab="restoration">Restoration</button>
+          <button id="livingTabRehearsal" type="button" role="tab" aria-selected="false" aria-controls="livingContent" data-living-tab="rehearsal">Rehearsal Hall</button>
+          <button id="livingTabLoadouts" type="button" role="tab" aria-selected="false" aria-controls="livingContent" data-living-tab="loadouts">Loadouts</button>
+          <button id="livingTabEncore" type="button" role="tab" aria-selected="false" aria-controls="livingContent" data-living-tab="encore">Encore</button>
+        </nav>
+
+        <div class="living-layout">
+          <main id="livingContent" class="living-content" role="tabpanel" aria-labelledby="livingTabMastery" tabindex="0" aria-live="polite">
+            <section class="living-empty-state">
+              <span aria-hidden="true">✦</span>
+              <h3>Hear your adventure grow</h3>
+              <p>Mastery paths, class-and-instrument synergies, restored regions, rehearsals, loadouts, and Encore progress gather here.</p>
+            </section>
+          </main>
+          <aside id="livingStatus" class="living-status" aria-label="Current Living Resonance status" aria-live="polite">
+            <p class="panel-kicker">CURRENT ARRANGEMENT</p>
+            <div class="living-status-profile">
+              <span><small>CLASS</small><strong id="livingStatusClass">Riffblade</strong></span>
+              <span><small>INSTRUMENT</small><strong id="livingStatusInstrument">Guitar</strong></span>
+              <span><small>SYNERGY</small><strong id="livingStatusSynergy">Lead Guitar</strong></span>
+            </div>
+            <div class="living-status-region">
+              <span aria-hidden="true">♧</span>
+              <div><small>LOCAL RESTORATION</small><strong id="livingStatusRegion">Mossvale · Disturbed</strong></div>
+            </div>
+            <p id="livingStatusHint">Complete real adventure actions to earn mastery and help each region recover.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="rehearsalResultsOverlay" class="overlay panel-overlay rehearsal-results-overlay" role="dialog" aria-modal="true" aria-labelledby="rehearsalResultsTitle" data-backdrop-dismiss="protected" data-backdrop-reason="Choose Retry, Change Arrangement, or Return Home." hidden>
+      <div class="modal-card rehearsal-results-card">
+        <div class="rehearsal-result-flourish" aria-hidden="true">♪ · ✦ · ♪</div>
+        <p id="rehearsalResultsKicker" class="panel-kicker">REHEARSAL COMPLETE</p>
+        <h2 id="rehearsalResultsTitle">Arrangement cleared</h2>
+        <div id="rehearsalResultsContent" class="rehearsal-results-content" aria-live="polite">
+          <strong id="rehearsalResultsRank" class="rehearsal-rank">A</strong>
+          <dl class="rehearsal-metrics">
+            <div><dt>Time</dt><dd id="rehearsalResultTime">--:--</dd></div>
+            <div><dt>Damage taken</dt><dd id="rehearsalResultDamage">0</dd></div>
+            <div><dt>Perfect guards</dt><dd id="rehearsalResultGuards">0</dd></div>
+          </dl>
+          <p id="rehearsalResultReward">Practice records do not alter canonical boss progression.</p>
+        </div>
+        <div class="button-row rehearsal-results-actions">
+          <button id="rehearsalRetryButton" class="game-button button-primary" type="button">Retry</button>
+          <button id="rehearsalArrangeButton" class="game-button button-secondary" type="button">Change arrangement</button>
+          <button id="rehearsalReturnButton" class="game-button button-ghost" type="button">Return home</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="livingConfirmOverlay" class="overlay panel-overlay living-confirm-overlay" role="alertdialog" aria-modal="true" aria-labelledby="livingConfirmTitle" aria-describedby="livingConfirmText" data-backdrop-dismiss="protected" data-backdrop-reason="Choose an explicit option to continue." hidden>
+      <div class="modal-card living-confirm-card">
+        <span id="livingConfirmIcon" class="living-confirm-icon" aria-hidden="true">!</span>
+        <p id="livingConfirmKicker" class="panel-kicker">CONFIRM ARRANGEMENT</p>
+        <h2 id="livingConfirmTitle">Are you sure?</h2>
+        <p id="livingConfirmText">Review this change before continuing.</p>
+        <div id="livingConfirmDetails" class="living-confirm-details" hidden></div>
+        <div class="button-row living-confirm-actions">
+          <button id="livingConfirmCancel" class="game-button button-ghost" type="button">Cancel</button>
+          <button id="livingConfirmAccept" class="game-button button-primary" type="button">Confirm</button>
         </div>
       </div>
     </section>

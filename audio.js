@@ -31,8 +31,16 @@
         instrument: "guitar",
         resonance: "",
         weather: "clear",
-        track: ""
+        track: "",
+        restorationTier: 0
       };
+      /* Restoration is mixed on the existing transport. Moving this value
+         toward the requested tier inside the scheduler gives the procedural
+         stems a gentle crossfade without creating a second loop or resetting
+         the current bar. */
+      this._restorationMix = 0;
+      this._restorationTarget = 0;
+      this._livingSfxTimes = Object.create(null);
 
       this._wanted = false;
       this._running = false;
@@ -572,6 +580,13 @@
       current.resonance = resonances.includes(nextState.resonance) ? nextState.resonance : current.resonance;
       current.weather = weather.includes(nextState.weather) ? nextState.weather : current.weather;
       current.track = typeof nextState.track === "string" ? nextState.track.slice(0, 48) : current.track;
+      if (Object.prototype.hasOwnProperty.call(nextState, "restorationTier")) {
+        const requestedTier = Number(nextState.restorationTier);
+        if (Number.isFinite(requestedTier)) {
+          current.restorationTier = clamp(Math.floor(requestedTier), 0, 3);
+        }
+      }
+      this._restorationTarget = current.restorationTier;
       return Object.assign({}, current);
     }
 
@@ -715,6 +730,8 @@
       const boss = adaptive.scene === "boss";
       const stage = Number(adaptive.stage) || 1;
 
+      this._scheduleRestorationLayers(step, time, inBar, bar, chord, roots, stage);
+
       // Regional timbre persists during exploration and grows denser in combat.
       if (inBar === 8 && stage === 2) {
         this._osc({ time, freq: midiToHz(roots[bar] - 19), duration: MUSIC_STEP * 5.5, type: "triangle",
@@ -755,6 +772,123 @@
       if (boss && inBar === 0) {
         this._osc({ time, freq: midiToHz(roots[bar] - 31), duration: MUSIC_STEP * 13, type: "sawtooth",
           volume: 0.028, attack: 0.08, release: 0.7, filter: 330, bus: this.musicBus, music: true });
+      }
+    }
+
+    /*
+     * Living Region stems. Each tier adds one bounded voice and each voice is
+     * scheduled sparsely on the shared transport. A tier change therefore
+     * never restarts music, and the gradual mix prevents a newly restored
+     * region from arriving as an abrupt wall of sound.
+     */
+    _scheduleRestorationLayers(step, time, inBar, bar, chord, roots, stage) {
+      const target = clamp(Number(this._restorationTarget) || 0, 0, 3);
+      const delta = clamp(target - this._restorationMix, -0.075, 0.075);
+      this._restorationMix = clamp(this._restorationMix + delta, 0, 3);
+
+      const returning = clamp(this._restorationMix, 0, 1);
+      const harmony = clamp(this._restorationMix - 1, 0, 1);
+      const resonant = clamp(this._restorationMix - 2, 0, 1);
+      if (returning <= 0.01) return;
+
+      if (stage === 1) {
+        /* Returning leaf percussion, then a warm pad and a small grove line. */
+        if ((inBar === 6 || inBar === 14) && returning > 0.01) {
+          this._noise({ time, duration: 0.07, volume: 0.008 + returning * 0.012,
+            filter: 3600, filterType: "highpass", bus: this.musicBus, music: true,
+            pan: inBar === 6 ? -0.34 : 0.34 });
+        }
+        if (inBar === 0 && harmony > 0.01) {
+          [0, 2].forEach((index) => this._osc({ time: time + index * 0.016,
+            freq: midiToHz(chord[index] + 12), duration: MUSIC_STEP * 13.5,
+            type: "triangle", volume: 0.007 + harmony * 0.012, attack: 0.28,
+            release: 0.72, filter: 1650, bus: this.musicBus, music: true,
+            pan: index ? 0.23 : -0.23 }));
+        }
+        if ((inBar === 2 || inBar === 10) && resonant > 0.01) {
+          const note = chord[(bar + (inBar === 10 ? 2 : 1)) % chord.length] + 24;
+          this._osc({ time, freq: midiToHz(note), duration: MUSIC_STEP * 2.1,
+            type: "sine", volume: 0.008 + resonant * 0.014, attack: 0.018,
+            release: 0.24, filter: 3000, bus: this.musicBus, music: true,
+            pan: inBar === 2 ? -0.27 : 0.27 });
+        }
+        return;
+      }
+
+      if (stage === 2) {
+        /* Root bass wakes first; low percussion and an answering tone follow. */
+        if ((inBar === 0 || inBar === 8) && returning > 0.01) {
+          this._osc({ time, freq: midiToHz(roots[bar] - 24), duration: MUSIC_STEP * 4.5,
+            type: "triangle", volume: 0.009 + returning * 0.018, attack: 0.035,
+            release: 0.32, filter: 360, bus: this.musicBus, music: true });
+        }
+        if ((inBar === 4 || inBar === 12) && harmony > 0.01) {
+          this._noise({ time, duration: 0.095, volume: 0.008 + harmony * 0.015,
+            filter: 820, filterType: "bandpass", bus: this.musicBus, music: true,
+            pan: inBar === 4 ? -0.18 : 0.18 });
+        }
+        if ((inBar === 6 || inBar === 14) && resonant > 0.01) {
+          this._osc({ time, freq: midiToHz(chord[inBar === 6 ? 1 : 3] + 12),
+            duration: MUSIC_STEP * 2.5, type: "triangle",
+            volume: 0.008 + resonant * 0.015, attack: 0.025, release: 0.25,
+            filter: 1350, bus: this.musicBus, music: true,
+            pan: inBar === 6 ? -0.3 : 0.3 });
+        }
+        return;
+      }
+
+      if (stage === 3) {
+        /* Repaired prisms reveal harmony, bells, then a high reflected line. */
+        if (inBar === 0 && returning > 0.01) {
+          [1, 3].forEach((index) => this._osc({ time: time + index * 0.012,
+            freq: midiToHz(chord[index] + 12), duration: MUSIC_STEP * 10.5,
+            type: "sine", volume: 0.006 + returning * 0.011, attack: 0.16,
+            release: 0.6, filter: 3200, bus: this.musicBus, music: true,
+            pan: index === 1 ? -0.32 : 0.32 }));
+        }
+        if (inBar % 4 === 3 && harmony > 0.01) {
+          this._osc({ time, freq: midiToHz(chord[(bar + inBar) % chord.length] + 36),
+            duration: MUSIC_STEP * 1.35, type: "sine",
+            volume: 0.007 + harmony * 0.012, attack: 0.003, release: 0.18,
+            filter: 5100, bus: this.musicBus, music: true,
+            pan: inBar < 8 ? -0.38 : 0.38 });
+        }
+        if (inBar % 8 === 2 && resonant > 0.01) {
+          this._osc({ time, freq: midiToHz(chord[(bar + 2) % chord.length] + 24),
+            duration: MUSIC_STEP * 2.2, type: "triangle",
+            volume: 0.007 + resonant * 0.013, attack: 0.012, release: 0.25,
+            filter: 3900, bus: this.musicBus, music: true,
+            pan: inBar === 2 ? -0.25 : 0.25 });
+        }
+        return;
+      }
+
+      if (stage === 4) {
+        /* Tide rhythm, warm seventh pad, and a distant voice-like overtone. */
+        if ((inBar === 0 || inBar === 8) && returning > 0.01) {
+          this._noise({ time, duration: MUSIC_STEP * 2.6,
+            volume: 0.005 + returning * 0.009, filter: 740,
+            filterType: "bandpass", slideFilter: 1250, bus: this.musicBus,
+            music: true, pan: inBar === 0 ? -0.28 : 0.28 });
+        }
+        if (inBar === 0 && harmony > 0.01) {
+          this._osc({ time, freq: midiToHz(chord[3] + 12), duration: MUSIC_STEP * 14,
+            type: "sine", volume: 0.006 + harmony * 0.012, attack: 0.34,
+            release: 0.85, filter: 1750, bus: this.musicBus, music: true,
+            pan: 0.16 });
+        }
+        if ((inBar === 4 || inBar === 12) && resonant > 0.01) {
+          const voiceMidi = chord[inBar === 4 ? 2 : 1] + 24;
+          this._osc({ time, freq: midiToHz(voiceMidi), duration: MUSIC_STEP * 4.8,
+            type: "sine", volume: 0.006 + resonant * 0.012, attack: 0.12,
+            release: 0.38, filter: 2100, bus: this.musicBus, music: true,
+            pan: inBar === 4 ? -0.2 : 0.2 });
+          this._osc({ time: time + 0.025, freq: midiToHz(voiceMidi + 7),
+            duration: MUSIC_STEP * 4.3, type: "sine",
+            volume: 0.003 + resonant * 0.006, attack: 0.15, release: 0.35,
+            filter: 2350, bus: this.musicBus, music: true,
+            pan: inBar === 4 ? 0.2 : -0.2 });
+        }
       }
     }
 
@@ -832,6 +966,15 @@
       const id = String(name || "").trim().toLowerCase();
       if (!this._soundReady()) return false;
       const t = this.context.currentTime + 0.006;
+      /* Only the high-frequency Living Resonance cues are throttled. Existing
+         combat sounds retain their established timing and feel. */
+      const livingCooldown = id.indexOf("quick-wheel") === 0 ? 0.045 :
+        id.indexOf("synergy") === 0 ? 0.065 : 0;
+      if (livingCooldown > 0) {
+        const previous = Number(this._livingSfxTimes[id]) || -Infinity;
+        if (t - previous < livingCooldown) return false;
+        this._livingSfxTimes[id] = t;
+      }
       const tone = (offset, midi, duration, type, volume, extra = {}) => this._osc({
         time: t + offset,
         freq: midiToHz(midi),
@@ -902,6 +1045,80 @@
           this._noise({ time: t, duration: 0.055, volume: 0.026, filter: alternate ? 520 : 430, filterType: "lowpass", pan: alternate ? 0.08 : -0.08 });
           break;
         }
+        case "mastery":
+        case "mastery-unlock":
+          [60, 67, 72, 76].forEach((midi, i) => tone(i * 0.07, midi, 0.48 + i * 0.09,
+            i === 3 ? "sine" : "triangle", 0.052 + i * 0.004,
+            { attack: 0.008, release: 0.28 + i * 0.05, pan: (i - 1.5) * 0.16 }));
+          tone(0.28, 84, 0.78, "sine", 0.052, { attack: 0.02, release: 0.55 });
+          break;
+        case "synergy":
+          tone(0, 64, 0.18, "triangle", 0.07, { release: 0.1, pan: -0.18 });
+          tone(0.07, 71, 0.24, "triangle", 0.064, { release: 0.15, pan: 0.18 });
+          tone(0.14, 76, 0.38, "sine", 0.058, { release: 0.25 });
+          break;
+        case "synergy-bright":
+          tone(0, 64, 0.16, "square", 0.048, { release: 0.08, filter: 2700, pan: -0.16 });
+          tone(0.06, 71, 0.29, "triangle", 0.068, { release: 0.18, pan: 0.16 });
+          break;
+        case "synergy-low":
+          tone(0, 40, 0.3, "triangle", 0.09, { release: 0.19, filter: 520 });
+          tone(0.08, 47, 0.34, "sine", 0.055, { release: 0.22 });
+          break;
+        case "synergy-glass":
+          [76, 83, 88].forEach((midi, i) => tone(i * 0.045, midi, 0.31 + i * 0.08,
+            "sine", 0.055 - i * 0.006, { release: 0.2 + i * 0.05, pan: (i - 1) * 0.24 }));
+          break;
+        case "synergy-beat":
+          this._kick(t, 0.095, false);
+          this._snare(t + 0.085, 0.07, false);
+          tone(0.15, 67, 0.2, "triangle", 0.045, { release: 0.12 });
+          break;
+        case "synergy-voice":
+          tone(0, 67, 0.42, "sine", 0.06, { attack: 0.045, release: 0.28, pan: -0.18 });
+          tone(0.035, 74, 0.45, "sine", 0.047, { attack: 0.06, release: 0.3, pan: 0.18 });
+          break;
+        case "synergy-string":
+          this._osc({ time: t, freq: midiToHz(69), slideTo: midiToHz(81), duration: 0.31,
+            type: "triangle", volume: 0.064, attack: 0.018, release: 0.18,
+            filter: 2600, pan: -0.12 });
+          tone(0.12, 76, 0.34, "sine", 0.045, { release: 0.22, pan: 0.16 });
+          break;
+        case "rehearsal":
+        case "rehearsal-start":
+          [55, 62, 67].forEach((midi, i) => tone(i * 0.11, midi, 0.24,
+            "triangle", 0.066, { release: 0.13, pan: (i - 1) * 0.14 }));
+          this._kick(t + 0.32, 0.1, false);
+          break;
+        case "rehearsal-countdown":
+          tone(0, 72, 0.13, "square", 0.052, { release: 0.06, filter: 1700 });
+          break;
+        case "rehearsal-result":
+          [60, 64, 67, 71].forEach((midi, i) => tone(i * 0.075, midi, 0.42,
+            i === 3 ? "sine" : "triangle", 0.058,
+            { release: 0.25, pan: (i - 1.5) * 0.12 }));
+          break;
+        case "encore":
+        case "encore-unlock":
+          tone(0, 36, 0.78, "triangle", 0.085, { release: 0.55, filter: 480 });
+          [72, 76, 79, 83].forEach((midi, i) => tone(0.08 + i * 0.065, midi,
+            0.46 + i * 0.08, "sine", 0.046,
+            { attack: 0.012, release: 0.3 + i * 0.05, pan: i % 2 ? 0.24 : -0.24 }));
+          break;
+        case "quick-wheel":
+        case "quick-wheel-open":
+          tone(0, 60, 0.14, "triangle", 0.046, { slideTo: midiToHz(67), release: 0.08 });
+          break;
+        case "quick-wheel-tick":
+          tone(0, 79, 0.065, "sine", 0.035, { release: 0.03, pan: 0.12 });
+          break;
+        case "quick-wheel-select":
+          tone(0, 67, 0.13, "triangle", 0.054, { release: 0.07, pan: -0.12 });
+          tone(0.055, 76, 0.25, "sine", 0.054, { release: 0.16, pan: 0.12 });
+          break;
+        case "quick-wheel-cancel":
+          tone(0, 62, 0.12, "triangle", 0.04, { slideTo: midiToHz(55), release: 0.07 });
+          break;
         default:
           return false;
       }
@@ -1069,7 +1286,10 @@
       this.noteCount = 0;
       this.melody = [];
       this._activeMelodyNames = [];
-      this.adaptiveState = { stage: 1, scene: "exploration", intensity: 0, instrument: "guitar", resonance: "", weather: "clear", track: "" };
+      this.adaptiveState = { stage: 1, scene: "exploration", intensity: 0, instrument: "guitar", resonance: "", weather: "clear", track: "", restorationTier: 0 };
+      this._restorationMix = 0;
+      this._restorationTarget = 0;
+      this._livingSfxTimes = Object.create(null);
       this._dialogueIndex = 0;
       this._footstepIndex = 0;
       this._wanted = shouldResume;

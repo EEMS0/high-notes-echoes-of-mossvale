@@ -58,6 +58,29 @@ export function groundHeightAt(x, z) {
 const tmpColor = new THREE.Color();
 const tmpColorB = new THREE.Color();
 
+const REGION_STAGE = Object.freeze({
+  mossvale: 1,
+  rootsong: 2,
+  skyglass: 3,
+  moonwake: 4
+});
+
+/* The campaign bridge is the authority for restoration. The first-person
+   renderer deliberately does not infer progress, grant tiers, or read saves. */
+export function normaliseRestorationState(value, fallbackStage) {
+  var source = value && typeof value === 'object' ? value : {};
+  var numericValue = typeof value === 'number' ? value : source.tier;
+  if (!Number.isFinite(Number(numericValue))) numericValue = source.restorationTier;
+  var tier = Math.max(0, Math.min(3, Math.floor(Number(numericValue) || 0)));
+  var stageFromRegion = REGION_STAGE[String(source.region || '').toLowerCase()];
+  var stage = Number(source.stage || stageFromRegion || fallbackStage);
+  stage = stage >= 1 && stage <= 4 ? Math.floor(stage) : 0;
+  var reducedAmbient = source.reduceAmbient === true ||
+    source.reducedAmbient === true || source.reducedEffects === true ||
+    source.ambientEffects === false || source.ambientRestorationEffects === false;
+  return { tier: tier, stage: stage, reducedAmbient: reducedAmbient };
+}
+
 function parseCssColor(value, fallback) {
   try {
     return new THREE.Color(value);
@@ -95,6 +118,7 @@ export class MossFPScene {
     this.worldGroup = null;
     this.billboards = [];
     this.disposables = [];
+    this.restorationSummary = { tier: 0, stage: 0, reducedAmbient: false, instances: 0 };
 
     this.scene = new THREE.Scene();
 
@@ -133,6 +157,7 @@ export class MossFPScene {
     this.disposables.length = 0;
     this.billboards.length = 0;
     this.worldGroup = null;
+    this.restorationSummary = { tier: 0, stage: 0, reducedAmbient: false, instances: 0 };
   }
 
   track(resource) {
@@ -140,7 +165,7 @@ export class MossFPScene {
     return resource;
   }
 
-  build(level) {
+  build(level, restorationState) {
     this.clearWorld();
     terrainSeed = level.seed || 90421;
 
@@ -160,7 +185,206 @@ export class MossFPScene {
     this.buildWater(group, level, palette);
     this.buildObstacles(group, level, palette);
     this.buildBoundary(group, world, palette);
+    var restoration = normaliseRestorationState(restorationState, Number(level.id));
+    /* The rehearsal prologue is intentionally outside the four-region
+       restoration system even when it is entered from a restored save. */
+    if (!level.isPrologue && restoration.stage === Number(level.id)) {
+      this.buildRestoration(group, level, palette, restoration);
+    }
     return group;
+  }
+
+  /*
+   * Deterministic, non-interactive restoration dressing. All primitives are
+   * instanced, reuse a tiny geometry/material pool, and are rebuilt only when
+   * the bridge's sanitized tier or ambient setting changes. They never enter
+   * collision or gameplay arrays.
+   */
+  buildRestoration(group, level, palette, restoration) {
+    var tier = Math.max(0, Math.min(3, restoration.tier | 0));
+    this.restorationSummary = {
+      tier: tier,
+      stage: restoration.stage,
+      reducedAmbient: !!restoration.reducedAmbient,
+      instances: 0
+    };
+    if (!tier) return;
+
+    var reduced = !!restoration.reducedAmbient;
+    var counts = reduced ? [5, 3, 1] : [14, 8, 4];
+    var occupied = [];
+    var placements = [
+      this.restorationPositions(level, counts[0], 101 + restoration.stage * 37, 28, occupied),
+      tier >= 2 ? this.restorationPositions(level, counts[1], 211 + restoration.stage * 53, 36, occupied) : [],
+      tier >= 3 ? this.restorationPositions(level, counts[2], 307 + restoration.stage * 71, 52, occupied) : []
+    ];
+    var dressing = new THREE.Group();
+    dressing.name = 'living-restoration-stage-' + restoration.stage + '-tier-' + tier;
+    group.add(dressing);
+
+    var colors = {
+      1: ['#8fe3c1', '#ffbe70', '#f6e36d'],
+      2: ['#b7d66d', '#d9a85d', '#ffd66b'],
+      3: ['#9de8ff', '#c2b4ff', '#ff91d5'],
+      4: ['#61d8c8', '#86cfff', '#e8d9a8']
+    }[restoration.stage] || ['#8fe3c1', '#ffc857', '#ffffff'];
+
+    var glow = this.track(new THREE.MeshBasicMaterial({
+      color: colors[0], transparent: true, opacity: reduced ? 0.68 : 0.82,
+      depthWrite: false
+    }));
+    var accent = this.track(new THREE.MeshLambertMaterial({
+      color: colors[1], emissive: parseCssColor(colors[1], '#ffc857').multiplyScalar(0.17),
+      flatShading: true
+    }));
+    var structure = this.track(new THREE.MeshLambertMaterial({
+      color: parseCssColor(palette.border, '#426b57').lerp(parseCssColor(colors[2], '#ffffff'), 0.22),
+      flatShading: true
+    }));
+    var sphere = this.track(new THREE.SphereGeometry(1, 7, 5));
+    var stem = this.track(new THREE.CylinderGeometry(0.14, 0.2, 1, 6));
+    var cone = this.track(new THREE.ConeGeometry(1, 1, 5));
+    var ring = this.track(new THREE.TorusGeometry(1, 0.13, 5, 12));
+
+    if (restoration.stage === 1) {
+      this.addRestorationInstances(dressing, sphere, glow, placements[0], 'returning-fireflies', function (dummy, point, index) {
+        var size = 2.2 + hash2(index, 1, 41) * 2.2;
+        dummy.position.set(point.x, point.y + 18 + hash2(index, 2, 43) * 34, point.z);
+        dummy.scale.setScalar(size);
+      });
+      if (tier >= 2) this.addBloomInstances(dressing, stem, cone, structure, accent, placements[1], 'heart-flowers');
+      if (tier >= 3) this.addLanternInstances(dressing, stem, sphere, structure, glow, placements[2], 'repaired-performance-lights');
+    } else if (restoration.stage === 2) {
+      this.addRestorationInstances(dressing, sphere, glow, placements[0], 'glowing-root-nodes', function (dummy, point, index) {
+        var width = 4 + hash2(index, 2, 51) * 3;
+        dummy.position.set(point.x, point.y + width * 0.55, point.z);
+        dummy.scale.set(width * 1.5, width * 0.65, width);
+      });
+      if (tier >= 2) this.addBloomInstances(dressing, stem, cone, structure, accent, placements[1], 'rhythm-fungi');
+      if (tier >= 3) this.addResonatorInstances(dressing, stem, ring, structure, glow, placements[2], 'active-root-resonators');
+    } else if (restoration.stage === 3) {
+      this.addRestorationInstances(dressing, cone, glow, placements[0], 'healed-prisms', function (dummy, point, index) {
+        var height = 20 + hash2(index, 3, 61) * 18;
+        dummy.position.set(point.x, point.y + height * 0.5, point.z);
+        dummy.scale.set(5 + height * 0.08, height, 5 + height * 0.08);
+        dummy.rotation.z = (hash2(index, 4, 63) - 0.5) * 0.24;
+      });
+      if (tier >= 2) this.addLanternInstances(dressing, stem, sphere, structure, glow, placements[1], 'bridge-lights');
+      if (tier >= 3) this.addResonatorInstances(dressing, stem, ring, structure, accent, placements[2], 'restored-sky-chimes');
+    } else if (restoration.stage === 4) {
+      this.addLanternInstances(dressing, stem, sphere, structure, glow, placements[0], 'moonwake-lanterns');
+      if (tier >= 2) this.addRestorationInstances(dressing, ring, glow, placements[1], 'peaceful-memory-echoes', function (dummy, point, index) {
+        var size = 10 + hash2(index, 5, 73) * 5;
+        dummy.position.set(point.x, point.y + 18 + hash2(index, 6, 79) * 18, point.z);
+        dummy.scale.setScalar(size);
+        dummy.rotation.y = hash2(index, 7, 83) * Math.PI;
+      });
+      if (tier >= 3) this.addResonatorInstances(dressing, stem, ring, structure, accent, placements[2], 'coastal-harmony-stands');
+    }
+  }
+
+  restorationPositions(level, count, salt, clearance, occupied) {
+    var positions = [];
+    var world = level.world || { w: 2800, h: 1900 };
+    var attempts = Math.max(40, count * 40);
+    var seed = Number(level.seed) || 90421;
+    for (var attempt = 0; attempt < attempts && positions.length < count; attempt++) {
+      var x = 70 + hash2(attempt + 1, salt, seed) * Math.max(1, world.w - 140);
+      var z = 70 + hash2(salt, attempt + 1, seed + 19) * Math.max(1, world.h - 140);
+      if (!this.isRestorationPlacementOpen(level, x, z, clearance, occupied)) continue;
+      var point = { x: x, z: z, y: groundHeightAt(x, z) };
+      positions.push(point);
+      occupied.push(point);
+    }
+    return positions;
+  }
+
+  isRestorationPlacementOpen(level, x, z, clearance, occupied) {
+    var obstacles = level.obstacles || [];
+    for (var i = 0; i < obstacles.length; i++) {
+      var obstacle = obstacles[i];
+      if (Math.hypot(x - obstacle.x, z - obstacle.y) < obstacle.r + clearance) return false;
+    }
+    var pools = level.water || [];
+    for (var p = 0; p < pools.length; p++) {
+      var pool = pools[p];
+      var nx = (x - pool.x) / Math.max(1, pool.rx + clearance);
+      var nz = (z - pool.y) / Math.max(1, pool.ry + clearance);
+      if (nx * nx + nz * nz < 1) return false;
+    }
+    var landmarks = [level.spawn, level.hub, level.boss];
+    for (var l = 0; l < landmarks.length; l++) {
+      var landmark = landmarks[l];
+      if (landmark && Math.hypot(x - landmark.x, z - landmark.y) < clearance + 62) return false;
+    }
+    for (var j = 0; j < occupied.length; j++) {
+      if (Math.hypot(x - occupied[j].x, z - occupied[j].z) < clearance * 1.7) return false;
+    }
+    return true;
+  }
+
+  addRestorationInstances(group, geometry, material, placements, name, transform) {
+    if (!placements.length) return null;
+    var mesh = new THREE.InstancedMesh(geometry, material, placements.length);
+    var dummy = new THREE.Object3D();
+    for (var i = 0; i < placements.length; i++) {
+      dummy.position.set(0, 0, 0);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      transform(dummy, placements[i], i);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.name = name;
+    group.add(mesh);
+    this.restorationSummary.instances += placements.length;
+    return mesh;
+  }
+
+  addBloomInstances(group, stemGeometry, bloomGeometry, stemMaterial, bloomMaterial, placements, name) {
+    this.addRestorationInstances(group, stemGeometry, stemMaterial, placements, name + '-stems', function (dummy, point, index) {
+      var height = 10 + hash2(index, 8, 89) * 8;
+      dummy.position.set(point.x, point.y + height * 0.5, point.z);
+      dummy.scale.set(3.2, height, 3.2);
+    });
+    this.addRestorationInstances(group, bloomGeometry, bloomMaterial, placements, name + '-blooms', function (dummy, point, index) {
+      var height = 10 + hash2(index, 8, 89) * 8;
+      var size = 5 + hash2(index, 9, 97) * 2.5;
+      dummy.position.set(point.x, point.y + height + size * 0.35, point.z);
+      dummy.scale.set(size, size * 0.75, size);
+      dummy.rotation.x = Math.PI;
+      dummy.rotation.y = hash2(index, 10, 101) * Math.PI * 2;
+    });
+  }
+
+  addLanternInstances(group, postGeometry, lightGeometry, postMaterial, lightMaterial, placements, name) {
+    this.addRestorationInstances(group, postGeometry, postMaterial, placements, name + '-posts', function (dummy, point, index) {
+      var height = 25 + hash2(index, 11, 103) * 10;
+      dummy.position.set(point.x, point.y + height * 0.5, point.z);
+      dummy.scale.set(4.2, height, 4.2);
+    });
+    this.addRestorationInstances(group, lightGeometry, lightMaterial, placements, name + '-lights', function (dummy, point, index) {
+      var height = 25 + hash2(index, 11, 103) * 10;
+      var size = 4.5 + hash2(index, 12, 107) * 1.8;
+      dummy.position.set(point.x, point.y + height + 2, point.z);
+      dummy.scale.setScalar(size);
+    });
+  }
+
+  addResonatorInstances(group, postGeometry, ringGeometry, postMaterial, ringMaterial, placements, name) {
+    this.addRestorationInstances(group, postGeometry, postMaterial, placements, name + '-stands', function (dummy, point, index) {
+      var height = 30 + hash2(index, 13, 109) * 8;
+      dummy.position.set(point.x, point.y + height * 0.5, point.z);
+      dummy.scale.set(4.8, height, 4.8);
+    });
+    this.addRestorationInstances(group, ringGeometry, ringMaterial, placements, name + '-rings', function (dummy, point, index) {
+      var height = 30 + hash2(index, 13, 109) * 8;
+      var size = 11 + hash2(index, 14, 113) * 3;
+      dummy.position.set(point.x, point.y + height, point.z);
+      dummy.scale.setScalar(size);
+      dummy.rotation.y = hash2(index, 15, 127) * Math.PI;
+    });
   }
 
   /*

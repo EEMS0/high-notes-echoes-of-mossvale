@@ -254,9 +254,9 @@
     this.ctx = null;
     this.background = new Image();
     this.background.decoding = 'async';
-    this.background.src = 'assets/echo-arena-background.webp';
-    this.arenaLayers=['background','midground','foreground'].map(function(name){var image=new Image();image.decoding='async';image.src='assets/arena/mossvale-amphitheatre-'+name+'.webp';return image;});
-    this.effectSheet=new Image();this.effectSheet.decoding='async';this.effectSheet.src='Sprites/Effects/arena-effects-sheet.png';
+    this.arenaLayers=[];
+    this.effectSheet=new Image();this.effectSheet.decoding='async';
+    this.assetsRequested=false;
     this.active = false;
     this.phase = 'lobby';
     this.matchType = '';
@@ -307,10 +307,18 @@
     document.addEventListener('visibilitychange',function () {
       if (document.hidden) arena.releaseInputs();
     });
-    if (window.MossSprites) window.MossSprites.preload([
+  }
+
+  PlatformArena.prototype.requestAssets = function () {
+    if(this.assetsRequested)return;
+    this.assetsRequested=true;
+    this.background.src='assets/echo-arena-background.webp';
+    this.arenaLayers=['background','midground','foreground'].map(function(name){var image=new Image();image.decoding='async';image.src='assets/arena/mossvale-amphitheatre-'+name+'.webp';return image;});
+    this.effectSheet.src='Sprites/Effects/arena-effects-sheet.png';
+    if(window.MossSprites)window.MossSprites.preload([
       'eems','bass-player','synth-performer','drummer','singer','violinist','combat-effects'
     ]);
-  }
+  };
 
   PlatformArena.prototype.network = function () {
     return this.integration && this.integration.network;
@@ -429,6 +437,7 @@
   };
 
   PlatformArena.prototype.render = function (root,integration) {
+    this.requestAssets();
     this.integration = integration || this.integration;
     this.root = root || this.root;
     if (!this.root) return;
@@ -657,6 +666,7 @@
   };
 
   PlatformArena.prototype.beginMatch = function (players,options) {
+    this.requestAssets();
     options = options || {};
     this.active = true;
     this.phase = options.phase === 'playing' ? 'playing' : 'countdown';
