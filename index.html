@@ -15,17 +15,17 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=34">
-  <script src="audio.js?v=13" defer></script>
-  <script src="sprite-runtime.js?v=12" defer></script>
+  <link rel="stylesheet" href="styles.css?v=35">
+  <script src="audio.js?v=15" defer></script>
+  <script src="sprite-runtime.js?v=14" defer></script>
   <script src="equipment-runtime.js?v=3" defer></script>
   <script src="character-runtime.js?v=4" defer></script>
-  <script src="input-manager.js?v=5" defer></script>
+  <script src="input-manager.js?v=6" defer></script>
   <script src="story-runtime.js?v=1" defer></script>
   <script src="living-resonance-runtime.js?v=2" defer></script>
-  <script src="game.js?v=37" defer></script>
-  <script src="controller-ui.js?v=4" defer></script>
-  <script src="v1-expansion.js?v=11" defer></script>
+  <script src="game.js?v=39" defer></script>
+  <script src="controller-ui.js?v=5" defer></script>
+  <script src="v1-expansion.js?v=12" defer></script>
   <script src="v2-platform-fighter.js?v=32" defer></script>
   <!-- First-person view. ES modules defer by default and load after the classic
        scripts above, so game.js feature-detects window.MossFP every frame. -->
@@ -578,7 +578,7 @@
       </div>
     </section>
 
-    <section id="dialogueBox" class="dialogue-box" role="dialog" aria-labelledby="speakerName" aria-describedby="dialogueText" hidden>
+    <section id="dialogueBox" class="dialogue-box" role="dialog" aria-modal="true" aria-labelledby="speakerName" aria-describedby="dialogueText" tabindex="-1" hidden>
       <div class="dialogue-portrait-frame" aria-hidden="true">
         <img id="dialoguePortrait" class="dialogue-portrait" alt="">
       </div>

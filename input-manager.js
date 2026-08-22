@@ -804,6 +804,10 @@
 
   var pointerAccum = 0;
   function handlePointerMove(event) {
+    /* Touch browsers synthesize pointermove while a finger is steering. Keep
+     * those gestures in touch mode instead of replacing the on-screen prompts
+     * with keyboard labels mid-drag. */
+    if (event.pointerType === 'touch') return;
     /* Require real travel so a jittering trackpad cannot flip the prompts. */
     var moved = Math.abs(event.movementX || 0) + Math.abs(event.movementY || 0);
     pointerAccum += moved || 1;

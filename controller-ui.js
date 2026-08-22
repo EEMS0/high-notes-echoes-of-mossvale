@@ -351,11 +351,20 @@
     return '<span class="cprompt" data-btn="' + labelText + '">' + labelText + '</span>';
   }
 
+  function dialogueAction() {
+    var button = byId('dialogueContinueButton');
+    return button && /close/i.test(button.textContent) ? 'close' : 'continue';
+  }
+
   function refreshPrompts() {
-    var pad = input.promptStyle() === 'xbox';
+    var method = input.getActiveMethod();
+    var touch = method === 'touch';
+    var pad = !touch && input.promptStyle() === 'xbox';
     var hint = byId('dialogueHint');
     if (hint) {
-      hint.innerHTML = pad ? chip('A') + ' continue' : 'E / Enter to continue';
+      var action = dialogueAction();
+      hint.innerHTML = pad ? chip(input.label('confirm') || 'A') + ' ' + action :
+        touch ? 'Tap ' + action : 'E / Enter to ' + action;
       hint.classList.toggle('desktop-only', !pad);
     }
     var abilityKey = document.querySelector('.ability-key');
@@ -409,7 +418,7 @@
     var overlay = topOverlay();
     var parts;
     if (dialogueOpen()) {
-      parts = [chip('A') + ' Continue'];
+      parts = [chip(input.label('confirm') || 'A') + ' ' + dialogueAction()];
     } else if (overlay) {
       parts = [chip('A') + ' Select', chip('B') + ' Back'];
       if (TAB_GROUPS[overlay.id]) parts.push(chip('LB') + chip('RB') + ' Tabs');

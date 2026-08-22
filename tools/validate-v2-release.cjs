@@ -74,6 +74,7 @@ assert.notEqual(east.item.flipX, west.item.flipX, 'Horizontal directions require
 assert.ok(east.origins.projectile.x > 0 && west.origins.projectile.x < 0, 'Projectile origins must follow facing');
 
 const index = read('index.html');
+const audioRuntime = read('audio.js');
 const characterRuntime = read('character-runtime.js');
 const scriptOrder = [
   'audio.js', 'sprite-runtime.js', 'equipment-runtime.js', 'game.js',
@@ -84,7 +85,25 @@ for (let i = 1; i < scriptOrder.length; i += 1) {
   assert.ok(scriptOrder[i] > scriptOrder[i - 1], 'Runtime scripts are in the wrong dependency order');
 }
 assert.match(index, /character-runtime\.js\?v=4/, 'character compositor cache version');
-assert.match(index, /game\.js\?v=37/, 'game cache version');
+assert.match(index, /styles\.css\?v=35/, 'release stylesheet cache version');
+assert.match(index, /audio\.js\?v=15/, 'audio transport cache version');
+assert.match(index, /sprite-runtime\.js\?v=14/, 'retained sprite runtime cache version');
+assert.match(index, /game\.js\?v=39/, 'game cache version');
+assert.match(index, /input-manager\.js\?v=6/, 'input runtime cache version');
+assert.match(index, /controller-ui\.js\?v=5/, 'controller UI cache version');
+assert.match(index, /v1-expansion\.js\?v=12/, 'expansion data cache version');
+
+const audioSandbox = { window: { performance: { now: () => 0 } }, console };
+vm.createContext(audioSandbox);
+vm.runInContext(audioRuntime, audioSandbox, { filename: 'audio.js' });
+const audio = audioSandbox.window.MossAudio;
+assert.ok(audio && typeof audio.gradeBeat === 'function', 'MossAudio beat grader did not register');
+const downbeat = audio.gradeBeat({ fallbackTime: 0, perfectWindow: 0.12, goodWindow: 0.24 });
+assert.equal(downbeat.bpm, 104, 'rhythm transport BPM');
+assert.ok(Math.abs(downbeat.beatDuration - 60 / 104) < 1e-9, 'quarter-note duration follows the music transport');
+assert.equal(downbeat.quality, 'perfect', 'fallback downbeat grade');
+const offbeat = audio.gradeBeat({ fallbackTime: downbeat.beatDuration * 0.5, perfectWindow: 0.12, goodWindow: 0.24 });
+assert.equal(offbeat.quality, 'miss', 'fallback midpoint grade');
 
 const characterSandbox = {
   window: {},
@@ -144,7 +163,7 @@ Object.values(arenaRoster).forEach((fighter) => {
   assert.ok(fighter.moves.neutralSpecial.projectile, `${fighter.id} needs a projectile identity`);
   assert.ok(fighter.moves.recovery.recoveryImpulse, `${fighter.id} needs a recovery special`);
 });
-assert.match(game, /GAME_VERSION\s*=\s*['"]3\.1\.0['"]/, 'current production game version');
+assert.match(game, /GAME_VERSION\s*=\s*['"]3\.1\.1['"]/, 'current production game version');
 assert.match(game, /MossEquipmentRig/);
 assert.match(game, /equipment:\s*currentEquipmentNetworkSnapshot/);
 assert.match(game, /sanitizeOnlineEquipment/);
@@ -163,6 +182,8 @@ assert.match(game, /getLevelData:\s*function \(\) \{ return currentLevel/);
 assert.match(game, /function warmGameplayAssets\b/, 'large field atlases have a player-intent warm-up boundary');
 assert.match(game, /activateLevel\(1,null,true\)/, 'title boot skips production sprite preloading');
 assert.match(game, /started && canvasDirty/, 'dormant title canvas cannot demand-load world sprites');
+assert.match(game, /enemy\.eliteAssetId\s*=\s*eliteDef\.assetId\s*\|\|\s*eliteDef\.id/,
+  'Dream Encore elites retain their production atlas identity');
 assert.doesNotMatch(game, /instrumentById\(remote\.instrument\)\s*\?/);
 assert.match(network, /protocolVersion\s*:\s*PROTOCOL_VERSION/);
 assert.match(network, /sanitizeEquipmentNetworkSnapshot/);

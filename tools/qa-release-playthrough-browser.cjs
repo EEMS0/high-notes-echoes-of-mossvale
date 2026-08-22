@@ -53,7 +53,18 @@ fs.mkdirSync(outputDir, { recursive: true });
     const expectedBosses = ['nullspeaker', 'rootbound', 'prism-choir', 'tidebreaker'];
     const expectedRewards = ['bass', 'drums', 'synth', 'violin'];
     for (let stage = 1; stage <= 4; stage++) {
-      if (stage > 1) {
+      const currentStage = await page.evaluate(() => window.__HIGH_NOTES__.snapshot().state.stage);
+      if (currentStage !== stage) {
+        await page.evaluate(() => {
+          const api = window.__HIGH_NOTES__;
+          api.debug.defeatEnemies();
+          const hub = api.firstPerson.getLevelData().hub;
+          api.debug.teleport(hub.x, hub.y);
+        });
+        await page.waitForFunction(() => {
+          const runtime = window.__HIGH_NOTES__.snapshot().runtime;
+          return runtime.projectiles === 0 && !runtime.travelBlockedBy;
+        });
         await page.evaluate((target) => window.__HIGH_NOTES__.debug.enterStage(target), stage);
         await page.waitForFunction((target) => window.__HIGH_NOTES__.snapshot().state.stage === target, stage);
       }

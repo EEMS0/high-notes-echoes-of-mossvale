@@ -12,12 +12,13 @@
   var HUB = { x: 1400, y: 930 };
   var BOSS_CENTER = { x: 2325, y: 1510 };
   var SAVE_KEY = 'highNotesSaveV7';
+  var SAVE_BACKUP_KEY = 'highNotesSaveV7Backup';
   var LEGACY_SAVE_KEY = 'highNotesSaveV6';
   var OLDER_SAVE_KEY = 'highNotesSaveV5';
   var OLDEST_SAVE_KEY = 'highNotesSaveV4';
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
-  var GAME_VERSION = '3.1.0';
+  var GAME_VERSION = '3.1.1';
   var SAVE_SCHEMA_VERSION = 24;
   var NOTE_ORDER = ['C', 'E', 'G', 'B'];
   var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
@@ -419,7 +420,7 @@
   }
   function removeStoredSaves() {
     try {
-      [SAVE_KEY, LEGACY_SAVE_KEY, OLDER_SAVE_KEY, OLDEST_SAVE_KEY, ANCIENT_SAVE_KEY].forEach(function (key) {
+      [SAVE_KEY, SAVE_BACKUP_KEY, LEGACY_SAVE_KEY, OLDER_SAVE_KEY, OLDEST_SAVE_KEY, ANCIENT_SAVE_KEY].forEach(function (key) {
         localStorage.removeItem(key);
       });
     } catch (error) {
@@ -542,6 +543,7 @@
         greenhousePlantedAt: 0,
         greenhouseCrop: '',
         greenhouseHarvests: 0,
+        heartbloomSeedReady: false,
         workshopLevel: 1,
         jukeboxTrack: 'Mossvale Overture',
         decorations: ['woven-rug'],
@@ -780,10 +782,12 @@
     bossBane: false,
     revivalReady: false
   };
-  var rhythmCombo = { count:0, multiplier:1, timer:0, lastQuality:'', flash:0, beatLength:0.5 };
+  var RHYTHM_BPM = 104;
+  var rhythmCombo = { count:0, multiplier:1, timer:0, lastQuality:'', flash:0, beatLength:60/RHYTHM_BPM };
   var encounterDirector = {tension:0,cooldown:24,activeEvent:null,weatherTimer:0,recentDamage:0};
   var boss = null;
   var bossPadLatch = null;
+  var worldTransitionRuntime = {locked:false,serial:0,source:''};
 
   var weeds = [
     [1, 1320, 1030], [2, 1495, 1060], [3, 1215, 820], [4, 1580, 885], [5, 1370, 690],
@@ -898,13 +902,13 @@
   }
 
   var odin = {
-    x: HUB.x - 42, y: HUB.y + 125, facing: 0, moving: false, sniffing: false,
+    x: HUB.x - 42, y: HUB.y + 125, r:12, facing: 0, moving: false, sniffing: false,
     command: 'follow', biteCooldown: 0, pounceCooldown: 0, howlCooldown: 0,
     guardianCooldown: 0, spiritTimer: 0, attackFlash: 0, attackDuration: 0, target: null,
     targetScanTimer: 0,
     followAngle: player.facing, motionGrace: 0, gait: 0, spriteColumn: 3,
     directionCandidate: 3, directionHold: 0, animState:'idle', animTime:0,
-    activity:'', activityTimer:0, idleActionCooldown:3
+    activity:'', activityTimer:0, idleActionCooldown:3, stuckTimer:0
   };
   var ODIN_TARGET_SCAN_INTERVAL = 0.12;
   var ODIN_EXPANDED_ACTIONS = new Set([
@@ -1509,12 +1513,22 @@
     var ids = level.npcs.map(function (npc) { return npc.spriteId || npc.id; });
     if (!level.isPrologue) {
       ids = ids.concat((ENEMY_SPECIES[stage] || ENEMY_SPECIES[1]).map(function (species) { return species.id; }));
-      ids = ids.concat(ELITE_VARIANTS.map(function (elite) { return elite.assetId || elite.id; }));
+      /* Only preload deterministic elites present in this region. Event elites
+         still load on first draw and remain retained until the next travel. */
+      (level.enemies || []).forEach(function (blueprint) {
+        var hash = String(blueprint[0]).split('').reduce(function (sum, letter) {
+          return sum + letter.charCodeAt(0);
+        }, Number(stage) * 17);
+        if (hash % 11 !== 0) return;
+        var elite = ELITE_VARIANTS[(hash + Number(stage)) % ELITE_VARIANTS.length];
+        ids.push(elite.assetId || elite.id);
+      });
       ids = ids.concat(MINIBOSS_DEFS.filter(function (mini) { return mini.stage === Number(stage); })
         .map(function (mini) { return mini.id === 'groove-beetle' ? 'groove-beetle-prime' : mini.id; }));
       ids.push(bossDefForStage(Number(stage)).assetId);
     }
     ids.push('odin', 'odin-expanded-actions', 'combat-effects');
+    if (window.MossSprites.retain) window.MossSprites.retain(ids);
     settlePromise(window.MossSprites.preload(ids).then(function () { canvasDirty = true; }));
   }
 
@@ -1633,6 +1647,9 @@
     clean.home.greenhousePlantedAt = clamp(Number(rawHome.greenhousePlantedAt) || 0, 0, 9999999);
     clean.home.greenhouseCrop = ['','heartbloom','glowweed','moon-orchid'].indexOf(rawHome.greenhouseCrop) >= 0 ? rawHome.greenhouseCrop : '';
     clean.home.greenhouseHarvests = clamp(Math.floor(Number(rawHome.greenhouseHarvests) || 0), 0, 9999);
+    var hasHeartbloomSeedFlag = Object.prototype.hasOwnProperty.call(rawHome,'heartbloomSeedReady');
+    clean.home.heartbloomSeedReady = hasHeartbloomSeedFlag ? !!rawHome.heartbloomSeedReady :
+      (Array.isArray(raw.completedQuests) && raw.completedQuests.indexOf('mara-pantry') >= 0 && !rawHome.greenhouseCrop);
     clean.home.workshopLevel = clamp(Math.floor(Number(rawHome.workshopLevel) || 1), 1, 4);
     clean.home.jukeboxTrack = ['Mossvale Overture','Rootsong Underfoot','Skyglass Weather','Moonwake Nocturne','Final Concert'].indexOf(rawHome.jukeboxTrack) >= 0 ?
       rawHome.jukeboxTrack : 'Mossvale Overture';
@@ -1965,11 +1982,73 @@
     });
   }
 
+  /*
+   * A parseable object is not necessarily a save. Keep this deliberately
+   * smaller than sanitizeState so historical saves can still migrate, while
+   * requiring enough campaign structure to distinguish a real save from
+   * truncated JSON or an unrelated object stored under the same key.
+   */
+  function savePayloadLooksValid(raw, allowUnversioned) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+    var hasVersion = Object.prototype.hasOwnProperty.call(raw,'version');
+    if (!hasVersion && !allowUnversioned) return false;
+    if (hasVersion && (!Number.isInteger(raw.version) || raw.version < 1 || raw.version > SAVE_SCHEMA_VERSION)) return false;
+    if (!Number.isInteger(raw.stage) || raw.stage < 1 || raw.stage > 4) return false;
+    if (!Number.isFinite(raw.x) || !Number.isFinite(raw.y)) return false;
+    if (!Array.isArray(raw.weeds) || !Array.isArray(raw.notes)) return false;
+    if (typeof raw.bossDefeated !== 'boolean' && !Array.isArray(raw.stageBosses)) return false;
+    return true;
+  }
+
+  function parseStoredSave(serialized, allowUnversioned) {
+    if (typeof serialized !== 'string' || !serialized.trim()) return null;
+    try {
+      var raw = JSON.parse(serialized);
+      return savePayloadLooksValid(raw,allowUnversioned) ? raw : null;
+    } catch (error) {
+      /* Corrupt candidates are an expected recovery case, not a runtime error. */
+      return null;
+    }
+  }
+
+  function readValidSaveCandidate(key, allowUnversioned) {
+    var serialized = readStorage(key);
+    var raw = parseStoredSave(serialized,allowUnversioned);
+    if (!raw) return null;
+    try {
+      return {key:key,serialized:serialized,state:sanitizeState(raw)};
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function loadBestStoredSave() {
+    var candidates = [
+      [SAVE_KEY,false],
+      [SAVE_BACKUP_KEY,false],
+      [LEGACY_SAVE_KEY,true],
+      [OLDER_SAVE_KEY,true],
+      [OLDEST_SAVE_KEY,true],
+      [ANCIENT_SAVE_KEY,true]
+    ];
+    for (var i=0;i<candidates.length;i++) {
+      var candidate = readValidSaveCandidate(candidates[i][0],candidates[i][1]);
+      if (candidate) return candidate;
+    }
+    return null;
+  }
+
+  function rotatePrimarySaveToBackup() {
+    var serialized = readStorage(SAVE_KEY);
+    if (!parseStoredSave(serialized,false)) return false;
+    return writeStorage(SAVE_BACKUP_KEY,serialized);
+  }
+
   function saveSettings() {
     writeStorage(SETTINGS_KEY, JSON.stringify(settings));
   }
   function saveGame(force) {
-    if (!started || rehearsalRuntime.active || (!force && nowTime - lastSaveTime < 4)) return;
+    if (!started || rehearsalRuntime.active || (!force && nowTime - lastSaveTime < 4)) return false;
     state.classState.cooldown=clamp(player.classCooldown,0,30);
     if (tutorialRuntime.active && currentLevel && currentLevel.isPrologue) {
       state.tutorial.prologueX = clamp(Math.round(player.x),40,PROLOGUE_LEVEL.world.w-40);
@@ -1979,19 +2058,34 @@
       state.y = Math.round(player.y);
       state.stagePositions[String(state.stage)] = { x:state.x, y:state.y };
     }
-    if (writeStorage(SAVE_KEY, JSON.stringify(state))) {
+    var serialized;
+    try {
+      serialized = JSON.stringify(state);
+    } catch (error) {
+      reportRuntimeIssue('The current adventure could not be serialized.',error);
+      return false;
+    }
+    if (!parseStoredSave(serialized,false)) {
+      reportRuntimeIssue('The current adventure failed save validation.',new Error('Invalid in-memory save state'));
+      return false;
+    }
+    rotatePrimarySaveToBackup();
+    if (writeStorage(SAVE_KEY, serialized)) {
       lastSaveTime = nowTime;
       refreshContinue();
+      return true;
     }
+    return false;
   }
   function hasSave() {
-    return !!(readStorage(SAVE_KEY) || readStorage(LEGACY_SAVE_KEY) || readStorage(OLDER_SAVE_KEY) ||
-      readStorage(OLDEST_SAVE_KEY) || readStorage(ANCIENT_SAVE_KEY));
+    return !!loadBestStoredSave();
   }
   function refreshContinue() {
+    var candidate = loadBestStoredSave();
     var button = byId('continueButton');
-    if (button) setHidden(button, !hasSave());
-    var encoreButton=byId('encoreButton'),raw=safeJson(readStorage(SAVE_KEY),null);if(encoreButton){var clean=raw?sanitizeState(raw):null;setHidden(encoreButton,!(clean&&clean.living&&clean.living.encoreAdventure.unlocked));}
+    if (button) setHidden(button, !candidate);
+    var encoreButton=byId('encoreButton'),clean=candidate&&candidate.state;
+    if(encoreButton)setHidden(encoreButton,!(clean&&clean.living&&clean.living.encoreAdventure.unlocked));
   }
 
   var relationshipLastGain = {};
@@ -2025,7 +2119,9 @@
       record.xp -= professionThreshold(record.level);
       record.level++;
       levelled = true;
-      state.beatcoins += 2 + Math.floor(record.level / 3);
+      var levelReward=2+Math.floor(record.level/3);
+      state.beatcoins+=levelReward;
+      state.statistics.beatcoinsEarned+=levelReward;
     }
     if (levelled) {
       showToast(id.replace(/([A-Z])/g,' $1').toUpperCase() + ' ' + record.level,
@@ -2263,6 +2359,7 @@
       enemy.eliteId = eliteDef.id;
       enemy.eliteName = eliteDef.name;
       enemy.eliteColor = eliteDef.color;
+      enemy.eliteAssetId = eliteDef.assetId || eliteDef.id;
       enemy.hp = enemy.maxHp += 7 + Math.floor(state.dreamEncore.rank / 3);
       enemy.r += 4;
     }
@@ -2527,6 +2624,10 @@
   }
 
   function clearTransient() {
+    worldTransitionRuntime.locked = false;
+    worldTransitionRuntime.source = '';
+    worldTransitionRuntime.serial++;
+    document.body.classList.remove('world-transition');
     attacks = [];
     pulses = [];
     projectiles = [];
@@ -2597,8 +2698,92 @@
     firstPerson:['viewMode','fov','mouseSensitivity','mobileLookSensitivity','invertLookY','headBob','cameraEffects','reticle'],
     accessibility:['reducedMotion','largeText','screenShake','mobileHaptics','chordTiming']
   };
-  function enhanceSettingsPanel(){var list=document.querySelector('#settingsPanel .settings-list'),tabs=byId('settingsTabs');if(!list||!tabs||list.dataset.enhanced)return;list.dataset.enhanced='true';var fragments={};Object.keys(SETTINGS_CATEGORIES).forEach(function(category){var panel=document.createElement('section');panel.className='settings-category';panel.dataset.settingsCategory=category;panel.setAttribute('role','tabpanel');panel.hidden=category!==activeSettingsCategory;fragments[category]=panel;list.appendChild(panel);});Object.keys(SETTINGS_CATEGORIES).forEach(function(category){SETTINGS_CATEGORIES[category].forEach(function(id){var control=byId(id);if(!control)return;var row=control.closest('.setting-row')||control;fragments[category].appendChild(row);});});list.querySelectorAll('.settings-section-heading').forEach(function(heading){heading.hidden=true;});tabs.innerHTML='';Object.keys(SETTINGS_CATEGORIES).forEach(function(category){var button=document.createElement('button');button.type='button';button.setAttribute('role','tab');button.className='settings-tab';button.setAttribute('aria-selected',category===activeSettingsCategory?'true':'false');button.textContent=category==='firstPerson'?'First Person':category.charAt(0).toUpperCase()+category.slice(1);button.onclick=function(){activeSettingsCategory=category;syncSettingsCategory();};tabs.appendChild(button);});document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){var output=document.createElement('output');output.className='setting-value';output.htmlFor=range.id;function render(){var number=Number(range.value),percent=(range.max==='1'&&range.min==='0');output.textContent=percent?Math.round(number*100)+'%':(range.id==='fov'?Math.round(number)+'°':number.toFixed(number%1?2:0));}range.closest('.setting-row').appendChild(output);range.addEventListener('input',render);render();});syncSettingsCategory();}
-  function syncSettingsCategory(){document.querySelectorAll('.settings-category').forEach(function(panel){panel.hidden=panel.dataset.settingsCategory!==activeSettingsCategory;});document.querySelectorAll('.settings-tab').forEach(function(tab){var selected=tab.textContent.toLowerCase().replace(' ','')===activeSettingsCategory.toLowerCase();tab.setAttribute('aria-selected',selected?'true':'false');tab.tabIndex=selected?0:-1;});}
+  function enhanceSettingsPanel() {
+    var list = document.querySelector('#settingsPanel .settings-list');
+    var tabs = byId('settingsTabs');
+    if (!list || !tabs || list.dataset.enhanced) return;
+    list.dataset.enhanced = 'true';
+    var categories = Object.keys(SETTINGS_CATEGORIES);
+    var fragments = {};
+    categories.forEach(function (category) {
+      var panel = document.createElement('section');
+      panel.id = 'settings-panel-' + category;
+      panel.className = 'settings-category';
+      panel.dataset.settingsCategory = category;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', 'settings-tab-' + category);
+      panel.hidden = category !== activeSettingsCategory;
+      fragments[category] = panel;
+      list.appendChild(panel);
+    });
+    categories.forEach(function (category) {
+      SETTINGS_CATEGORIES[category].forEach(function (id) {
+        var control = byId(id);
+        if (!control) return;
+        var row = control.closest('.setting-row') || control;
+        fragments[category].appendChild(row);
+      });
+    });
+    list.querySelectorAll('.settings-section-heading').forEach(function (heading) { heading.hidden = true; });
+    tabs.innerHTML = '';
+    categories.forEach(function (category) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'settings-tab-' + category;
+      button.dataset.settingsCategory = category;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', 'settings-panel-' + category);
+      button.className = 'settings-tab';
+      button.setAttribute('aria-selected', category === activeSettingsCategory ? 'true' : 'false');
+      button.textContent = category === 'firstPerson' ? 'First Person' : category.charAt(0).toUpperCase() + category.slice(1);
+      button.onclick = function () {
+        activeSettingsCategory = category;
+        syncSettingsCategory();
+      };
+      tabs.appendChild(button);
+    });
+    tabs.addEventListener('keydown', function (event) {
+      var current = event.target && event.target.closest ? event.target.closest('[role="tab"]') : null;
+      if (!current || !tabs.contains(current)) return;
+      var tabButtons = Array.prototype.slice.call(tabs.querySelectorAll('[role="tab"]'));
+      var index = tabButtons.indexOf(current);
+      var nextIndex = index;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % tabButtons.length;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + tabButtons.length) % tabButtons.length;
+      else if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = tabButtons.length - 1;
+      else return;
+      event.preventDefault();
+      activeSettingsCategory = tabButtons[nextIndex].dataset.settingsCategory;
+      syncSettingsCategory();
+      tabButtons[nextIndex].focus();
+    });
+    document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function (range) {
+      var output = document.createElement('output');
+      output.className = 'setting-value';
+      output.htmlFor = range.id;
+      function render() {
+        var number = Number(range.value);
+        var percent = range.max === '1' && range.min === '0';
+        output.textContent = percent ? Math.round(number * 100) + '%' :
+          (range.id === 'fov' ? Math.round(number) + '°' : number.toFixed(number % 1 ? 2 : 0));
+      }
+      range.closest('.setting-row').appendChild(output);
+      range.addEventListener('input', render);
+      render();
+    });
+    syncSettingsCategory();
+  }
+  function syncSettingsCategory() {
+    document.querySelectorAll('.settings-category').forEach(function (panel) {
+      panel.hidden = panel.dataset.settingsCategory !== activeSettingsCategory;
+    });
+    document.querySelectorAll('.settings-tab').forEach(function (tab) {
+      var selected = tab.dataset.settingsCategory === activeSettingsCategory;
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+      tab.tabIndex = selected ? 0 : -1;
+    });
+  }
   function resetSettingsCategory(){var gameDefaults={difficultySelect:'standard',musicVolume:.62,sfxVolume:.78,screenShake:true,reducedMotion:false,objectiveArrow:true,largeText:false,interfaceSize:'standard',renderScale:'balanced',touchLayout:'normal',mobileHaptics:true,chordTiming:'standard',ambientRestoration:true};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var el=byId(id);if(!el)return;if(Object.prototype.hasOwnProperty.call(gameDefaults,id)){var key={difficultySelect:'difficulty',musicVolume:'musicVolume',sfxVolume:'sfxVolume',screenShake:'screenShake',reducedMotion:'reducedMotion',objectiveArrow:'objectiveArrow',largeText:'largeText',interfaceSize:'interfaceSize',renderScale:'renderScale',touchLayout:'touchLayout',mobileHaptics:'mobileHaptics',chordTiming:'chordTiming',ambientRestoration:'ambientRestoration'}[id];settings[key]=gameDefaults[id];} });saveSettings();applySettings();if(window.MossInput){var controllerDefaults={controllerEnabled:true,moveDeadzone:.18,lookDeadzone:.2,lookSensitivityX:1,lookSensitivityY:1,invertLookY:false,vibration:true,promptStyle:'auto',triggerThreshold:.5,southpaw:false,swapConfirmCancel:false,viewMode:'topDown',fov:70,mouseSensitivity:1,mobileLookSensitivity:1,headBob:true,cameraEffects:true,reticle:true};var patch={};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var key=id==='controllerVibration'?'vibration':id;if(Object.prototype.hasOwnProperty.call(controllerDefaults,key))patch[key]=controllerDefaults[key];});window.MossInput.applySettings(patch);}applyControllerSettings();enhanceRangeOutputs();}
   function enhanceRangeOutputs(){document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){range.dispatchEvent(new Event('input'));});}
   function renderCharacterCreator() {
@@ -3053,13 +3238,13 @@
   function replayTutorial(){if(!started){closeHowPanel();showToast('LOAD AN ADVENTURE','Continue an adventure before replaying the tutorial.','#ffc857',2.8);return;}closeHowPanel();beginTutorial(true);}
 
   function continueGame() {
-    var loaded = null;
-    loaded = safeJson(readStorage(SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(LEGACY_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(OLDER_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(OLDEST_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(ANCIENT_SAVE_KEY), null);
-    state = sanitizeState(loaded);
+    var candidate = loadBestStoredSave();
+    if (!candidate) {
+      refreshContinue();
+      showToast('SAVE UNAVAILABLE','No valid saved adventure was found. Start a new adventure or restore a backup.','#ff7892',3.8);
+      return false;
+    }
+    state = candidate.state;
     campaignFinaleShown = false;
     warmGameplayAssets();
     clearTransient();
@@ -3075,12 +3260,16 @@
     if(state.tutorial.status==='in-progress')beginTutorial(false);
     syncViewport();
     if (orientationBlocked) togglePause(true);
-    showToast('WELCOME BACK', getObjective().text, '#56f0c4', 3.4);
+    var recovered = candidate.key === SAVE_BACKUP_KEY;
+    showToast(recovered?'BACKUP RECOVERED':'WELCOME BACK',
+      recovered?'Your newest valid backup was loaded. '+getObjective().text:getObjective().text,
+      recovered?'#ffc857':'#56f0c4',3.8);
     refreshLivingRestoration(false);
     updateHUD();
     if (state.stage === 4 && bossDefeatedForStage(4) && !state.campaignFinaleSeen) {
       window.setTimeout(showCampaignFinale, 700);
     }
+    return true;
   }
 
   function showToast(title, text, color, duration) {
@@ -3119,7 +3308,7 @@
     setOverlayIsolation('dialogue', 'dialogueBox', true);
     renderDialogue();
     audioCall('sfx', 'dialogue');
-    if (touchCapable) focusSoon('dialogueContinueButton');
+    focusSoon(activePromptMode() === 'touch' ? 'dialogueContinueButton' : 'dialogueBox');
   }
   function renderDialogue() {
     if (!dialogue) return;
@@ -3150,11 +3339,13 @@
       }
     }
     var hasNext = dialogue.index < dialogue.lines.length - 1;
-    if (hint) hint.textContent = hasNext ? 'E / ENTER — NEXT' : 'E / ENTER — CLOSE';
     if (nextButton) {
       nextButton.textContent = hasNext ? 'Next' : 'Close';
       nextButton.setAttribute('aria-label', (hasNext ? 'Next' : 'Close') + ' dialogue with ' + dialogue.speaker);
     }
+    if (window.MossControllerUI) window.MossControllerUI.refreshPrompts();
+    else if (hint) hint.textContent = activePromptMode() === 'touch' ? (hasNext ? 'Tap next' : 'Tap close') :
+      (hasNext ? 'E / ENTER — NEXT' : 'E / ENTER — CLOSE');
   }
   function advanceDialogue() {
     if (!dialogue) return;
@@ -3317,24 +3508,24 @@
   }
 
   var EXPANSION_QUESTS = [
-    {id:'forest-amplifiers',category:'main',name:'Repair the Forest Amplifiers',stage:1,unlock:function(){return state.bossDefeated;},progress:function(){return Math.min(3,state.speakers.filter(function(id){return id.indexOf('s')===0;}).length);},goal:3,objective:'Retune three moss-covered amplifiers in the Static Wilds.',reward:'6 Beatcoins · Workshop schematic'},
-    {id:'ancient-speakers',category:'main',name:'Restore the Ancient Speakers',stage:2,unlock:function(){return state.chapter>=2;},progress:function(){return countCollected(LEVELS[2].drums,state.drums);},goal:3,objective:'Wake every Rootsong drum-speaker and carry their bass to Pip.',reward:'1 Skill Point · Root Lantern'},
-    {id:'lost-vinyl',category:'main',name:'Recover the Lost Vinyl',stage:1,unlock:function(){return state.metNix;},progress:function(){return collectedSetCount('mossvale');},goal:4,objective:'Recover Mossvale’s four lost recordings for Nix’s archive.',reward:'Vinyl Wall · 8 Beatcoins'},
+    {id:'forest-amplifiers',category:'main',name:'Repair the Forest Amplifiers',stage:1,unlock:function(){return state.bossDefeated;},progress:function(){return Math.min(3,state.speakers.filter(function(id){return id.indexOf('s')===0;}).length);},goal:3,objective:'Retune three moss-covered amplifiers in the Static Wilds.',reward:'6 Beatcoins · Workshop schematic',coins:6},
+    {id:'ancient-speakers',category:'main',name:'Restore the Ancient Speakers',stage:2,unlock:function(){return state.chapter>=2;},progress:function(){return countCollected(LEVELS[2].drums,state.drums);},goal:3,objective:'Wake every Rootsong drum-speaker and carry their bass to Pip.',reward:'1 Skill Point · Root Lantern',skillPoints:1},
+    {id:'lost-vinyl',category:'main',name:'Recover the Lost Vinyl',stage:1,unlock:function(){return state.metNix;},progress:function(){return collectedSetCount('mossvale');},goal:4,objective:'Recover Mossvale’s four lost recordings for Nix’s archive.',reward:'Vinyl Wall · 8 Beatcoins',coins:8},
     {id:'travelling-band',category:'main',name:'Help the Travelling Band',stage:3,unlock:function(){return state.chapter>=2;},progress:function(){return [state.metPip,state.metZephra,state.metTavi,state.metLuma].filter(Boolean).length;},goal:4,objective:'Find Pip, Zephra, Tavi and Luma across the four roads.',reward:'Moon-silver Microphone'},
-    {id:'missing-musicians',category:'main',name:'Rescue the Missing Musicians',stage:4,unlock:function(){return state.chapter>=3;},progress:function(){return [state.metMara,state.metPip,state.metZephra,state.metNix,state.metTavi,state.metLuma].filter(Boolean).length;},goal:6,objective:'Reconnect every named musician with the growing ensemble.',reward:'12 Beatcoins · Festival Lights'},
-    {id:'corrupted-resonance',category:'main',name:'Investigate Corrupted Resonance',stage:3,unlock:function(){return state.eliteDefeated.length>0||state.chapter>=3;},progress:function(){return state.eliteDefeated.length;},goal:3,objective:'Defeat three different elite echoes and study their rare drops.',reward:'Dream Gate coordinates · 2 Skill Points'},
-    {id:'dream-realm',category:'main',name:'Unlock the Dream Realm',stage:1,unlock:function(){return state.completedQuests.indexOf('corrupted-resonance')>=0;},progress:function(){return state.discoveredSecrets.length;},goal:4,objective:'Trace four secret paths until the Dream Gate stabilises.',reward:'Dreamwave cosmetic · 15 Beatcoins'},
+    {id:'missing-musicians',category:'main',name:'Rescue the Missing Musicians',stage:4,unlock:function(){return state.chapter>=3;},progress:function(){return [state.metMara,state.metPip,state.metZephra,state.metNix,state.metTavi,state.metLuma].filter(Boolean).length;},goal:6,objective:'Reconnect every named musician with the growing ensemble.',reward:'12 Beatcoins · Festival Lights',coins:12},
+    {id:'corrupted-resonance',category:'main',name:'Investigate Corrupted Resonance',stage:3,unlock:function(){return state.eliteDefeated.length>0||state.chapter>=3;},progress:function(){return state.eliteDefeated.length;},goal:3,objective:'Defeat three different elite echoes and study their rare drops.',reward:'Dream Gate coordinates · 2 Skill Points',skillPoints:2},
+    {id:'dream-realm',category:'main',name:'Unlock the Dream Realm',stage:1,unlock:function(){return state.completedQuests.indexOf('corrupted-resonance')>=0;},progress:function(){return state.discoveredSecrets.length;},goal:4,objective:'Trace four secret paths until the Dream Gate stabilises.',reward:'Dream Gate stabilised · 15 Beatcoins',coins:15},
     {id:'final-concert',category:'main',name:'The Final Concert',stage:4,unlock:function(){return state.completedQuests.indexOf('dream-realm')>=0||bossDefeatedForStage(4);},progress:function(){return Object.keys(BOSS_DEFS).filter(function(stage){return bossDefeatedForStage(Number(stage));}).length;},goal:4,objective:'Unite every region’s restored song for the final Mossvale concert.',reward:'Final Headliner achievement'},
-    {id:'mara-pantry',category:'side',name:'Mara’s Singing Pantry',stage:1,unlock:function(){return state.metMara;},progress:function(){return Math.min(12,state.weeds.length);},goal:12,objective:'Bring Mara twelve Glowweed for a travelling feast.',reward:'Heartbloom crop'},
+    {id:'mara-pantry',category:'side',name:'Mara’s Singing Pantry',stage:1,unlock:function(){return state.metMara;},progress:function(){return Math.min(12,state.weeds.length);},goal:12,objective:'Bring Mara twelve Glowweed for a travelling feast.',reward:'Heartbloom greenhouse seed'},
     {id:'jimbo-garden',category:'side',name:'Jimbo’s Perfect Harvest',stage:1,unlock:function(){return state.metJimbo;},progress:function(){return state.weeds.length;},goal:30,objective:'Harvest all thirty Glowweed without disturbing the grove.',reward:'Golden Bloom decoration'},
     {id:'eems-remix',category:'side',name:'EEMS Remix Protocol',stage:1,unlock:function(){return state.metEems&&state.composed;},progress:function(){return state.unlockedInstruments.length;},goal:6,objective:'Play the recovered composition through all six instrument circuits.',reward:'Final Concert record'},
-    {id:'blu-silence',category:'side',name:'Blu’s Rest Between Beats',stage:1,unlock:function(){return state.metBlu;},progress:function(){return Math.min(5,state.statistics.perfectBlocks||0);},goal:5,objective:'Perform five perfect blocks and learn to value the rest between attacks.',reward:'Resonance cooldown charm'},
+    {id:'blu-silence',category:'side',name:'Blu’s Rest Between Beats',stage:1,unlock:function(){return state.metBlu;},progress:function(){return Math.min(5,state.statistics.perfectBlocks||0);},goal:5,objective:'Perform five perfect blocks and learn to value the rest between attacks.',reward:'Tempo Ring'},
     {id:'pip-practice',category:'side',name:'Pip’s Impossible Backbeat',stage:2,unlock:function(){return state.metPip;},progress:function(){return Math.min(25,state.statistics.highestCombo||0);},goal:25,objective:'Hold a 25-hit Rhythm Combo for Pip.',reward:'Drumstick alternate combo'},
     {id:'zephra-parts',category:'side',name:'Wind-Tossed Components',stage:3,unlock:function(){return state.metZephra;},progress:function(){return collectedSetCount('skyglass');},goal:4,objective:'Collect four Prism Fragments for Zephra’s bridge tuner.',reward:'Skyglass Mobile'},
     {id:'nix-relics',category:'side',name:'Archive After Midnight',stage:1,unlock:function(){return state.metNix;},progress:function(){return Math.min(8,state.collectibles.length);},goal:8,objective:'Recover eight relic recordings for Nix.',reward:'Collector Compass effect'},
     {id:'tavi-tides',category:'side',name:'Three Tides, One Bow',stage:4,unlock:function(){return state.metTavi;},progress:function(){return countCollected(LEVELS[4].tokens,state.stageTokens);},goal:3,objective:'Collect all three Moonwake shells.',reward:'Tidewood Violin'},
-    {id:'luma-festival',category:'side',name:'Lantern Festival Set',stage:4,unlock:function(){return state.metLuma;},progress:function(){return Math.min(3,state.completedQuests.length);},goal:3,objective:'Complete three other quest chains before Luma’s festival.',reward:'Festival Lights · 1 Skill Point'},
-    {id:'brad-contract',category:'side',name:'Brad’s Preferred Customer',stage:1,unlock:function(){return true;},progress:function(){return Math.min(5,state.statistics.shopPurchases||0);},goal:5,objective:'Purchase five field goods from Brad.',reward:'10 Beatcoins cashback'}
+    {id:'luma-festival',category:'side',name:'Lantern Festival Set',stage:4,unlock:function(){return state.metLuma;},progress:function(){return Math.min(3,state.completedQuests.length);},goal:3,objective:'Complete three other quest chains before Luma’s festival.',reward:'Festival Lights · 1 Skill Point',skillPoints:1},
+    {id:'brad-contract',category:'side',name:'Brad’s Preferred Customer',stage:1,unlock:function(){return true;},progress:function(){return Math.min(5,state.statistics.shopPurchases||0);},goal:5,objective:'Purchase five field goods from Brad.',reward:'10 Beatcoins cashback',coins:10}
   ];
   var questSyncTimer = 0;
   var questLogFilter = 'main';
@@ -3352,12 +3543,13 @@
     var questRegion = regionIdForStage(quest.stage);
     state.regionalReputation[questRegion] = clamp(state.regionalReputation[questRegion] +
       (quest.category === 'main' ? 5 : 3),0,100);
-    var coins=quest.category==='main'?8:4;
-    var skillReward=['ancient-speakers','corrupted-resonance','luma-festival'].indexOf(quest.id)>=0?1:0;
-    if(quest.id==='corrupted-resonance')skillReward=2;
+    var coins=Math.max(0,Math.floor(Number(quest.coins)||0));
+    var skillReward=Math.max(0,Math.floor(Number(quest.skillPoints)||0));
     state.beatcoins+=coins;
     state.statistics.beatcoinsEarned+=coins;
     state.skillPoints+=skillReward;
+    if(quest.id==='forest-amplifiers')state.home.workshopLevel=Math.max(state.home.workshopLevel,2);
+    if(quest.id==='ancient-speakers'&&state.home.decorations.indexOf('root-lantern')<0)state.home.decorations.push('root-lantern');
     if(quest.id==='travelling-band')unlockInstrument('microphone','The travelling band restores its moon-silver lead microphone.');
     if(quest.id==='tavi-tides')unlockInstrument('violin','Tavi completes the tidewood bow.');
     if(quest.id==='pip-practice'&&state.masteryNodes.indexOf('drums-combo')<0)state.masteryNodes.push('drums-combo');
@@ -3367,13 +3559,15 @@
     }
     if(quest.id==='zephra-parts'&&state.home.decorations.indexOf('skyglass-mobile')<0)state.home.decorations.push('skyglass-mobile');
     if(quest.id==='lost-vinyl'&&state.home.decorations.indexOf('vinyl-wall')<0)state.home.decorations.push('vinyl-wall');
+    if(quest.id==='missing-musicians'&&state.home.decorations.indexOf('festival-lights')<0)state.home.decorations.push('festival-lights');
+    if(quest.id==='mara-pantry')state.home.heartbloomSeedReady=true;
     if(quest.id==='luma-festival'&&state.home.decorations.indexOf('festival-lights')<0)state.home.decorations.push('festival-lights');
     if(quest.id==='nix-relics'&&state.purchases.indexOf('collector-compass')<0){state.purchases.push('collector-compass');grantEquipment('collector-compass',true);}
     if(quest.id==='jimbo-garden'&&state.home.decorations.indexOf('golden-bloom')<0)state.home.decorations.push('golden-bloom');
     if(quest.id==='eems-remix')state.home.jukeboxTrack='Final Concert';
     if(quest.id==='blu-silence'&&state.purchases.indexOf('tempo-ring')<0){state.purchases.push('tempo-ring');grantEquipment('tempo-ring',true);}
     if(quest.id==='final-concert'&&state.achievements.indexOf('final-headliner')<0)state.achievements.push('final-headliner');
-    showToast('QUEST COMPLETE · '+quest.name,quest.reward+' · +'+coins+' Beatcoins',quest.category==='main'?'#ffc857':'#7ce4d1',4.2);
+    showToast('QUEST COMPLETE · '+quest.name,quest.reward,quest.category==='main'?'#ffc857':'#7ce4d1',4.2);
     audioCall('sfx','unlock');
     saveGame(true);
   }
@@ -3432,21 +3626,36 @@
     updateHUD(true);
   }
 
-  function registerRhythmAttack() {
-    var beat = rhythmCombo.beatLength;
-    var phase = (nowTime % beat) / beat;
-    var distanceToBeat = Math.min(phase, 1 - phase);
+  function captureRhythmTiming() {
     var perfectWindow = activeResonance('conductor') ? 0.18 : 0.12;
     var goodWindow = activeResonance('conductor') ? 0.32 : 0.24;
+    var timing = audioCall('gradeBeat',{
+      perfectWindow:perfectWindow,
+      goodWindow:goodWindow,
+      fallbackTime:nowTime
+    });
+    if(timing&&Number.isFinite(timing.distanceToBeat))return timing;
+    var beat = rhythmCombo.beatLength;
+    var phase = (nowTime % beat) / beat;
+    var distanceToBeat = Math.min(phase,1-phase);
+    return {
+      bpm:RHYTHM_BPM,beatDuration:beat,phase:phase,distanceToBeat:distanceToBeat,
+      distanceSeconds:distanceToBeat*beat,running:false,
+      quality:distanceToBeat<=perfectWindow?'perfect':distanceToBeat<=goodWindow?'good':'miss'
+    };
+  }
+
+  function registerRhythmHit(timing) {
+    timing=timing&&typeof timing==='object'?timing:captureRhythmTiming();
     var gain = 0;
-    if (distanceToBeat <= perfectWindow) {
+    if (timing.quality === 'perfect') {
       gain = activeResonance('conductor') ? 3 : 2;
       rhythmCombo.lastQuality = 'PERFECT';
       state.statistics.perfectBeats = (state.statistics.perfectBeats || 0) + 1;
       /* Confirmation only — the beat is still carried by audio and the HUD. */
       rumble(0.18, 45);
       gainClassMastery(1,'A perfect rhythm attack');
-    } else if (distanceToBeat <= goodWindow) {
+    } else if (timing.quality === 'good') {
       gain = 1;
       rhythmCombo.lastQuality = 'GOOD';
     } else {
@@ -3469,6 +3678,30 @@
         if (boss && !boss.dead && distance(player,boss)<110+boss.r) hitBoss(1);
       }
     }
+  }
+
+  function confirmRhythmAttack(attack) {
+    if(!attack||attack.classAttack||attack.rhythmConfirmed)return false;
+    attack.rhythmConfirmed=true;
+    registerRhythmHit(attack.rhythmTiming);
+    return true;
+  }
+
+  function currentCombatPressure() {
+    if(boss&&!boss.dead)return 1;
+    var pressure=Math.min(.72,rhythmCombo.count/50);
+    if(player.hurtTimer>0)pressure=Math.max(pressure,.48);
+    for(var enemyIndex=0;enemyIndex<enemies.length&&pressure<1;enemyIndex++){
+      var enemy=enemies[enemyIndex];
+      if(enemy.dead||enemy.progressionLocked)continue;
+      var dx=enemy.x-player.x,dy=enemy.y-player.y,distanceSq=dx*dx+dy*dy;
+      if(distanceSq>230400)continue;
+      var committed=['windup','lunge','dive'].indexOf(enemy.mode)>=0||firstStageRuntime.attackSlots.has(enemy.id);
+      pressure+=committed?.22:.07;
+    }
+    if(projectiles.length)pressure+=Math.min(.22,projectiles.length*.025);
+    if(hazards.length)pressure+=.1;
+    return clamp(pressure,0,1);
   }
 
   function comboDamageBonus() {
@@ -3502,12 +3735,13 @@
     var pauseLocation = byId('pauseLocation');
     var objectiveInfo = getObjective();
     var livingRestoration=activeRestoration(),livingSynergy=activeClassSynergy(),livingRegion=LIVING&&LIVING.regions[livingRestoration.region];
+    var combatPressure=currentCombatPressure();
     var nextSignature = [
       player.health, player.maxHealth, state.heartblooms, state.weeds.length, state.notes.join(','), state.collectibles.join(','), state.melody.join(','),
       state.pulse ? 1 : 0, state.charged ? 1 : 0, state.pruner ? 1 : 0, state.activeResonance, state.equippedInstrument,state.character.classId,
       Math.floor(instrumentUltimateCharge/5), state.weather, state.stage, rhythmCombo.count, rhythmCombo.lastQuality,
       Math.ceil(rhythmCombo.timer*10), rhythmCombo.flash>0?1:0, Math.round(player.blockStamina), player.blocking?1:0,
-      player.guardBroken>0?1:0, player.counterWindow>0?1:0, livingRestoration.tier,livingSynergy&&livingSynergy.id,objectiveInfo.text
+      player.guardBroken>0?1:0, player.counterWindow>0?1:0, livingRestoration.tier,livingSynergy&&livingSynergy.id,Math.round(combatPressure*10),objectiveInfo.text
     ].join('|');
     if (!force && nextSignature === hudSignature) return;
     hudSignature = nextSignature;
@@ -3581,8 +3815,8 @@
     audioCall('setProgress', state.notes.length, state.melody, state.notes.slice());
     audioCall('setAdaptiveState',{
       stage:state.stage,
-      scene:boss&&!boss.dead?'boss':rhythmCombo.count>0?'combat':'exploration',
-      intensity:boss&&!boss.dead?1:Math.min(1,rhythmCombo.count/50),
+      scene:homeOpen?'home':boss&&!boss.dead?'boss':combatPressure>.06?'combat':'exploration',
+      intensity:combatPressure,
       instrument:state.equippedInstrument,
       resonance:state.activeResonance,
       weather:state.weather,
@@ -4198,7 +4432,18 @@
   }
 
   function claimEnemyAttackSlot(enemy) {
-    if (state.stage !== 1 || enemy.isMiniBoss || boss) return true;
+    if (boss && !boss.dead) return false;
+    if (enemy.isMiniBoss) return true;
+    if (state.stage !== 1) {
+      var laterLimit=settings.difficulty==='hard'?4:settings.difficulty==='story'?2:3;
+      var committed=0;
+      for(var enemyIndex=0;enemyIndex<enemies.length;enemyIndex++){
+        var candidate=enemies[enemyIndex];
+        if(candidate===enemy||candidate.dead||candidate.progressionLocked)continue;
+        if(candidate.pendingVolley||['windup','lunge','dive'].indexOf(candidate.mode)>=0)committed++;
+      }
+      return committed<laterLimit;
+    }
     if (firstStageHostilesSuspended() || enemy.progressionLocked || enemy.spawnWarmup > 0) return false;
     if (firstStageRuntime.attackSlots.has(enemy.id)) {
       enemy.attackSlotUntil = 1.6;
@@ -4212,6 +4457,7 @@
 
   function returnEnemyHome(enemy, dt) {
     releaseEnemyAttackSlot(enemy);
+    enemy.pendingVolley=null;
     enemy.mode = 'idle';
     enemy.vx = enemy.vy = 0;
     var dx = enemy.homeX - enemy.x;
@@ -4226,14 +4472,84 @@
     }
   }
 
+  function activePromptMode() {
+    var input = window.MossInput;
+    if (input && input.getActiveMethod && input.getActiveMethod() === 'touch') return 'touch';
+    if (input && input.promptStyle && input.promptStyle() === 'xbox') return 'gamepad';
+    return 'keyboard';
+  }
+
+  function queueEnemyVolley(enemy,kind,windup,data,label,color) {
+    if(enemy.pendingVolley)return false;
+    var duration=Math.max(0.24,Number(windup)||0.4);
+    enemy.pendingVolley={kind:kind,timer:duration,maxTimer:duration,data:data||{}};
+    enemy.mode='windup';
+    setAnimationState(enemy,'special',duration);
+    showFloat(enemy.x,enemy.y-enemy.r-16,label||'!',color||enemyColor(enemy));
+    audioCall('sfx','warning');
+    return true;
+  }
+
+  function releaseEnemyVolley(enemy) {
+    var volley=enemy.pendingVolley;
+    if(!volley)return false;
+    enemy.pendingVolley=null;
+    var data=volley.data||{},angle=Number(data.angle)||0;
+    if(volley.kind==='mini-notes'){
+      for(var noteRay=-2;noteRay<=2;noteRay++){
+        var noteAngle=angle+noteRay*.18;
+        fireProjectile(enemy.x,enemy.y,Math.cos(noteAngle)*185,Math.sin(noteAngle)*185,data.color,7,4,data.power);
+      }
+    }else if(volley.kind==='mini-radial'){
+      for(var miniRay=0;miniRay<data.rays;miniRay++){
+        var miniAngle=miniRay*Math.PI*2/data.rays+angle;
+        var miniSpeed=data.pattern==='tides'?115+(miniRay%2)*55:data.pattern==='storm'?205:135;
+        fireProjectile(enemy.x,enemy.y,Math.cos(miniAngle)*miniSpeed,Math.sin(miniAngle)*miniSpeed,
+          data.color,data.pattern==='spores'?9:6,4,data.power);
+      }
+    }else if(volley.kind==='storm'){
+      for(var stormRay=0;stormRay<6;stormRay++){
+        var stormAngle=stormRay*Math.PI/3+angle;
+        fireProjectile(enemy.x,enemy.y,Math.cos(stormAngle)*135,Math.sin(stormAngle)*135,'#86e8ff',6,3.5);
+      }
+    }else if(volley.kind==='wisp'){
+      for(var spread=-1;spread<=1;spread++){
+        var wispAngle=angle+spread*.22;
+        fireProjectile(enemy.x,enemy.y,Math.cos(wispAngle)*data.speed,Math.sin(wispAngle)*data.speed,'#82aaff',6,4);
+      }
+    }else if(volley.kind==='aimed'){
+      fireProjectile(enemy.x,enemy.y,Math.cos(angle)*data.speed,Math.sin(angle)*data.speed,data.color,data.radius||8,data.life||4,data.power);
+    }else if(volley.kind==='dive'){
+      enemy.mode='dive';enemy.timer=.58;enemy.vx=Math.cos(angle)*data.speed;enemy.vy=Math.sin(angle)*data.speed;
+      setAnimationState(enemy,'attack_a',.58);
+      return true;
+    }
+    enemy.mode='idle';
+    setAnimationState(enemy,'attack_a',.34);
+    return true;
+  }
+
   function tutorialControlLabel(action) {
-    if (touchCapable) {
+    var promptMode = activePromptMode();
+    if (promptMode === 'touch') {
       return action === 'move' ? 'drag the left movement area' :
         action === 'interact' ? 'tap TALK' :
         action === 'attack' ? 'tap STRIKE' :
         action === 'dodge' ? 'tap DODGE' :
         action === 'block' ? 'hold BLOCK' :
         action === 'heal' ? 'tap HEAL' : 'tap ODIN';
+    }
+    if (promptMode === 'gamepad') {
+      var input = window.MossInput;
+      var label = function (control, fallback) {
+        return input && input.label ? input.label(control) || fallback : fallback;
+      };
+      return action === 'move' ? 'use the left stick or D-pad' :
+        action === 'interact' ? 'press ' + label('interact', 'Y') :
+        action === 'attack' ? 'press ' + label('attack', 'A') :
+        action === 'dodge' ? 'press ' + label('dodge', 'B') :
+        action === 'block' ? 'hold ' + label('block', 'LB') :
+        action === 'heal' ? 'press ' + label('heal', 'LT') : 'press ' + label('odin', 'RB');
     }
     return action === 'move' ? 'use WASD or the arrow keys' :
       action === 'interact' ? 'press E' :
@@ -4378,7 +4694,7 @@
   function performAttack(charged, fromBuffer) {
     if (player.blocking || player.guardBroken > 0 || equipmentVisualRuntime.switching) return;
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
-    if (player.attackCooldown > 0) {
+    if (player.attackCooldown > 0 || committedPlayerAttack()) {
       if (!charged && !fromBuffer) inputBuffer.attack = FIRST_STAGE_BALANCE.inputBufferSeconds;
       return;
     }
@@ -4387,11 +4703,13 @@
     recordFirstStageTutorial('attack');
     state.statistics.attacksSwung++;
     signalTutorial(charged?'charged':'attack');
-    registerRhythmAttack();
     var instrument = equippedInstrument();
     var profile = Object.assign({},instrumentProfile(instrument.id)),mastery=activeMasteryModifiers();
     if(state.character.classId==='riffblade'&&mastery.cleaveWidth)profile.arc+=.14;
     var duration = charged ? Math.max(0.3,instrument.charge) : (instrument.id === 'bass' ? 0.25 : 0.18);
+    var startup = charged ? 0.045 : Math.min(0.055,Math.max(0.032,profile.cooldown * 0.18));
+    var recovery = charged ? 0.1 : Math.max(0.04,Math.min(0.14,profile.cooldown-duration));
+    var totalDuration = startup + duration + recovery;
     var countering = player.counterWindow > 0;
     if (countering) {
       player.counterWindow = 0;
@@ -4401,7 +4719,9 @@
     var attackOrigin = equipmentWorldOrigin(instrument.id,charged ? 'charged' : 'attack',player.facing,0,'hitbox',0);
     attacks.push({
       x: attackOrigin.x, y: attackOrigin.y, angle: player.facing, charged: charged, counter: countering,
-      life: duration, maxLife: duration, hit: new Set(), instrument: instrument.id, profile: profile, chainTriggered:false
+      life: totalDuration, maxLife: totalDuration, elapsed:0, startup:startup, activeDuration:duration,
+      rootX:player.x,rootY:player.y,phase:'startup',hit: new Set(), instrument: instrument.id, profile: profile, chainTriggered:false,
+      rhythmTiming:captureRhythmTiming(),rhythmConfirmed:false
     });
     player.attackCooldown = charged ? Math.max(0.44,profile.cooldown * 1.75) : profile.cooldown;
     if (state.skills.indexOf('rhythm-master') >= 0) player.attackCooldown *= 0.75;
@@ -4416,12 +4736,34 @@
     }
   }
 
+  function committedPlayerAttack() {
+    for (var index=attacks.length-1;index>=0;index--) {
+      var attack=attacks[index];
+      if(attack.classAttack)continue;
+      var elapsed=Number.isFinite(attack.elapsed)?attack.elapsed:Math.max(0,attack.maxLife-attack.life);
+      if(elapsed<(attack.startup||0)+(attack.activeDuration||attack.maxLife))return attack;
+    }
+    return null;
+  }
+
   function doDash(fromBuffer) {
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    var committedAttack=committedPlayerAttack();
+    if (committedAttack) {
+      if (!fromBuffer) {
+        var committedRemaining=(committedAttack.startup||0)+(committedAttack.activeDuration||committedAttack.maxLife)-
+          (Number.isFinite(committedAttack.elapsed)?committedAttack.elapsed:0);
+        inputBuffer.dodge=Math.max(FIRST_STAGE_BALANCE.inputBufferSeconds,committedRemaining+0.05);
+      }
+      return;
+    }
     if (player.dashCooldown > 0 || player.guardBroken > 0) {
       if (!fromBuffer) inputBuffer.dodge = FIRST_STAGE_BALANCE.inputBufferSeconds;
       return;
     }
+    /* Recovery is intentionally dodge-cancellable, but its spent hitbox must
+       never ride along with the dash. Class fields/ability attacks persist. */
+    attacks = attacks.filter(function (attack) { return attack.classAttack; });
     inputBuffer.dodge = 0;
     recordFirstStageTutorial('dodge');
     state.statistics.dashes++;
@@ -4675,15 +5017,113 @@
     else collectNote(near.item);
   }
 
-  function enterStage(portal) {
-    if (!portalUnlocked(portal)) {
-      audioCall('sfx', 'error');
-      showToast('STAGE GATE LOCKED', portalLockReason(portal), '#8e9ba0', 3);
-      return;
+  function activeWorldTravelThreat() {
+    if (boss && !boss.dead) return {code:'boss',label:'Boss encounter active'};
+    if (state.dreamEncore.active || dreamEncoreRuntime.activeEnemyIds.size) {
+      return {code:'dream-encore',label:'Dream Encore active'};
     }
+    if (projectiles.length || hazards.length) return {code:'hostiles',label:'Hostile attack active'};
+    if (state.stage === 1 && firstStageHostilesSuspended()) return null;
+    for (var enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
+      var enemy = enemies[enemyIndex];
+      if (enemy.dead || enemy.progressionLocked) continue;
+      var committed = ['windup','lunge','dive'].indexOf(enemy.mode) >= 0 ||
+        firstStageRuntime.attackSlots.has(enemy.id);
+      var engagementRadius = enemy.isMiniBoss ? 430 :
+        enemy.ai === 'support' ? 340 : enemy.ai === 'storm' ? 320 :
+        enemy.ai === 'ambusher' ? 260 : enemy.type === 'wisp' ? 330 :
+        enemy.type === 'slime' ? 310 : enemy.type === 'buzz' ? 300 : 250;
+      var engaged = enemy.introduced && !(enemy.spawnWarmup > 0) && !(enemy.disengageTimer > 0) &&
+        distanceSquared(enemy,player) < engagementRadius * engagementRadius;
+      if (committed || engaged) return {code:'hostiles',label:'Nearby encounter active'};
+    }
+    return null;
+  }
+
+  function worldTravelBlockReason() {
+    if (worldTransitionRuntime.locked) {
+      return {code:'transition',title:'TRAVEL IN PROGRESS',message:'Wait for the current route change to finish.',label:'Route change in progress',color:'#8e9ba0'};
+    }
+    if (!started) {
+      return {code:'not-started',title:'BEGIN YOUR JOURNEY',message:'Start or continue an adventure before travelling.',label:'Adventure not started',color:'#8e9ba0'};
+    }
+    if (tutorialRuntime.active) {
+      return {code:'tutorial',title:'FINISH THE REHEARSAL',message:'Mossvale roads open after the prologue.',label:'Available after rehearsal',color:'#ffc857'};
+    }
+    if (rehearsalRuntime.active) {
+      return {code:'rehearsal',title:'REHEARSAL ACTIVE',message:'Finish or leave the boss rehearsal before travelling.',label:'Finish the rehearsal',color:'#ffc857'};
+    }
+    if (orientationBlocked) {
+      return {code:'orientation',title:'ROTATE TO TRAVEL',message:'Return to a supported orientation before changing worlds.',label:'Rotate device to travel',color:'#8e9ba0'};
+    }
+    if (dialogue || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen ||
+        statisticsOpen || instrumentsOpen || homeOpen || livingOpen || quickWheelRuntime.open ||
+        confirmationRuntime.open || panelIsOpen('rehearsalResultsOverlay')) {
+      return {code:'modal',title:'CLOSE THE CURRENT PANEL',message:'Finish the current interaction before changing worlds.',label:'Finish current interaction',color:'#8e9ba0'};
+    }
+    var threat = activeWorldTravelThreat();
+    if (threat) {
+      return {code:threat.code,title:'FINISH THE CURRENT VERSE',
+        message:threat.code === 'boss' ? 'Defeat the boss before leaving this world.' :
+          threat.code === 'dream-encore' ? 'Complete or end Dream Encore before travelling.' :
+          'Break away from nearby hostiles before travelling.',
+        label:threat.label,color:'#ff7892'};
+    }
+    return null;
+  }
+
+  function denyWorldTravel(reason) {
+    if (!reason) return false;
+    audioCall('sfx','error');
+    showToast(reason.title,reason.message,reason.color || '#ff7892',2.8);
+    return false;
+  }
+
+  function beginWorldTransition(source,duration) {
+    if (worldTransitionRuntime.locked) return 0;
+    worldTransitionRuntime.locked = true;
+    worldTransitionRuntime.source = source || 'travel';
+    var token = ++worldTransitionRuntime.serial;
+    document.body.classList.add('world-transition');
+    window.setTimeout(function () {
+      if (worldTransitionRuntime.serial !== token) return;
+      worldTransitionRuntime.locked = false;
+      worldTransitionRuntime.source = '';
+      document.body.classList.remove('world-transition');
+      if (mapOpen) renderFastTravel();
+    },settings.reducedMotion ? 120 : duration);
+    return token;
+  }
+
+  function clearStageScopedRuntime() {
+    attacks=[];pulses=[];particles=[];floatingTextCount=0;projectiles=[];hazards=[];classFields=[];
+    healthPickups=[];boss=null;bossPadLatch=null;
+    encounterDirector.activeEvent=null;
+    encounterDirector.tension=0;
+    encounterDirector.recentDamage=0;
+    encounterDirector.weatherTimer=0;
+    encounterDirector.cooldown=Math.max(encounterDirector.cooldown,8);
+    firstStageRuntime.attackSlots.clear();
+  }
+
+  function enterStage(portal) {
+    var target = Number(portal && portal.target);
+    if (!portal || !Number.isInteger(target) || target < 1 || target > 4) {
+      return denyWorldTravel({title:'ROUTE UNKNOWN',message:'That stage route is not available.',color:'#8e9ba0'});
+    }
+    var route = {target:target,back:!!portal.back};
+    if (!portalUnlocked(route)) {
+      audioCall('sfx', 'error');
+      showToast('STAGE GATE LOCKED', portalLockReason(route), '#8e9ba0', 3);
+      return false;
+    }
+    var blocked = worldTravelBlockReason();
+    if (blocked) return denyWorldTravel(blocked);
+    if (!beginWorldTransition('portal',420)) return denyWorldTravel(worldTravelBlockReason());
     state.stagePositions[String(state.stage)] = {x:Math.round(player.x),y:Math.round(player.y)};
-    state.stage = portal.target;
-    state.chapter = Math.max(state.chapter,portal.target);
+    clearStageScopedRuntime();
+    state.stage = target;
+    state.chapter = Math.max(state.chapter,target);
     activateLevel(state.stage);
     resetEnemies();
     var remembered = state.stagePositions[String(state.stage)];
@@ -4698,12 +5138,12 @@
       odin.howlCooldown=0;odin.guardianCooldown=0;odin.spiritTimer=0;odin.target=null;
       resetOdinVisuals();
     }
-    attacks=[];pulses=[];particles=[];projectiles=[];hazards=[];boss=null;bossPadLatch=null;
     resetFirstStageRuntime('travel');
     spawnStageHeartblooms(state.stage);
     audioCall('sfx','unlock');
-    showToast('ENTERING '+portal.name.toUpperCase(),'New terrain, enemies, and local quests await.','#62c7ff',4);
+    showToast('ENTERING '+String(portal.name || STAGE_NAMES[target]).toUpperCase(),'New terrain, enemies, and local quests await.','#62c7ff',4);
     saveGame(true);updateHUD(true);
+    return true;
   }
 
   function beginBlock(fromBuffer) {
@@ -4739,7 +5179,7 @@
     player.invuln = 0;
     player.counterWindow = 0;
     player.blockFlash = 0.45;
-    audioCall('sfx', 'hit');
+    audioCall('sfx', 'guard-break');
     shake = 7;
     showFloat(player.x, player.y - 34, 'GUARD BREAK!', '#ff6680');
     for (var i = 0; i < 14; i++) spawnParticle(player.x, player.y, '#ff6680', 85, 3);
@@ -4747,13 +5187,17 @@
   }
 
   function tryBlockDamage(amount, fromX, fromY) {
-    if (!player.blocking || player.guardBroken > 0 || player.blockStamina <= 0) return false;
+    if (!player.blocking || player.guardBroken > 0 || player.blockStamina <= 0) return null;
+    var sourceAngle=Math.atan2(fromY-player.y,fromX-player.x);
+    var guardArc=touchCapable?2.08:1.92;
+    if(Math.abs(angleDelta(sourceAngle,player.facing))>guardArc)return null;
     var elapsed = nowTime - player.blockStartedAt;
     var mastery=activeMasteryModifiers();
     var perfectWindow = (activeResonance('conductor') ? 0.28 : 0.20) + mastery.counterWindow +
       (touchCapable ? FIRST_STAGE_BALANCE.mobileBlockForgivenessSeconds : 0);
     var perfect = elapsed <= perfectWindow;
-    var blockedDamage = perfect ? amount : Math.max(1, Math.ceil(amount * 0.75));
+    var remainingDamage=perfect||amount<=1?0:Math.max(1,Math.floor(amount*0.4));
+    var blockedDamage=Math.max(0,amount-remainingDamage);
     var staminaCost = perfect ? 8 + amount * 3 : 15 + amount * 8;
     player.blockStamina = Math.max(0, player.blockStamina - staminaCost);
     state.statistics.blocksPerformed = (state.statistics.blocksPerformed || 0) + 1;
@@ -4775,17 +5219,17 @@
       rhythmCombo.lastQuality = 'PERFECT BLOCK';
       rhythmCombo.multiplier = rhythmCombo.count >= 100 ? 2.5 : rhythmCombo.count >= 50 ? 2 : rhythmCombo.count >= 25 ? 1.5 : rhythmCombo.count >= 10 ? 1.25 : 1;
       showFloat(player.x, player.y - 38, 'PERFECT BLOCK!', '#62c7ff');
-      audioCall('sfx', 'pulse');
+      audioCall('sfx', 'parry');
       mobileHaptic([18,20,30]);
       for (var i = 0; i < 16; i++) spawnParticle(player.x, player.y, '#62c7ff', 95, 3);
     } else {
       showFloat(player.x, player.y - 32, 'BLOCK', '#7ce4d1');
-      audioCall('sfx', 'dodge');
+      audioCall('sfx', 'guard');
       for (var j = 0; j < 8; j++) spawnParticle(player.x, player.y, '#7ce4d1', 55, 2);
     }
     if (player.blockStamina <= 0) breakGuard();
     updateHUD(true);
-    return true;
+    return {blocked:true,perfect:perfect,remaining:remainingDamage};
   }
 
   function damagePlayer(amount, fromX, fromY) {
@@ -4794,8 +5238,12 @@
     if(isEquipped('grooveguard-vest')&&activeBuffs.grooveguardCooldown<=0&&amount>1){amount=Math.max(1,amount-1);activeBuffs.grooveguardCooldown=12;showFloat(player.x,player.y-28,'GROOVEGUARD','#56f0c4');}
     if (firstStageHostilesSuspended()) return;
     if (player.invuln > 0 || player.dashTimer > 0) return;
-    if (tryBlockDamage(amount, fromX, fromY)) return;
-    if (state.odinRecruited && state.skills.indexOf('odin-guardian') >= 0 &&
+    var guardResult=tryBlockDamage(amount,fromX,fromY);
+    if(guardResult){
+      if(guardResult.remaining<=0)return false;
+      amount=guardResult.remaining;
+    }
+    if (state.odinRecruited && odin.command === 'guard' && state.skills.indexOf('odin-guardian') >= 0 &&
         player.health <= 2 && odin.guardianCooldown <= 0 && distance(player, odin) < 230) {
       odin.guardianCooldown = 18;
       odin.x = player.x - normalize(player.x - fromX, player.y - fromY).x * 28;
@@ -4909,7 +5357,7 @@
   }
 
   function hitEnemy(enemy, damage, sourceX, sourceY, lightweightEffects) {
-    if (enemy.dead || enemy.progressionLocked || enemy.flash > 0 || (enemy.type === 'wisp' && enemy.shielded)) {
+    if (enemy.dead || enemy.progressionLocked || (enemy.flash > 0 && !lightweightEffects) || (enemy.type === 'wisp' && enemy.shielded)) {
       if (enemy.type === 'wisp' && enemy.shielded) {
         audioCall('sfx', 'error');
         showFloat(enemy.x, enemy.y - 20, 'PULSE FIRST', '#db80ff');
@@ -4925,7 +5373,7 @@
     }
     state.statistics.damageDealt += Math.min(enemy.hp, damage);
     enemy.hp -= damage;
-    enemy.flash = 0.14;
+    if (!lightweightEffects) enemy.flash = 0.14;
     enemy.stun = Math.max(enemy.stun, 0.22);
     setAnimationState(enemy, 'hurt', 0.18);
     var n = normalize(enemy.x - sourceX, enemy.y - sourceY);
@@ -4941,6 +5389,9 @@
   function killEnemy(enemy, lightweightEffects) {
     if (!enemy || enemy.dead) return;
     enemy.dead = true;
+    enemy.pendingVolley = null;
+    enemy.mode = 'idle';
+    enemy.vx = enemy.vy = 0;
     releaseEnemyAttackSlot(enemy);
     enemy.deathTimer = 0;
     enemy.deathDuration = enemy.deathDuration || 1.3;
@@ -5627,10 +6078,10 @@
     {id:'wide-pulse',name:'Resonant Reach',desc:'Pulse reaches farther in combat and puzzles.'},
     {id:'grove-vitality',name:'Second Wind',desc:'Gain one max heart; critical Heartblooms restore two.'},
     {id:'odin-bond',name:'Odin Guard',desc:'Odin bites enemies, stuns farther, and recovers faster.'},
-    {id:'odin-pounce',name:'Odin Pounce',desc:'Odin leaps at distant enemies for heavy damage and a long stun.'},
+    {id:'odin-pounce',name:'Odin Pounce',desc:'In Hunt mode, Odin leaps along clear paths for heavy damage and a long stun.'},
     {id:'odin-howl',name:'Howl of Courage',desc:'Odin periodically howls in crowded fights, boosting your speed and damage.'},
     {id:'odin-fetch',name:'Keen Nose',desc:'Fetch command lets Odin collect nearby Glowweed and Heartblooms.'},
-    {id:'odin-guardian',name:'Guardian Leap',desc:'Odin can block a hit when your health is critical.'},
+    {id:'odin-guardian',name:'Guardian Leap',desc:'In Guard mode, Odin can block a hit when your health is critical.'},
     {id:'odin-spirit',name:'Spirit Wolf',desc:'Odin enters a spectral frenzy after a pounce, moving faster and dealing more damage.'},
     {id:'lucky-leaf',name:'Lucky Leaf',desc:'Earn more Beatcoins and guarantee health drops.'},
     {id:'echo-chamber',name:'Echo Chamber',desc:'Echo Pulse now damages enemies and breaks shields.'},
@@ -6062,7 +6513,8 @@
   }
 
   function travelHome() {
-    if(rehearsalBlocksSideMode('Player Home'))return false;
+    var blocked = worldTravelBlockReason();
+    if (blocked) return denyWorldTravel(blocked);
     if (mapOpen) closeMap();
     window.requestAnimationFrame(openHome);
     return true;
@@ -6095,7 +6547,9 @@
     } else if (id === 'greenhouse') {
       var plantedAge = state.playSeconds - state.home.greenhousePlantedAt;
       if (!state.home.greenhouseCrop) {
-        state.home.greenhouseCrop = state.chapter >= 4 ? 'moon-orchid' : state.weeds.length >= 14 ? 'heartbloom' : 'glowweed';
+        state.home.greenhouseCrop = state.home.heartbloomSeedReady ? 'heartbloom' :
+          state.chapter >= 4 ? 'moon-orchid' : state.weeds.length >= 14 ? 'heartbloom' : 'glowweed';
+        state.home.heartbloomSeedReady = false;
         state.home.greenhousePlantedAt = state.playSeconds;
         gainProfessionXp('gardening',2,'Planting the greenhouse');
         showToast('GREENHOUSE PLANTED',state.home.greenhouseCrop + ' will grow while you adventure.','#7df7a1',2.8);
@@ -6154,7 +6608,7 @@
       {id:'trophies',icon:'♛',name:'Trophy Room',color:'#ffc857',text:state.stageBosses.length + ' boss trophies · ' + state.eliteDefeated.length + ' elite records · ' + state.miniBossesDefeated.length + ' mini bosses',action:'View Records'},
       {id:'music',icon:'♫',name:'Music Room',color:'#d77cff',text:state.unlockedInstruments.length + '/6 instruments · Now playing: ' + state.home.jukeboxTrack,action:'Next Record'},
       {id:'workshop',icon:'⚒',name:'Workshop',color:'#ff9d57',text:'Workbench level ' + state.home.workshopLevel + '/4 · Craft charms, upgrades and instrument modifications.',action:state.home.workshopLevel >= 4 ? 'Tune Instrument' : 'Upgrade Workbench'},
-      {id:'greenhouse',icon:'✿',name:'Greenhouse',color:'#7df7a1',text:state.home.greenhouseCrop ? state.home.greenhouseCrop + ' growing · ' + Math.max(0,Math.ceil(90-(state.playSeconds-state.home.greenhousePlantedAt))) + 's remaining' : state.home.greenhouseHarvests + ' harvests · Plot ready',action:state.home.greenhouseCrop && state.playSeconds-state.home.greenhousePlantedAt>=90 ? 'Harvest' : state.home.greenhouseCrop ? 'Check Growth' : 'Plant Crop'},
+      {id:'greenhouse',icon:'✿',name:'Greenhouse',color:'#7df7a1',text:state.home.greenhouseCrop ? state.home.greenhouseCrop + ' growing · ' + Math.max(0,Math.ceil(90-(state.playSeconds-state.home.greenhousePlantedAt))) + 's remaining' : state.home.heartbloomSeedReady ? state.home.greenhouseHarvests + ' harvests · Mara’s Heartbloom seed is ready' : state.home.greenhouseHarvests + ' harvests · Plot ready',action:state.home.greenhouseCrop && state.playSeconds-state.home.greenhousePlantedAt>=90 ? 'Harvest' : state.home.greenhouseCrop ? 'Check Growth' : state.home.heartbloomSeedReady ? 'Plant Heartbloom' : 'Plant Crop'},
       {id:'odin',icon:'◆',name:'Odin’s Corner',color:'#62c7ff',text:'Friendship ' + state.home.odinFriendship + '/100 · Bed, toys, feeding station and training mat.',action:state.heartblooms > 0 ? 'Feed & Train' : 'Pet & Train'},
       {id:'mastery',icon:'✦',name:'Mastery Studio',color:'#56f0c4',text:'Retune class mastery paths safely, review synergies, and save field loadouts.',action:'Open Living Resonance'},
       {id:'decorate',icon:'✦',name:'Decoration Studio',color:'#ff91d5',text:state.home.decorations.length + ' furnishings · Active: ' + (HOME_DECORATIONS[state.home.activeDecoration] || state.home.activeDecoration),action:'Rotate Display'}
@@ -6194,13 +6648,8 @@
 
   function savedStateForStatistics() {
     if (started) return state;
-    var loaded = null;
-    loaded = safeJson(readStorage(SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(LEGACY_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(OLDER_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(OLDEST_SAVE_KEY), null);
-    if (!loaded) loaded = safeJson(readStorage(ANCIENT_SAVE_KEY), null);
-    return sanitizeState(loaded);
+    var candidate = loadBestStoredSave();
+    return candidate ? candidate.state : freshState();
   }
 
   function stateHasBoss(model, stage) {
@@ -6391,19 +6840,25 @@
   }
 
   function fastTravelTo(stage, visitShop) {
-    if(rehearsalBlocksSideMode('Fast travel'))return false;
-    if(tutorialRuntime.active){audioCall('sfx','error');showToast('FINISH THE REHEARSAL','Mossvale roads open after the prologue.','#ffc857',2.6);return;}
+    stage = Number(stage);
+    if (!Number.isInteger(stage) || stage < 1 || stage > 4) {
+      return denyWorldTravel({title:'ROUTE UNKNOWN',message:'That stage route is not available.',color:'#8e9ba0'});
+    }
+    var blocked = worldTravelBlockReason();
+    if (blocked) return denyWorldTravel(blocked);
+    if (!visitShop && stage === state.stage) return false;
     if (!stageUnlockedForTravel(stage)) {
       audioCall('sfx', 'error');
       showToast('ROUTE UNKNOWN', 'Reach this world through its stage gate first.', '#8e9ba0', 2.8);
-      return;
+      return false;
     }
+    if (!beginWorldTransition('fast-travel',520)) return denyWorldTravel(worldTravelBlockReason());
     state.stagePositions[String(state.stage)] = {x:Math.round(player.x), y:Math.round(player.y)};
+    clearStageScopedRuntime();
     state.stage = stage;
     state.chapter = Math.max(state.chapter, stage);
     var hubLocation=['mossvale-hub','rootsong-hub','skyglass-hub','moonwake-hub'][stage-1];
     if(state.discoveredLocations.indexOf(hubLocation)<0)state.discoveredLocations.push(hubLocation);
-    document.body.classList.add('world-transition');
     activateLevel(stage);
     resetEnemies();
     var destination = currentLevel.hub || currentLevel.spawn;
@@ -6415,7 +6870,6 @@
     player.y = clamp(destination.y, 40, WORLD.h - 40);
     camera.x = player.x; camera.y = player.y;
     state.x = player.x; state.y = player.y;
-    attacks=[]; pulses=[]; particles=[]; projectiles=[]; hazards=[]; boss=null; bossPadLatch=null;
     resetFirstStageRuntime('fast-travel');
     spawnStageHeartblooms(stage);
     if (state.odinRecruited) {
@@ -6430,27 +6884,29 @@
     } else {
       showToast('FAST TRAVEL', 'Arrived at ' + STAGE_NAMES[stage] + '.', '#62c7ff', 2.5);
     }
-    window.setTimeout(function(){document.body.classList.remove('world-transition');},520);
+    return true;
   }
 
   function renderFastTravel() {
     var el = byId('fastTravelList');
     if (!el) return;
+    var blocked = worldTravelBlockReason();
     el.innerHTML = '';
     [1,2,3,4].forEach(function (stage) {
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'fast-travel-button' + (!tutorialRuntime.active && !rehearsalRuntime.active && stage === state.stage ? ' current' : '');
-      button.disabled = tutorialRuntime.active || rehearsalRuntime.active || !stageUnlockedForTravel(stage) || stage === state.stage;
+      button.disabled = !!blocked || !stageUnlockedForTravel(stage) || stage === state.stage;
       button.innerHTML = '<strong>' + (stage === state.stage ? '● ' : '◇ ') + STAGE_NAMES[stage] + '</strong><small>' +
-        (tutorialRuntime.active ? 'Available after rehearsal' : stage === state.stage ? 'Current world' : stageUnlockedForTravel(stage) ? 'Travel to hub' : 'Route locked') + '</small>';
+        (stage === state.stage ? 'Current world' : blocked ? blocked.label : stageUnlockedForTravel(stage) ? 'Travel to hub' : 'Route locked') + '</small>';
+      if (blocked) button.title = blocked.message;
       button.addEventListener('click', function () { fastTravelTo(stage, false); });
       el.appendChild(button);
     });
     var shop = byId('fastTravelShop');
-    if (shop) shop.disabled = tutorialRuntime.active || rehearsalRuntime.active || (state.stage === 1 && shopOpen);
+    if (shop) { shop.disabled = !!blocked || (state.stage === 1 && shopOpen); shop.title = blocked ? blocked.message : ''; }
     var home = byId('fastTravelHome');
-    if (home) home.disabled = tutorialRuntime.active || rehearsalRuntime.active || !state.home.unlocked;
+    if (home) { home.disabled = !!blocked || !state.home.unlocked; home.title = blocked ? blocked.message : ''; }
   }
 
   function openMap() {
@@ -7033,7 +7489,7 @@
    * by MossControllerUI, which reports back through menuHandled so the two
    * layers can never both act on the same press.
    */
-  function pollGamepad(menuHandled) {
+  function pollGamepad(menuHandled, dt) {
     var input = window.MossInput;
     if (!input) return;
     if (!input.isConnected()) {
@@ -7061,7 +7517,7 @@
     }
 
     if(input.padHeld('quickWheel')){
-      quickWheelRuntime.padHold+=1/60;
+      quickWheelRuntime.padHold += Math.max(0, Number(dt) || 0);
       if(quickWheelRuntime.padHold>=.24&&!quickWheelRuntime.open)openQuickWheel('gamepad');
       if(quickWheelRuntime.open){var wheelVector=input.getVector('look');selectQuickWheelVector(wheelVector.x,wheelVector.y,wheelVector.magnitude);return;}
     }else if(input.padReleased('quickWheel')){
@@ -7187,7 +7643,7 @@
   }
 
   function togglePause(force) {
-    if (!started || dialogue || composerOpen || mapOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
+    if (!started || interruptionModalOpen()) return;
     var nextPaused = typeof force === 'boolean' ? force : !paused;
     if (!nextPaused && orientationBlocked) return;
     paused = nextPaused;
@@ -7221,6 +7677,15 @@
   function panelIsOpen(id) {
     var panel = byId(id);
     return !!panel && !panel.hidden;
+  }
+
+  function interruptionModalOpen() {
+    var panels = document.querySelectorAll('#gameShell [role="dialog"], #gameShell [role="alertdialog"]');
+    for (var i = 0; i < panels.length; i++) {
+      if (panels[i].id === 'pauseScreen' || panels[i].id === 'rotateNotice') continue;
+      if (!panels[i].hidden) return true;
+    }
+    return false;
   }
 
   function openHowPanel() {
@@ -7267,7 +7732,7 @@
 
   function recoverAudioFromGesture() {
     if (!started || document.hidden || orientationBlocked) return;
-    if (resumeAudioOnGesture && !paused && !dialogue && !composerOpen && !mapOpen && !inventoryOpen && !shopOpen && !skillsOpen && !statisticsOpen && !instrumentsOpen && !homeOpen) {
+    if (resumeAudioOnGesture && !paused && !interruptionModalOpen()) {
       resumeAudioOnGesture = false;
       audioCall('pause', orientationBlocked);
     }
@@ -7277,7 +7742,7 @@
     releaseHeldInputs();
     if (!started) return;
     saveGame(true);
-    var modalOpen = !!dialogue || composerOpen || mapOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen;
+    var modalOpen = interruptionModalOpen();
     if (!paused && !modalOpen) {
       togglePause(true);
     } else if (paused && !modalOpen) {
@@ -7359,6 +7824,13 @@
       else if(key==='escape'){closeQuickWheel(false);return;}
       else if(key==='enter'||key==='space'){closeQuickWheel(true);return;}
       renderQuickWheel();return;
+    }
+    if (dialogue && key === 'tab') {
+      event.preventDefault();
+      /* The dialogue copy is focused first so its label and text are announced;
+         Tab then exposes the one actionable control without escaping the modal. */
+      focusSoon('dialogueContinueButton');
+      return;
     }
     var target = event.target;
     var interactiveTarget = target && target.closest &&
@@ -7813,6 +8285,8 @@
       if (!settings.reducedMotion && Math.random() < 0.55) spawnParticle(player.x, player.y, '#5ab7a7', 28, 3);
     }
     if (player.blocking) speed *= 0.34;
+    var committedAttack=committedPlayerAttack();
+    if(committedAttack&&player.dashTimer<=0)speed*=committedAttack.charged?0.28:0.46;
     /* Sprint exists only in first person, where a fixed walk pace reads slow. */
     if (firstPerson && !player.blocking && player.dashTimer <= 0 &&
         window.MossInput && window.MossInput.isHeld('sprint') && (mx || my)) {
@@ -7949,12 +8423,31 @@
     attacks.forEach(function (a) {
       a.life -= dt;
       var progress = clamp(1 - a.life / a.maxLife,0,1);
+      a.elapsed=Math.max(0,a.maxLife-a.life);
+      var activeStart=a.classAttack?0:(a.startup||0);
+      var activeEnd=a.classAttack?a.maxLife:activeStart+(a.activeDuration||a.maxLife);
+      var active=a.elapsed>=activeStart&&a.elapsed<activeEnd;
+      a.phase=a.elapsed<activeStart?'startup':active?'active':'recovery';
       var origin = equipmentWorldOrigin(
         a.instrument,a.charged ? 'charged' : 'attack',a.angle,
         progress * a.maxLife,'hitbox',Math.min(progress,0.999999)
       );
-      a.x = origin.x;
-      a.y = origin.y;
+      if(a.classAttack||!Number.isFinite(a.rootX)){
+        a.x=origin.x;a.y=origin.y;
+      }else{
+        /* Author the swing around its committed root. Movement can ease the
+           actor, but cannot drag an already-active hitbox through enemies. */
+        a.x=a.rootX+(origin.x-player.x);
+        a.y=a.rootY+(origin.y-player.y);
+      }
+      a.progress = progress;
+      if(!active){
+        if(a.elapsed>=activeEnd&&!a.classAttack&&!a.rhythmConfirmed&&!a.rhythmResolved){
+          a.rhythmResolved=true;
+          resetCombo('whiff');
+        }
+        return;
+      }
       enemies.forEach(function (e) {
         if (e.dead || a.hit.has(e.id)) return;
         var d = distance(a, e);
@@ -7970,21 +8463,22 @@
         if (hit) {
           a.hit.add(e.id);
           var dmg = attackDamageFor(a,e,false);
-          if (hitEnemy(e, dmg, a.x, a.y) && !a.classAttack) registerInstrumentHit(a,e);
+          if (hitEnemy(e, dmg, a.x, a.y) && !a.classAttack) {
+            confirmRhythmAttack(a);
+            registerInstrumentHit(a,e);
+          }
         }
       });
-      hitBossWeakPoints(a);
+      if(hitBossWeakPoints(a)&&!a.classAttack)confirmRhythmAttack(a);
       if (boss && !boss.dead && !a.hit.has('boss')) {
         var bossProfile = a.profile || instrumentProfile(a.instrument);
         var bossRange = a.charged ? Math.max(100,bossProfile.range*1.28) : bossProfile.range + 12;
         if (distance(a, boss) < bossRange + boss.r) {
           a.hit.add('boss');
           var bossDmg = attackDamageFor(a,boss,true);
-          hitBoss(bossDmg);
-          if (!a.classAttack) gainInstrumentMastery(a.charged ? 4 : 2);
+          if(hitBoss(bossDmg)&&!a.classAttack){confirmRhythmAttack(a);gainInstrumentMastery(a.charged ? 4 : 2);}
         }
       }
-      a.progress = progress;
     });
     attacks = attacks.filter(function (a) { return a.life > 0; });
   }
@@ -8228,6 +8722,12 @@
       e.cooldown = Math.max(0, e.cooldown - dt);
       e.contactCooldown = Math.max(0, (e.contactCooldown || 0) - dt);
       if (e.stun > 0) {
+        if(e.pendingVolley){
+          e.pendingVolley=null;
+          e.mode='idle';
+          e.vx=e.vy=0;
+          releaseEnemyAttackSlot(e);
+        }
         e.stun -= dt;
         if (e.type === 'wisp' && e.stun <= 0) e.shielded = true;
         setAnimationState(e, 'stunned');
@@ -8281,25 +8781,19 @@
         }
         continue;
       }
+      if(e.pendingVolley){
+        e.pendingVolley.timer-=dt;
+        if(e.pendingVolley.timer<=0)releaseEnemyVolley(e);
+        continue;
+      }
       if (e.isMiniBoss && e.cooldown <= 0 && d < 430 && claimEnemyAttackSlot(e)) {
         var rays=e.miniPattern==='storm'?10:e.miniPattern==='spores'?12:8;
         var projectileColor=e.miniColor||'#ffc857';
-        if(e.miniPattern==='notes'){
-          for(var noteRay=-2;noteRay<=2;noteRay++){
-            var noteAngle=e.facing+noteRay*.18;
-            fireProjectile(e.x,e.y,Math.cos(noteAngle)*185,Math.sin(noteAngle)*185,projectileColor,7,4,e.power);
-          }
-        }else{
-          for(var miniRay=0;miniRay<rays;miniRay++){
-            var miniAngle=miniRay*Math.PI*2/rays+e.angle;
-            var miniSpeed=e.miniPattern==='tides'?115+(miniRay%2)*55:e.miniPattern==='storm'?205:135;
-            fireProjectile(e.x,e.y,Math.cos(miniAngle)*miniSpeed,Math.sin(miniAngle)*miniSpeed,projectileColor,e.miniPattern==='spores'?9:6,4,e.power);
-          }
-        }
         e.cooldown=(settings.difficulty==='hard'?1.65:2.15)*cooldownScale;
+        queueEnemyVolley(e,e.miniPattern==='notes'?'mini-notes':'mini-radial',settings.difficulty==='hard'?.42:.58,
+          {angle:e.miniPattern==='notes'?e.facing:e.angle,rays:rays,pattern:e.miniPattern,color:projectileColor,power:e.power},
+          e.miniPattern.toUpperCase(),projectileColor);
         e.angle+=.37;
-        setAnimationState(e, 'special', 0.62);
-        showFloat(e.x,e.y-e.r-16,e.miniPattern.toUpperCase(),projectileColor);
       } else if (e.ai === 'support' && e.cooldown <= 0 && d < 340 && claimEnemyAttackSlot(e)) {
         var ally = null;
         for (var allyIndex = 0; allyIndex < enemies.length; allyIndex++) {
@@ -8313,17 +8807,13 @@
           ally.hp = Math.min(ally.maxHp,ally.hp + 1);
           for (var supportSpark=0;supportSpark<7;supportSpark++) spawnParticle(ally.x,ally.y,'#ffb454',45,2);
         } else {
-          fireProjectile(e.x,e.y,toPlayerX*125,toPlayerY*125,'#ff9d57',8,4);
+          queueEnemyVolley(e,'aimed',.46,{angle:e.facing,speed:125,color:'#ff9d57',radius:8,life:4,power:e.power},'CAST','#ffb454');
         }
         e.cooldown = 2.8 * cooldownScale;
         setAnimationState(e, 'special', 0.58);
       } else if (e.ai === 'storm' && e.cooldown <= 0 && d < 320 && claimEnemyAttackSlot(e)) {
-        for (var stormRay=0;stormRay<6;stormRay++) {
-          var stormAngle = stormRay * Math.PI / 3 + e.angle;
-          fireProjectile(e.x,e.y,Math.cos(stormAngle)*135,Math.sin(stormAngle)*135,'#86e8ff',6,3.5);
-        }
+        queueEnemyVolley(e,'storm',.5,{angle:e.angle},'STORM','#86e8ff');
         e.cooldown = 2.5 * cooldownScale;
-        setAnimationState(e, 'special', 0.58);
       } else if (e.ai === 'ambusher' && e.cooldown <= 0 && d > 100 && d < 260 && claimEnemyAttackSlot(e)) {
         e.x = clamp(player.x - toPlayerX * 92 + -toPlayerY * 34,30,WORLD.w-30);
         e.y = clamp(player.y - toPlayerY * 92 + toPlayerX * 34,30,WORLD.h-30);
@@ -8367,6 +8857,7 @@
         }
         if (splitChildCount > 0) showFloat(e.x,e.y-24,'SPLIT!','#7df7a1');
       }
+      if(e.pendingVolley)continue;
       if (e.type === 'thorn') {
         if (e.mode === 'windup') {
           e.timer -= dt;
@@ -8407,19 +8898,16 @@
           e.x += clamp(orbitX - e.x, -100, 100) * dt * speedScale * (e.stageScale || 1);
           e.y += clamp(orbitY - e.y, -100, 100) * dt * speedScale * (e.stageScale || 1);
           if (e.cooldown <= 0 && d < 150 && claimEnemyAttackSlot(e)) {
-            e.mode = 'dive';
-            e.timer = 0.58;
-            e.vx = toPlayerX * 225 * speedScale * (e.stageScale || 1);
-            e.vy = toPlayerY * 225 * speedScale * (e.stageScale || 1);
-            setAnimationState(e, 'attack_a', 0.58);
+            queueEnemyVolley(e,'dive',.3,{angle:e.facing,speed:225*speedScale*(e.stageScale||1)},'DIVE','#fff1a6');
+            e.cooldown=1.2*cooldownScale;
           }
         }
       } else if (e.type === 'slime') {
         if (d < 310 && e.cooldown <= 0 && claimEnemyAttackSlot(e)) {
           var slimeProjectileScale = state.stage === 1 ? FIRST_STAGE_BALANCE.projectileSpeedMultiplier : 1;
-          fireProjectile(e.x, e.y, toPlayerX * 135 * speedScale * (e.projectileScale || 1) * slimeProjectileScale, toPlayerY * 135 * speedScale * (e.projectileScale || 1) * slimeProjectileScale, '#e86edf', 8, 4);
+          queueEnemyVolley(e,'aimed',state.stage===1?.48:.4,{angle:e.facing,
+            speed:135*speedScale*(e.projectileScale||1)*slimeProjectileScale,color:'#e86edf',radius:8,life:4,power:e.power},'SPIT','#e86edf');
           e.cooldown = (settings.difficulty === 'hard' ? 1.45 : 1.9) * cooldownScale;
-          setAnimationState(e, 'special', 0.48);
         }
         if (d < 160) {
           moveWithCollision(e, -toPlayerX * 24 * dt, -toPlayerY * 24 * dt);
@@ -8430,12 +8918,9 @@
         e.y = e.homeY + Math.sin(e.angle * 1.3) * 24;
         if (d < 330 && e.cooldown <= 0 && claimEnemyAttackSlot(e)) {
           var wispProjectileScale = state.stage === 1 ? FIRST_STAGE_BALANCE.projectileSpeedMultiplier : 1;
-          for (var s = -1; s <= 1; s++) {
-            var base = e.facing + s * 0.22;
-            fireProjectile(e.x, e.y, Math.cos(base) * 155 * speedScale * (e.projectileScale || 1) * wispProjectileScale, Math.sin(base) * 155 * speedScale * (e.projectileScale || 1) * wispProjectileScale, '#82aaff', 6, 4);
-          }
+          queueEnemyVolley(e,'wisp',state.stage===1?.52:.44,{angle:e.facing,
+            speed:155*speedScale*(e.projectileScale||1)*wispProjectileScale},'TRIO','#82aaff');
           e.cooldown = 2.25 * cooldownScale;
-          setAnimationState(e, 'special', 0.58);
         }
       }
       e.x = clamp(e.x, 30, WORLD.w - 30);
@@ -8457,7 +8942,8 @@
       var contactDx = e.x - player.x;
       var contactDy = e.y - player.y;
       var contactRange = e.r + player.r + 2;
-      if (e.contactCooldown <= 0 &&
+      var harmfulContact=e.mode==='lunge'||e.mode==='dive';
+      if (harmfulContact&&e.contactCooldown <= 0 &&
           contactDx * contactDx + contactDy * contactDy < contactRange * contactRange &&
           claimEnemyAttackSlot(e)) {
         damagePlayer(e.power || 1, e.x, e.y);
@@ -8566,6 +9052,7 @@
       var dx = odin.x - enemy.x;
       var dy = odin.y - enemy.y;
       var distanceSq = dx * dx + dy * dy;
+      if(!odinPathClear(odin.x,odin.y,enemy.x,enemy.y,odin.r))continue;
       if (distanceSq < bestDistanceSq) {
         best = enemy;
         bestDistanceSq = distanceSq;
@@ -8581,18 +9068,49 @@
     return dx * dx + dy * dy < range * range;
   }
 
+  function odinPathClear(fromX,fromY,toX,toY,radius) {
+    var steps=Math.max(3,Math.ceil(Math.hypot(toX-fromX,toY-fromY)/34));
+    for(var step=1;step<=steps;step++){
+      var ratio=step/steps;
+      if(circleHitsObstacle(lerp(fromX,toX,ratio),lerp(fromY,toY,ratio),radius||odin.r,odin))return false;
+    }
+    return true;
+  }
+
+  function odinRecoveryPosition() {
+    for(var ring=0;ring<3;ring++){
+      var radius=46+ring*24;
+      for(var index=0;index<12;index++){
+        var angle=player.facing+Math.PI+index*Math.PI/6;
+        var x=player.x+Math.cos(angle)*radius,y=player.y+Math.sin(angle)*radius;
+        if(!circleHitsObstacle(x,y,odin.r,odin))return{x:x,y:y};
+      }
+    }
+    return null;
+  }
+
   function nearestOdinPickup(range) {
     var best = null;
     var bestDistance = range;
     if (state.skills.indexOf('odin-fetch') < 0) return null;
+    function reachable(item,d) {
+      if (d <= 24) return true;
+      var ratio=Math.max(0,(d-18)/d);
+      return odinPathClear(odin.x,odin.y,odin.x+(item.x-odin.x)*ratio,odin.y+(item.y-odin.y)*ratio,odin.r);
+    }
     weeds.forEach(function (weed) {
       if (state.weeds.indexOf(weed.id) >= 0) return;
       var d = distance(odin, weed);
-      if (d < bestDistance) { best = {type:'weed', item:weed}; bestDistance = d; }
+      if (d >= bestDistance) return;
+      if (!reachable(weed,d)) return;
+      best = {type:'weed', item:weed}; bestDistance = d;
     });
     healthPickups.forEach(function (heart) {
+      if (state.heartblooms >= HEARTBLOOM_CAPACITY) return;
       var d = distance(odin, heart);
-      if (d < bestDistance) { best = {type:'heart', item:heart}; bestDistance = d; }
+      if (d >= bestDistance) return;
+      if (!reachable(heart,d)) return;
+      best = {type:'heart', item:heart}; bestDistance = d;
     });
     return best;
   }
@@ -8615,7 +9133,7 @@
     var pickup = null;
     if (odin.command === 'fetch') pickup = nearestOdinPickup(520);
     if (!pickup) {
-      var huntRange = odin.command === 'attack' ? 430 : odin.command === 'guard' ? 190 : 260;
+      var huntRange = odin.command === 'attack' ? 430 : odin.command === 'guard' ? 190 : odin.command === 'fetch' ? 0 : 260;
       if (!odinTargetInRange(odin.target, huntRange + 28)) {
         odin.target = null;
         odin.targetScanTimer = 0;
@@ -8643,9 +9161,8 @@
     var dx = goalX - odin.x, dy = goalY - odin.y;
     var d = Math.sqrt(dx * dx + dy * dy) || 1;
     if (distance(player, odin) > 620) {
-      odin.x = player.x - Math.cos(odin.followAngle) * 46;
-      odin.y = player.y - Math.sin(odin.followAngle) * 46;
-      resetOdinVisuals();
+      var distantRecovery=odinRecoveryPosition();
+      if(distantRecovery){odin.x=distantRecovery.x;odin.y=distantRecovery.y;resetOdinVisuals();}
       dx = goalX - odin.x;
       dy = goalY - odin.y;
       d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -8658,9 +9175,15 @@
       var spiritSpeed = odin.spiritTimer > 0 ? 1.55 : 1;
       var pursuitBoost = target || pickup || bossTarget ? 82 : 0;
       var speed = Math.min(300, pursuitBoost + gap * 5.2) * spiritSpeed;
-      movedDistance = Math.min(gap, speed * dt);
-      odin.x += dx / d * movedDistance;
-      odin.y += dy / d * movedDistance;
+      var intendedDistance=Math.min(gap,speed*dt),beforeOdinX=odin.x,beforeOdinY=odin.y;
+      moveWithCollision(odin,dx/d*intendedDistance,dy/d*intendedDistance);
+      movedDistance=Math.hypot(odin.x-beforeOdinX,odin.y-beforeOdinY);
+      if(gap>24&&movedDistance<intendedDistance*.16)odin.stuckTimer+=dt;else odin.stuckTimer=0;
+      if(odin.stuckTimer>.8&&distance(player,odin)>105){
+        var stuckRecovery=odinRecoveryPosition();
+        if(stuckRecovery){odin.x=stuckRecovery.x;odin.y=stuckRecovery.y;movedDistance=0;resetOdinVisuals();}
+        odin.stuckTimer=0;
+      }
       odin.facing = Math.atan2(dy, dx);
       odin.gait = (odin.gait + movedDistance * 0.19) % (Math.PI * 2);
     }
@@ -8707,10 +9230,12 @@
     }
 
     if (target) {
-      var pounceReady = state.skills.indexOf('odin-pounce') >= 0 && odin.pounceCooldown <= 0 && d > 95 && d < 270;
+      var pounceX=target.x-Math.cos(odin.facing)*24,pounceY=target.y-Math.sin(odin.facing)*24;
+      var pounceReady = odin.command==='attack'&&state.skills.indexOf('odin-pounce') >= 0 && odin.pounceCooldown <= 0 &&
+        d > 95 && d < 270 && odinPathClear(odin.x,odin.y,pounceX,pounceY,odin.r);
       if (pounceReady) {
-        odin.x = target.x - Math.cos(odin.facing) * 24;
-        odin.y = target.y - Math.sin(odin.facing) * 24;
+        odin.x=pounceX;
+        odin.y=pounceY;
         target.shielded = false;
         hitEnemy(target, state.skills.indexOf('odin-spirit') >= 0 ? 3 : 2, odin.x, odin.y, true);
         target.stun = Math.max(target.stun, 2.2);
@@ -8788,7 +9313,7 @@
       if (window.MossInput.anyPressed()) recoverAudioFromGesture();
     }
     var menuHandled = window.MossControllerUI ? window.MossControllerUI.update(dt) : false;
-    pollGamepad(menuHandled);
+    pollGamepad(menuHandled, dt);
     updateTouchActionUi();
     if (!started || paused || orientationBlocked || livingOpen || quickWheelRuntime.open || panelIsOpen('rehearsalResultsOverlay') || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     state.playSeconds += dt;
@@ -8835,6 +9360,9 @@
       sequenceIndex: 0,
       thresholdIndex: 0,
       projectileCooldown: 1.2,
+      pendingPattern:'',
+      patternWindup:0,
+      patternWindupMax:0,
       hazardCooldown: 2.8,
       pulse: 0,
       angle: 0,
@@ -8870,6 +9398,8 @@
     setAnimationState(boss, 'special', 0.8);
     bossPadLatch = null;
     boss.weakPoints = [];
+    boss.pendingPattern='';
+    boss.patternWindup=0;
     if (def.mechanic === 'sequence') {
       var sequence = state.melody.filter(function (n) { return n !== '-'; }).slice(0, 4);
       NOTE_ORDER.forEach(function (n) {
@@ -8915,6 +9445,8 @@
     boss.sequenceMode = false;
     boss.shielded = false;
     boss.thresholdIndex++;
+    boss.pendingPattern='';
+    boss.patternWindup=0;
     boss.projectileCooldown = 1.25;
     boss.hazardCooldown = 2.15;
     boss.pulse = 1;
@@ -8950,7 +9482,8 @@
   }
 
   function hitBossWeakPoints(attack) {
-    if (!boss || !boss.challengeMode || bossDefForStage(boss.stage).mechanic !== 'prism-shards') return;
+    if (!boss || !boss.challengeMode || bossDefForStage(boss.stage).mechanic !== 'prism-shards') return false;
+    var shattered=false;
     boss.weakPoints.forEach(function (point) {
       if (point.broken || attack.hit.has(point.id)) return;
       var d = distance(attack, point);
@@ -8959,6 +9492,7 @@
       if (!hit) return;
       attack.hit.add(point.id);
       point.broken = true;
+      shattered=true;
       state.statistics.damageDealt++;
       showFloat(point.x, point.y - 20, 'PRISM SHATTERED', '#9de8ff');
       audioCall('sfx', 'enemyHit');
@@ -8967,6 +9501,7 @@
     if (boss.weakPoints.length && boss.weakPoints.every(function (point) { return point.broken; })) {
       completeBossChallenge('PRISM BARRIER SHATTERED');
     }
+    return shattered;
   }
 
   function bossPads() {
@@ -9127,7 +9662,7 @@
   }
 
   function hitBoss(damage, lightweightEffects) {
-    if (!boss || boss.dead) return;
+    if (!boss || boss.dead) return false;
     if (boss.shielded) {
       audioCall('sfx', 'error');
       var mechanic = bossDefForStage(boss.stage).mechanic;
@@ -9135,9 +9670,9 @@
         mechanic === 'root-knots' ? 'PULSE THE KNOTS' :
         mechanic === 'prism-shards' ? 'BREAK THE PRISMS' : 'DODGE OR PULSE';
       showFloat(boss.x, boss.y - 58, shieldHint, bossDefForStage(boss.stage).shieldColor);
-      return;
+      return false;
     }
-    if (boss.flash > 0) return;
+    if (boss.flash > 0) return false;
     if (activeBuffs.bossBane) {
       damage = Math.floor(damage * 1.5);
       activeBuffs.bossBane = false;
@@ -9153,6 +9688,7 @@
     var hitParticleCount = lightweightEffects ? 6 : 12;
     for (var i = 0; i < hitParticleCount; i++) spawnParticle(boss.x, boss.y, bossDefForStage(boss.stage).color, 95, 4);
     if (boss.hp <= 0) finishBoss();
+    return true;
   }
 
   function updateBoss(dt) {
@@ -9179,11 +9715,23 @@
       startBossChallenge();
       return;
     }
-    boss.projectileCooldown -= dt;
+    if(boss.patternWindup>0){
+      boss.patternWindup=Math.max(0,boss.patternWindup-dt);
+      if(boss.patternWindup<=0&&boss.pendingPattern==='projectile'){
+        boss.pendingPattern='';
+        fireBossPattern();
+      }
+    }else{
+      boss.projectileCooldown-=dt;
+    }
     boss.hazardCooldown -= dt;
-    if (boss.projectileCooldown <= 0) {
-      setAnimationState(boss, 'attack_a', 0.65);
-      fireBossPattern();
+    if (boss.projectileCooldown <= 0 && !boss.pendingPattern) {
+      boss.pendingPattern='projectile';
+      boss.patternWindup=settings.difficulty==='hard'?.38:settings.difficulty==='story'?.62:.5;
+      boss.patternWindupMax=boss.patternWindup;
+      setAnimationState(boss, 'attack_a', boss.patternWindup+.26);
+      showFloat(boss.x,boss.y-68,'VOLLEY!','#ffc857');
+      audioCall('sfx','warning');
     }
     if (boss.hazardCooldown <= 0) {
       createBossHazards();
@@ -9221,6 +9769,9 @@
     var defeatedStage = boss.stage;
     boss.hp = 0;
     boss.dead = true;
+    boss.pendingPattern = '';
+    boss.patternWindup = 0;
+    boss.patternWindupMax = 0;
     boss.deathTimer = 0;
     setAnimationState(boss, 'death');
     if (state.stageBosses.indexOf(def.id) < 0) state.stageBosses.push(def.id);
@@ -9792,6 +10343,27 @@
     ctx.beginPath();
     ctx.ellipse(0, e.r, e.r * 0.9, e.r * 0.35, 0, 0, Math.PI * 2);
     ctx.fill();
+    if(e.pendingVolley){
+      var warningData=e.pendingVolley.data||{};
+      var warningColor=warningData.color||e.miniColor||'#ffc857';
+      var warningProgress=clamp(1-e.pendingVolley.timer/e.pendingVolley.maxTimer,0,1);
+      ctx.save();
+      ctx.globalAlpha=.9;
+      ctx.strokeStyle=warningColor;
+      ctx.lineWidth=3;
+      ctx.setLineDash([5,4]);
+      ctx.beginPath();ctx.arc(0,0,e.r+10,0,Math.PI*2);ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth=5;
+      ctx.beginPath();ctx.arc(0,0,e.r+16,-Math.PI/2,-Math.PI/2+warningProgress*Math.PI*2);ctx.stroke();
+      if(['aimed','wisp','mini-notes','dive'].indexOf(e.pendingVolley.kind)>=0){
+        var warningAngle=Number.isFinite(Number(warningData.angle))?Number(warningData.angle):(e.facing||0);
+        ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(Math.cos(warningAngle)*(e.r+8),Math.sin(warningAngle)*(e.r+8));
+        ctx.lineTo(Math.cos(warningAngle)*(e.r+42),Math.sin(warningAngle)*(e.r+42));ctx.stroke();
+      }
+      ctx.fillStyle='#fff';ctx.font='bold 13px monospace';ctx.textAlign='center';ctx.fillText('!',0,-e.r-19);
+      ctx.restore();
+    }
     var enemyColumn = e.flash > 0 ? 3 : (e.mode === 'idle' ? (Math.floor(nowTime * 4 + e.x) % 2) : (e.mode === 'wander' ? 1 : 2));
     if (e.elite) {
       var eliteColor = e.eliteColor || '#f6e36d';
@@ -10376,6 +10948,15 @@
     ctx.beginPath();
     ctx.ellipse(0, 48, 62, 22, 0, 0, Math.PI * 2);
     ctx.fill();
+    if(boss.pendingPattern&&boss.patternWindupMax>0){
+      var bossWarningProgress=clamp(1-boss.patternWindup/boss.patternWindupMax,0,1);
+      ctx.save();
+      ctx.strokeStyle='#ffc857';ctx.lineWidth=4;ctx.setLineDash([9,6]);
+      ctx.beginPath();ctx.arc(0,0,86,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+      ctx.lineWidth=7;ctx.beginPath();ctx.arc(0,0,94,-Math.PI/2,-Math.PI/2+bossWarningProgress*Math.PI*2);ctx.stroke();
+      ctx.fillStyle='#fff';ctx.font='bold 16px monospace';ctx.textAlign='center';ctx.fillText('!',0,-96);
+      ctx.restore();
+    }
     var bossColumn = boss.flash > 0 ? 3 : boss.shielded ? 2 :
       (!settings.reducedMotion && boss.projectileCooldown < 0.38 ? 1 : 0);
     var bossAnimation = boss.dead ? 'death' : (boss.animState || 'idle');
@@ -11094,7 +11675,13 @@
           weakPoints: boss.weakPoints,
           surgesRemaining: boss.surgesRemaining,
           shielded: boss.shielded,
+          pendingPattern:boss.pendingPattern,
+          patternWindup:boss.patternWindup,
           dead: boss.dead
+        },
+        rhythm:{
+          count:rhythmCombo.count,multiplier:rhythmCombo.multiplier,timer:rhythmCombo.timer,
+          lastQuality:rhythmCombo.lastQuality,beatLength:rhythmCombo.beatLength
         },
         runtime: {
           levelName: currentLevel && currentLevel.name,
@@ -11111,6 +11698,9 @@
           homeOpen: homeOpen,
           livingOpen: livingOpen,
           quickWheelOpen: quickWheelRuntime.open,
+          worldTransitionLocked: worldTransitionRuntime.locked,
+          worldTransitionSource: worldTransitionRuntime.source,
+          travelBlockedBy: (worldTravelBlockReason() || {}).code || '',
           rehearsalActive: rehearsalRuntime.active,
           rehearsalBossId: rehearsalRuntime.bossId,
           rehearsalChallenge: rehearsalRuntime.challenge,
@@ -11180,7 +11770,7 @@
         saveGame(true);
         return JSON.parse(JSON.stringify(state.onlineProfile));
       },
-      save: function () { saveGame(true); return true; }
+      save: function () { return saveGame(true); }
     },
     debug: {
       sanitizeSave:function(raw){return sanitizeState(raw);},
@@ -11223,6 +11813,13 @@
         player.health = clamp(player.health - Math.max(0, Number(amount) || 1), 1, player.maxHealth);
         updateHUD(true);
       },
+      receiveDamage: function (amount, fromX, fromY) {
+        return damagePlayer(
+          Math.max(1,Math.floor(Number(amount)||1)),
+          Number.isFinite(Number(fromX))?Number(fromX):player.x+40,
+          Number.isFinite(Number(fromY))?Number(fromY):player.y
+        );
+      },
       grantBeatcoins: function (amount) {
         var granted = Math.max(0, Math.floor(Number(amount) || 0));
         state.beatcoins = clamp(state.beatcoins + granted, 0, 99999);
@@ -11234,6 +11831,12 @@
         state.skillPoints = clamp(state.skillPoints + 1, 0, 99);
         saveGame(true);
         return state.skillPoints;
+      },
+      completeQuest: function (id) {
+        var quest=expansionQuestById(String(id||''));
+        if(!quest)return false;
+        completeExpansionQuest(quest);
+        return window.__HIGH_NOTES__.snapshot();
       },
       grantHeartblooms: function (amount) {
         var granted = clamp(Math.floor(Number(amount) || 1), 0, HEARTBLOOM_CAPACITY - state.heartblooms);
@@ -11306,6 +11909,7 @@
       defeatEnemies: function (group) {
         enemies.forEach(function (e) { if (!group || e.group === group) killEnemy(e); });
       },
+      fastTravel: function (stage,visitShop) { return fastTravelTo(stage,!!visitShop); },
       openMap: openMap,
       openInstruments: openInstruments,
       openSkills: openSkills,

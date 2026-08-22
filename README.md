@@ -110,6 +110,8 @@ node --check v2-platform-fighter.js
 node tools/validate-v2-release.cjs
 node tools/validate-v2-3-upgrade.cjs
 node tools/validate-v2-4-living-resonance.cjs
+node tools/validate-save-recovery.cjs
+node tools/validate-world-transitions.cjs
 ```
 
 The deeper production-sprite audit uses `sharp` to inspect PNG alpha data. Run `node tools/validate-production-sprites.cjs` in a tooling environment where `sharp` is available; `sharp` is not a browser/runtime dependency and is intentionally not shipped with the static game.
@@ -120,12 +122,21 @@ With Playwright available in the tooling environment and a local server running 
 python -m http.server 4173 --bind 127.0.0.1
 node tools/qa-v2-3-browser.cjs
 node tools/qa-character-customization-browser.cjs
+node tools/qa-save-recovery-browser.cjs
+node tools/qa-world-transitions-browser.cjs
+node tools/qa-input-accessibility-browser.cjs
+node tools/qa-rhythm-combat-browser.cjs
+node tools/qa-directional-guard-browser.cjs
+node tools/qa-combat-telegraphs-browser.cjs
+node tools/qa-odin-companion-browser.cjs
+node tools/qa-quest-rewards-browser.cjs
+node tools/qa-sprite-retention-browser.cjs
 node tools/qa-v2-4-living-resonance-browser.cjs
 node tools/qa-release-playthrough-browser.cjs
 node tools/qa-performance-browser.cjs
 ```
 
-The suites cover supported viewport/input modes, accessibility-safe overlays, save migration, all four class abilities, chord rewards, touch/controller concurrency, all 384 instrument × hairstyle × direction × action-row compositions, rehearsal restoration, Encore separation, all four bosses, both endings, post-finale reload, deferred asset loading, frame-time/heap budgets, and an Echo Arena training smoke test. They use installed Chrome or Edge and expect the `playwright` package to be resolvable by Node.
+The suites cover supported viewport/input modes, keyboard-safe settings/dialogue focus, primary/backup save recovery, guarded world transitions, all four class abilities, chord and quest reward truth, touch/controller concurrency, soundtrack-transport hit confirmation, directional guards, enemy/boss telegraphs, Odin command and obstacle behavior, all 384 instrument × hairstyle × direction × action-row compositions, rehearsal restoration, Encore separation, all four bosses, both endings, post-finale reload, region-scoped sprite retention, frame-time/heap budgets, and an Echo Arena training smoke test. They use installed Chrome or Edge and expect the `playwright` package to be resolvable by Node.
 
 Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between completed V2 gameplay and labelled future foundations is documented in `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md`.
 
@@ -160,6 +171,7 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, protocol-v2 Echo Network client, health checks, and diagnostics (the legacy filename/global is retained for compatibility).
 - `v2-platform-fighter.js` — fixed-step Stock Battle simulation, six instrument-fighter move catalogs, local ownership, bot logic, host snapshots, and arena results.
 - `sprite-runtime.js` — manifest-driven production sprite loading, animation timing, and frame rendering.
+- Production sprite atlases are retained per active region; the soak QA tours all four stages and verifies old decoded sheets are released.
 - `audio.js` — music and sound synthesis.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
 - `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
@@ -176,6 +188,13 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `tools/validate-v2-4-living-resonance.cjs` — exhaustive Living Resonance catalog, corrupt-save, integration, asset-manifest, and Stock Battle isolation checks.
 - `tools/qa-v2-4-living-resonance-browser.cjs` — browser validation for rehearsal restoration, mastery, quick-wheel accessibility, and reversible Encore state.
 - `tools/qa-character-customization-browser.cjs` — exhaustive attached-hair compositor validation plus creator/action contact sheets.
+- `tools/qa-rhythm-combat-browser.cjs` — confirms empty swings cannot farm combo and valid hits follow the shared 104 BPM audio transport.
+- `tools/qa-directional-guard-browser.cjs` and `tools/qa-combat-telegraphs-browser.cjs` — validate frontal guards, rear hits, heavy chip, concurrent attacker budgets, and warning-before-release timing.
+- `tools/qa-save-recovery-browser.cjs` and `tools/qa-world-transitions-browser.cjs` — prove corrupt-primary recovery and mutation-free guarded travel through the real map controls.
+- `tools/qa-input-accessibility-browser.cjs` — validates settings tab semantics, dialogue focus containment, touch prompt stability, and interruption-safe overlays.
+- `tools/qa-odin-companion-browser.cjs` — validates Fetch/Guard/Hunt intent, terrain-safe movement, pounce pathing, and companion hit integrity.
+- `tools/qa-quest-rewards-browser.cjs` — confirms advertised currency, skill, home, and unlock rewards are exact and idempotent.
+- `tools/qa-sprite-retention-browser.cjs` — tours every world and bounds active decoded production atlases.
 - `tools/qa-release-playthrough-browser.cjs` — four-boss, ending, continuation, and post-finale save/reload smoke playthrough.
 - `tools/qa-performance-browser.cjs` — title/gameplay transfer budgets, frame-time and heap sampling, Living asset bounds, and deferred Echo Arena training validation.
 

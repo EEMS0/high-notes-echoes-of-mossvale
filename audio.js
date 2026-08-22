@@ -4,7 +4,8 @@
 
   const AudioContextClass = root.AudioContext || root.webkitAudioContext;
   const NOTE_MIDI = Object.freeze({ C: 72, E: 76, G: 79, B: 83 });
-  const MUSIC_STEP = 60 / 104 / 4; // 104 BPM, sixteenth-note clock.
+  const MUSIC_BPM = 104;
+  const MUSIC_STEP = 60 / MUSIC_BPM / 4; // Sixteenth-note clock.
   const EPSILON = 0.0001;
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -590,6 +591,66 @@
       return Object.assign({}, current);
     }
 
+    /**
+     * Return the nearest quarter-note beat on the exact scheduler transport.
+     * Gameplay captures this when an attack begins, then consumes it only when
+     * that attack actually connects. A deterministic 104 BPM fallback keeps
+     * rhythm readable when Web Audio is unavailable or still gesture-locked.
+     */
+    getBeatSnapshot(fallbackTimeSeconds) {
+      const beatDuration = MUSIC_STEP * 4;
+      const transportRunning = Boolean(
+        this._running && this.context && this.context.state === "running" &&
+        Number.isFinite(this._nextStepTime) && this._nextStepTime > 0
+      );
+      let phase;
+      let distanceSeconds;
+      let transportTime;
+
+      if (transportRunning) {
+        transportTime = this.context.currentTime;
+        const stepsToNextBeat = (4 - (this._step % 4)) % 4;
+        const nextBeatTime = this._nextStepTime + stepsToNextBeat * MUSIC_STEP;
+        const previousBeatTime = nextBeatTime - beatDuration;
+        const sincePrevious = clamp(transportTime - previousBeatTime, 0, beatDuration);
+        const untilNext = clamp(nextBeatTime - transportTime, 0, beatDuration);
+        phase = sincePrevious / beatDuration;
+        distanceSeconds = Math.min(sincePrevious, untilNext);
+      } else {
+        const supplied = Number(fallbackTimeSeconds);
+        transportTime = Number.isFinite(supplied)
+          ? supplied
+          : root.performance && typeof root.performance.now === "function"
+            ? root.performance.now() / 1000
+            : Date.now() / 1000;
+        const wrapped = ((transportTime % beatDuration) + beatDuration) % beatDuration;
+        phase = wrapped / beatDuration;
+        distanceSeconds = Math.min(wrapped, beatDuration - wrapped);
+      }
+
+      return {
+        bpm: MUSIC_BPM,
+        beatDuration,
+        phase,
+        distanceSeconds,
+        distanceToBeat: distanceSeconds / beatDuration,
+        running: transportRunning,
+        transportTime
+      };
+    }
+
+    gradeBeat(options = {}) {
+      const perfectWindow = clamp(Number(options.perfectWindow) || 0.12, 0.02, 0.49);
+      const goodWindow = clamp(Number(options.goodWindow) || 0.24, perfectWindow, 0.49);
+      const snapshot = this.getBeatSnapshot(options.fallbackTime);
+      snapshot.quality = snapshot.distanceToBeat <= perfectWindow
+        ? "perfect"
+        : snapshot.distanceToBeat <= goodWindow
+          ? "good"
+          : "miss";
+      return snapshot;
+    }
+
     _scheduleMusicStep(step, time) {
       const inBar = step % 16;
       const bar = Math.floor(step / 16);
@@ -767,6 +828,24 @@
       } else if (instrument === "violin" && inBar % 4 === 1) {
         this._osc({ time, freq: midiToHz(chord[(bar + inBar) % chord.length] + 12), duration: MUSIC_STEP * 2.4, type: "triangle",
           volume: 0.015 + intensity * 0.02, attack: 0.035, release: 0.2, filter: 2400, bus: this.musicBus, music: true, pan: 0.24 });
+      }
+
+      // Equipped Resonance adds one sparse, recognizable voice to combat.
+      // These motifs share the existing transport and never create a second
+      // scheduler, so changing builds does not restart or phase-shift music.
+      const resonance = adaptive.resonance || "";
+      if (combat && resonance === "nature" && (inBar === 0 || inBar === 8)) {
+        this._osc({ time, freq: midiToHz(roots[bar] - 12), duration: MUSIC_STEP * 5.2, type: "triangle",
+          volume: 0.018 + intensity * 0.012, attack: 0.08, release: 0.42, filter: 720, bus: this.musicBus, music: true, pan: -0.18 });
+      } else if (combat && resonance === "psychedelic" && inBar % 4 === 3) {
+        this._osc({ time, freq: midiToHz(chord[(bar + inBar) % chord.length] + 24), duration: MUSIC_STEP * 1.6, type: "sine",
+          volume: 0.012 + intensity * 0.01, attack: 0.012, release: 0.18, filter: 3900, bus: this.musicBus, music: true, pan: inBar % 8 === 3 ? -0.48 : 0.48 });
+      } else if (combat && resonance === "heavy" && (inBar === 0 || inBar === 8)) {
+        this._osc({ time, freq: midiToHz(roots[bar] - 24), duration: MUSIC_STEP * 3.4, type: "sawtooth",
+          volume: 0.02 + intensity * 0.018, attack: 0.006, release: 0.24, filter: 310, bus: this.musicBus, music: true });
+      } else if (combat && resonance === "conductor" && inBar % 4 === 0) {
+        this._osc({ time, freq: midiToHz(chord[(inBar / 4) % chord.length] + 24), duration: MUSIC_STEP * 0.58, type: "sine",
+          volume: 0.012 + intensity * 0.009, attack: 0.002, release: 0.07, filter: 4600, bus: this.musicBus, music: true, pan: 0.22 });
       }
 
       if (boss && inBar === 0) {
@@ -1010,6 +1089,23 @@
         case "dodge":
           this._noise({ time: t, duration: 0.22, volume: 0.075, filter: 620, filterType: "bandpass", slideFilter: 2800, pan: 0.28 });
           this._osc({ time: t + 0.035, freq: 340, slideTo: 720, duration: 0.16, type: "sine", volume: 0.038, release: 0.1 });
+          break;
+        case "guard":
+          this._noise({ time: t, duration: 0.12, volume: 0.105, filter: 980, filterType: "bandpass" });
+          tone(0, 48, 0.2, "triangle", 0.075, { slideTo: midiToHz(43), release: 0.11 });
+          break;
+        case "parry":
+          this._noise({ time: t, duration: 0.075, volume: 0.095, filter: 2600, filterType: "highpass" });
+          tone(0, 79, 0.22, "triangle", 0.09, { slideTo: midiToHz(91), release: 0.14 });
+          tone(0.035, 86, 0.32, "sine", 0.06, { release: 0.22 });
+          break;
+        case "guard-break":
+          this._noise({ time: t, duration: 0.28, volume: 0.18, filter: 680, filterType: "lowpass", slideFilter: 220 });
+          tone(0, 43, 0.3, "square", 0.075, { slideTo: midiToHz(31), release: 0.16, filter: 760 });
+          break;
+        case "warning":
+          tone(0, 72, 0.08, "square", 0.045, { release: 0.035, filter: 1600 });
+          tone(0.105, 72, 0.11, "square", 0.052, { release: 0.05, filter: 1800 });
           break;
         case "pulse":
           this._osc({ time: t, freq: 165, slideTo: 92, duration: 0.42, type: "sine", volume: 0.12, attack: 0.012, release: 0.28, filter: 650 });

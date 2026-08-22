@@ -19,7 +19,15 @@ Each class stores XP, derived level, one selected path, up to three contiguous u
 | Tempo Runner | Breakbeat | Downbeat Landing → Step Sequence → **Breakbeat Finish** | Timing-led recovery and one consumed afterbeat, without passive speed or extra invulnerability. |
 | Tempo Runner | Afterimage | Light Trail → Measured Step → **One More Step** | Collision-tested repositioning and one non-recursive image strike; it cannot cross gates or boundaries. |
 
-XP thresholds are `0, 60, 150, 280, 450, 680`, producing levels 1–6. The spendable-point calculation is level minus one minus unlocked nodes. XP should come from valid combat timing, class objectives, story progress, and rehearsal performance—not menu actions or invulnerable/dead targets. Respec is a protected Player Home action and removes path effects before applying a replacement path.
+XP thresholds are `0, 60, 150, 280, 450, 680`, producing levels 1–6. The spendable-point calculation is level minus one minus unlocked nodes. XP comes from confirmed on-beat combat hits, class objectives, story progress, and rehearsal performance—not menu actions, empty swings, or invulnerable/dead targets. Basic swings capture the shared 104 BPM audio transport when pressed and award Rhythm Combo only on their first valid enemy, weak-point, or boss contact. Respec is a protected Player Home action and removes path effects before applying a replacement path.
+
+## Combat readability and command integrity
+
+Basic attacks have explicit startup, active, and recovery phases. Their hit volume is anchored at commitment, movement slows during the swing, Dodge queues through the active phase, and spent recovery may be cancelled without carrying the old hitbox. A miss resolves once and cannot award combo or mastery. Directional guarding checks the incoming source against the player’s facing: perfect guards negate the hit, ordinary guards stop light damage, heavy hits retain readable chip, and attacks from behind bypass the guard.
+
+Enemy projectile and dive attacks announce a fixed release direction with a persistent ring, progress arc, icon, and procedural warning cue before becoming dangerous. Later regions cap simultaneous committed attackers by difficulty; a live boss suppresses ordinary enemy attacks. Boss volleys receive their own warning phase. Reduced Motion removes animation-only movement but preserves every warning shape and timer. Odin uses collision-tested movement, clear-path target selection, and safe recovery positions; Fetch does not hunt, Guardian Leap belongs to Guard, and Pounce belongs to Hunt.
+
+Adaptive music intensity is derived from nearby committed threats, hostile projectiles/hazards, boss state, recent damage, and a bounded combo contribution. The four Resonances add sparse voices to the existing 104 BPM scheduler rather than starting independent loops.
 
 ## Class × instrument synergy registry
 
@@ -79,6 +87,8 @@ Schema 24 adds the `living` record returned by `MossLivingResonance.freshState()
 - Unknown class nodes, paths, regions, bosses, challenges, instruments, equipment, consumables, assignments, cosmetics, run IDs, and claim formats fail closed.
 - Mastery level and restoration tier are recomputed from sanitized XP/points. Loadout slot IDs cannot be forged.
 - Reward/claim arrays are de-duplicated and capped. Passives are derived at use time and are never accumulated during migration.
+
+The browser save boundary validates minimum campaign structure before showing Continue or mutating runtime state. Each successful write rotates the last valid primary into `highNotesSaveV7Backup`; corrupt or truncated primaries never replace that backup. Load order is valid primary, valid backup, then validated historical keys, and reset removes every generation. Portals, map travel, shop travel, and map-to-home share a preflight that rejects bosses, Dream Encore, hostile attacks, nearby engaged enemies, rehearsals, protected interactions, invalid routes, and overlapping transitions before any stage state is changed. Stage-scoped effects and attack state are cleared centrally after that preflight succeeds.
 
 Run `node tools/validate-v2-4-living-resonance.cjs` to exercise the complete catalog matrix, corrupt-state fixtures, gameplay-hook coverage, generated-asset manifest, save-schema integration, rehearsal side-mode guards, and source-level Stock Battle isolation. With a local server on port `4173` and Playwright available, `node tools/qa-v2-4-living-resonance-browser.cjs` mutates temporary rehearsal state and proves exact restoration, reward isolation, accessible pause/confirmation/results focus, retry records, mastery allocation, eight-sector wheel access, and reversible Encore snapshots. `node tools/qa-release-playthrough-browser.cjs` validates all four campaign bosses, both ending flows, title-level Encore entry, and post-finale reload.
 

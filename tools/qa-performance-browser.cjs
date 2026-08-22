@@ -92,11 +92,14 @@ function percentile(values, amount) {
 
     const runtime = await page.evaluate(() => {
       const resources = performance.getEntriesByType('resource').map((entry) => ({ name: entry.name, bytes: entry.encodedBodySize || entry.transferSize || 0 }));
+      const spriteStats = window.MossSprites?.stats?.() || { count: 0, decodedBytes: 0 };
       return {
         requestCount: resources.length,
         bytes: resources.reduce((total, entry) => total + entry.bytes, 0),
         livingImages: resources.filter((entry) => /\/assets\/ui\/living-resonance\/.*\.webp(?:\?|$)/i.test(entry.name)).length,
-        domNodes: document.getElementsByTagName('*').length
+        domNodes: document.getElementsByTagName('*').length,
+        spriteAtlases: spriteStats.count,
+        spriteDecodedBytes: spriteStats.decodedBytes
       };
     });
     const client = await context.newCDPSession(page);
@@ -108,6 +111,9 @@ function percentile(values, amount) {
     assert.ok(runtime.bytes < 45 * 1024 * 1024, `complete campaign surface transfer remains below 45 MiB (${(runtime.bytes / 1048576).toFixed(2)} MiB)`);
     assert.ok(runtime.livingImages <= 16, `Living Resonance loads no more than its sixteen-image atlas (${runtime.livingImages})`);
     assert.ok(runtime.domNodes < 5000, `live DOM remains bounded (${runtime.domNodes} nodes)`);
+    assert.ok(runtime.spriteAtlases <= 35, `active region retains at most 35 production atlases (${runtime.spriteAtlases})`);
+    assert.ok(runtime.spriteDecodedBytes < 300 * 1024 * 1024,
+      `active production atlases remain below 300 MiB decoded RGBA (${(runtime.spriteDecodedBytes / 1048576).toFixed(2)} MiB)`);
     assert.ok(heapMiB < 160, `used JavaScript heap remains below 160 MiB (${heapMiB.toFixed(2)} MiB)`);
 
     await page.locator('#closeLivingButton').click();
@@ -144,7 +150,8 @@ function percentile(values, amount) {
       passed: true,
       title: { requests: titleResources.length, transferMiB: Number((titleBytes / 1048576).toFixed(2)) },
       gameplay: { frameP95Ms: Number(p95.toFixed(2)), worstFrameMs: Number(worst.toFixed(2)), heapMiB: Number(heapMiB.toFixed(2)) },
-      completeSurface: { requests: runtime.requestCount, transferMiB: Number((runtime.bytes / 1048576).toFixed(2)), livingImages: runtime.livingImages, domNodes: runtime.domNodes },
+      completeSurface: { requests: runtime.requestCount, transferMiB: Number((runtime.bytes / 1048576).toFixed(2)), livingImages: runtime.livingImages, domNodes: runtime.domNodes,
+        spriteAtlases: runtime.spriteAtlases, spriteDecodedMiB: Number((runtime.spriteDecodedBytes / 1048576).toFixed(2)) },
       echoArena: arenaSmoke
     }, null, 2));
   } finally {

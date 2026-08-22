@@ -2398,6 +2398,7 @@ body.reduced-motion *::after {
 .fast-travel-button:not(:disabled):hover, .fast-travel-button:not(:disabled):focus-visible { border-color: #62c7ff; background: rgba(24,65,67,.78); }
 .fast-travel-button.current { border-color: rgba(255,200,90,.46); background: rgba(74,57,24,.46); }
 .fast-travel-button:disabled { cursor: default; opacity: .55; }
+.fast-travel-shop:disabled { cursor: default; opacity: .46; filter: saturate(.25); }
 .fast-travel-shop { width: 100%; margin-top: .65rem; padding-block: .55rem; font-size: .76em; }
 .quest-log-section { min-height: 0; overflow: auto; }
 @media (max-width: 760px) { .map-layout { grid-template-columns: 1fr; } .quest-panel { display:grid; grid-template-columns:1fr 1fr; } }

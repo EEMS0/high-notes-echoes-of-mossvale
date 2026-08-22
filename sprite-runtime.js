@@ -7,6 +7,8 @@
   var pending = new Map();
   var reportedErrors = new Set();
   var readyPromise = null;
+  var retainedIds = null;
+  var retentionEpoch = 0;
   var EMPTY_DRAW_OPTIONS = Object.freeze({});
 
   function reportOnce(key, error) {
@@ -24,6 +26,31 @@
       image.onerror = function () { reject(new Error('Unable to load image: ' + url)); };
       image.src = url;
     });
+  }
+
+  function releaseImage(image) {
+    if (!image) return;
+    image.onload = null;
+    image.onerror = null;
+    /* Replacing the source allows browsers to release the decoded atlas rather
+       than retaining hundreds of MiB after a complete campaign tour. */
+    image.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  }
+
+  function updateLoadedCount() {
+    document.documentElement.dataset.spriteAssetsLoaded = String(records.size);
+  }
+
+  function retain(ids) {
+    retainedIds = new Set(ids || []);
+    retentionEpoch++;
+    records.forEach(function (record, id) {
+      if (retainedIds.has(id)) return;
+      records.delete(id);
+      releaseImage(record.image);
+    });
+    updateLoadedCount();
+    return records.size;
   }
 
   function initialise() {
@@ -67,7 +94,14 @@
 
   function load(id) {
     if (records.has(id)) return Promise.resolve(records.get(id));
-    if (pending.has(id)) return pending.get(id);
+    if (pending.has(id)) {
+      /* A route change may have advanced the epoch while this atlas was still
+         decoding. Re-requesting it means the new scene genuinely needs it. */
+      if (retainedIds) retainedIds.add(id);
+      return pending.get(id);
+    }
+    var requestedEpoch = retentionEpoch;
+    if (retainedIds) retainedIds.add(id);
     var promise = initialise().then(function () {
       var entry = catalog.get(id);
       if (!entry) throw new Error('Unknown sprite id: ' + id);
@@ -84,8 +118,13 @@
           throw new Error('Malformed animation manifest: ' + entry.manifest);
         }
         var record = { entry: entry, manifest: manifest, image: image };
+        if (retainedIds && requestedEpoch !== retentionEpoch && !retainedIds.has(id)) {
+          pending.delete(id);
+          releaseImage(image);
+          return record;
+        }
         records.set(id, record);
-        document.documentElement.dataset.spriteAssetsLoaded = String(records.size);
+        updateLoadedCount();
         pending.delete(id);
         window.dispatchEvent(new CustomEvent('moss-sprite-ready', { detail: { id: id } }));
         return record;
@@ -175,12 +214,27 @@
     return records.has(id);
   }
 
+  function stats() {
+    var decodedPixels = 0;
+    records.forEach(function (record) {
+      decodedPixels += (record.image.naturalWidth || 0) * (record.image.naturalHeight || 0);
+    });
+    return {
+      count: records.size,
+      pending: pending.size,
+      ids: Array.from(records.keys()).sort(),
+      decodedBytes: decodedPixels * 4
+    };
+  }
+
   window.MossSprites = {
     initialise: initialise,
     load: load,
     preload: preload,
+    retain: retain,
     draw: draw,
     loaded: loaded,
+    stats: stats,
     directionFromAngle: directionFromAngle,
     directionalAnimation: directionalAnimation,
     portraitPath: portraitPath
