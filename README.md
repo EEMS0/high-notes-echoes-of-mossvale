@@ -119,12 +119,13 @@ With Playwright available in the tooling environment and a local server running 
 ```bash
 python -m http.server 4173 --bind 127.0.0.1
 node tools/qa-v2-3-browser.cjs
+node tools/qa-character-customization-browser.cjs
 node tools/qa-v2-4-living-resonance-browser.cjs
 node tools/qa-release-playthrough-browser.cjs
 node tools/qa-performance-browser.cjs
 ```
 
-The suites cover supported viewport/input modes, accessibility-safe overlays, save migration, all four class abilities, chord rewards, touch/controller concurrency, rehearsal restoration, Encore separation, all four bosses, both endings, post-finale reload, deferred asset loading, frame-time/heap budgets, and an Echo Arena training smoke test. They use installed Chrome or Edge and expect the `playwright` package to be resolvable by Node.
+The suites cover supported viewport/input modes, accessibility-safe overlays, save migration, all four class abilities, chord rewards, touch/controller concurrency, all 384 instrument × hairstyle × direction × action-row compositions, rehearsal restoration, Encore separation, all four bosses, both endings, post-finale reload, deferred asset loading, frame-time/heap budgets, and an Echo Arena training smoke test. They use installed Chrome or Edge and expect the `playwright` package to be resolvable by Node.
 
 Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between completed V2 gameplay and labelled future foundations is documented in `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md`.
 
@@ -174,6 +175,7 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `tools/validate-v2-3-upgrade.cjs` — focused class, story, save, asset, and integration regression checks.
 - `tools/validate-v2-4-living-resonance.cjs` — exhaustive Living Resonance catalog, corrupt-save, integration, asset-manifest, and Stock Battle isolation checks.
 - `tools/qa-v2-4-living-resonance-browser.cjs` — browser validation for rehearsal restoration, mastery, quick-wheel accessibility, and reversible Encore state.
+- `tools/qa-character-customization-browser.cjs` — exhaustive attached-hair compositor validation plus creator/action contact sheets.
 - `tools/qa-release-playthrough-browser.cjs` — four-boss, ending, continuation, and post-finale save/reload smoke playthrough.
 - `tools/qa-performance-browser.cjs` — title/gameplay transfer budgets, frame-time and heap sampling, Living asset bounds, and deferred Echo Arena training validation.
 

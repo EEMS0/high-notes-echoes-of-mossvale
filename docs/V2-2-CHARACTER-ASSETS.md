@@ -10,6 +10,8 @@ The original chroma-key masters are preserved in `assets/masters/v2.2/`. Runtime
 
 ## Directional customization
 
-`hero-hair-directions.png` is a 4 × 4 transparent overlay atlas. Columns are Tuned Tuft, Echo Braid, Riff Crest and Moss Cap; rows are south, north, west and east. `character-runtime.js` combines this atlas with the four body palettes, five outfit palettes and six accent palettes at draw time. Together with six instruments this supports 2,880 deliberately connected appearance/instrument combinations without shipping duplicate full-character sheets.
+`hero-hair-directions.png` is a 4 × 4 transparent overlay atlas. Columns are Tuned Tuft, Echo Braid, Riff Crest and Moss Cap; rows are south, north, west and east. `character-runtime.js` registers each style to measured head anchors for all four animation rows and four directions, so creator previews, walking, attacks and dashes use the same attached silhouette. The shared table was measured across all six integrated instrument sheets; it replaces the former fixed world-space hair position that could leave a second hairstyle floating beside the hero.
+
+The runtime combines this atlas with the four body palettes, five outfit palettes and six accent palettes at draw time. Together with six instruments this supports 2,880 deliberately connected appearance/instrument combinations without shipping 24 duplicate full-character sheets.
 
 All assets are text-free, use transparent runtime backgrounds, and are kept out of the production-sprite manifest because the player renderer lazy-loads only the currently equipped instrument sheet.

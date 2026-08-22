@@ -74,6 +74,7 @@ assert.notEqual(east.item.flipX, west.item.flipX, 'Horizontal directions require
 assert.ok(east.origins.projectile.x > 0 && west.origins.projectile.x < 0, 'Projectile origins must follow facing');
 
 const index = read('index.html');
+const characterRuntime = read('character-runtime.js');
 const scriptOrder = [
   'audio.js', 'sprite-runtime.js', 'equipment-runtime.js', 'game.js',
   'v1-expansion.js', 'v2-platform-fighter.js'
@@ -81,6 +82,42 @@ const scriptOrder = [
 scriptOrder.forEach((position, indexPosition) => assert.ok(position >= 0, `Missing script ${indexPosition}`));
 for (let i = 1; i < scriptOrder.length; i += 1) {
   assert.ok(scriptOrder[i] > scriptOrder[i - 1], 'Runtime scripts are in the wrong dependency order');
+}
+assert.match(index, /character-runtime\.js\?v=4/, 'character compositor cache version');
+assert.match(index, /game\.js\?v=37/, 'game cache version');
+
+const characterSandbox = {
+  window: {},
+  Image: function Image() {
+    this.complete = true;
+    this.naturalWidth = 1254;
+    this.naturalHeight = 1254;
+  },
+  console
+};
+vm.createContext(characterSandbox);
+vm.runInContext(characterRuntime, characterSandbox, { filename: 'character-runtime.js' });
+const character = characterSandbox.window.MossCharacter;
+assert.ok(character, 'MossCharacter did not register');
+assert.equal(character.options.body.length, 4);
+assert.equal(character.options.hair.length, 4);
+assert.equal(character.options.outfit.length, 5);
+assert.equal(character.options.accent.length, 6);
+const customizationDirections = ['south','north','west','east'];
+for (const hair of character.options.hair) {
+  for (let row = 0; row < 4; row += 1) {
+    for (const direction of customizationDirections) {
+      const placement = character.getHairPlacement({ hair: hair.id }, 64, 128, 128, direction, { row, anchorY: 1 });
+      assert.equal(placement.row, row, `${hair.id}/${direction} row`);
+      assert.equal(placement.direction, direction, `${hair.id}/${direction} direction`);
+      assert.ok(placement.sourceWidth > 0 && placement.sourceHeight > 0, `${hair.id}/${direction} source crop`);
+      assert.ok(placement.width > 0 && placement.height > 0, `${hair.id}/${direction} render bounds`);
+      assert.ok(placement.targetX >= 0 && placement.targetX <= 128, `${hair.id}/${direction}/${row} head x`);
+      assert.ok(placement.targetY >= 0 && placement.targetY <= 128, `${hair.id}/${direction}/${row} head y`);
+      assert.ok(placement.x > -80 && placement.x + placement.width < 208, `${hair.id}/${direction}/${row} attached x bounds`);
+      assert.ok(placement.y > -80 && placement.y + placement.height < 208, `${hair.id}/${direction}/${row} attached y bounds`);
+    }
+  }
 }
 
 const game = read('game.js');
@@ -113,6 +150,11 @@ assert.match(game, /equipment:\s*currentEquipmentNetworkSnapshot/);
 assert.match(game, /sanitizeOnlineEquipment/);
 assert.match(game, /remote\.facingDirection/);
 assert.match(game, /hero-instrument-guitar/);
+assert.match(game, /\{row:1,anchorY:1\}/, 'creator supplies the authored walk-row anchor');
+assert.match(game, /\{row:remoteRow,anchorY:\.73\}/, 'remote sprites supply their animation row');
+assert.match(game, /\{row:heroRow,anchorY:\.73\}/, 'player sprites supply their animation row');
+assert.match(game, /setAppearance:function/, 'sprite QA can exercise sanitized appearance changes');
+assert.match(game, /setFacing:function/, 'sprite QA can exercise every direction');
 assert.match(game, /beginAttack:\s*function/);
 assert.match(game, /var PROLOGUE_LEVEL\s*=\s*\{/);
 assert.match(game, /isPrologue:true/);

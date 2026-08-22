@@ -2620,7 +2620,7 @@
     var gradient=pc.createRadialGradient(160,190,18,160,190,150);gradient.addColorStop(0,'rgba(86,240,196,.24)');gradient.addColorStop(1,'rgba(7,27,24,0)');pc.fillStyle=gradient;pc.fillRect(0,0,320,320);
     var classDef=starterClass(characterDraft.classId);pc.strokeStyle=classDef.color;pc.lineWidth=5;pc.globalAlpha=.8;pc.beginPath();pc.arc(160,160,118+(settings.reducedMotion?0:Math.sin(Date.now()/380)*4),0,Math.PI*2);pc.stroke();pc.globalAlpha=1;
     pc.fillStyle='rgba(2,8,10,.5)';pc.beginPath();pc.ellipse(160,252,60,17,0,0,Math.PI*2);pc.fill();
-    if(hero&&hero.complete&&hero.naturalWidth){var cell=hero.naturalWidth/4,col=Math.floor((Date.now()/700)%4),directions=['south','north','west','east'];pc.imageSmoothingEnabled=false;pc.drawImage(hero,col*cell,cell,cell,cell,70,56,180,180);if(window.MossCharacter)window.MossCharacter.decorate(pc,characterDraft.appearance,160,236,180,directions[col]);}else{pc.fillStyle='#56f0c4';pc.fillRect(125,90,70,150);}
+    if(hero&&hero.complete&&hero.naturalWidth){var cell=hero.naturalWidth/4,col=Math.floor((Date.now()/700)%4),directions=['south','north','west','east'];pc.imageSmoothingEnabled=false;pc.drawImage(hero,col*cell,cell,cell,cell,70,56,180,180);if(window.MossCharacter)window.MossCharacter.decorate(pc,characterDraft.appearance,160,236,180,directions[col],{row:1,anchorY:1});}else{pc.fillStyle='#56f0c4';pc.fillRect(125,90,70,150);}
     if(!settings.reducedMotion&&!byId('characterCreator').hidden)characterPreviewFrame=requestAnimationFrame(drawCharacterPreview);
   }
   function openCharacterCreator() {
@@ -9992,7 +9992,7 @@
       if (!remoteIntegrated) drawEquipmentLayer(remotePose,'rear',0.92);
       var drewRemote = drawSpriteCell(remoteIntegrated ? remoteHeroSprite : 'hero',remoteRow,facingColumn(remote.facing),0,20,76,0.73);
       if (drewRemote) {
-        if(window.MossCharacter)window.MossCharacter.decorate(ctx,remote.appearance,0,20,76,remotePose ? remotePose.direction : spriteDirection(remote.facing));
+        if(window.MossCharacter)window.MossCharacter.decorate(ctx,remote.appearance,0,20,76,remotePose ? remotePose.direction : spriteDirection(remote.facing),{row:remoteRow,anchorY:.73});
         if (!remoteIntegrated) drawEquipmentLayer(remotePose,'front',0.92);
       }
       if (remote.odin) {
@@ -10074,7 +10074,7 @@
       (equipmentVisualRuntime.animationState === 'attack' || equipmentVisualRuntime.animationState === 'charged' ||
        equipmentVisualRuntime.animationState === 'special' ? 2 : (walking ? 1 : 0));
     if (drawSpriteCell(integratedEquipment ? heroSprite : 'hero', heroRow, facingColumn(player.facing), 0, 20, 76, 0.73)) {
-      if (window.MossCharacter) window.MossCharacter.decorate(ctx,state.character.appearance,0,20,76,equipmentPose ? equipmentPose.direction : spriteDirection(player.facing));
+      if (window.MossCharacter) window.MossCharacter.decorate(ctx,state.character.appearance,0,20,76,equipmentPose ? equipmentPose.direction : spriteDirection(player.facing),{row:heroRow,anchorY:.73});
       if (!integratedEquipment) drawEquipmentLayer(equipmentPose,'front');
       updateEquipmentDiagnostics(equipmentPose);
       ctx.restore();
@@ -11317,6 +11317,17 @@
       equipInstrument: function(id){
         if(!instrumentById(id)||state.unlockedInstruments.indexOf(id)<0)return false;
         state.equippedInstrument=id;updateHUD(true);return id;
+      },
+      setAppearance:function(value){
+        if(!window.MossCharacter)return false;
+        state.character.appearance=window.MossCharacter.sanitizeAppearance(value);
+        canvasDirty=true;
+        return JSON.parse(JSON.stringify(state.character.appearance));
+      },
+      setFacing:function(direction){
+        var angle={east:0,south:Math.PI/2,west:Math.PI,north:-Math.PI/2}[direction];
+        if(!Number.isFinite(angle))return false;
+        player.facing=angle;canvasDirty=true;return direction;
       },
       chargeUltimate: function(){instrumentUltimateCharge=100;updateHUD(true);return instrumentUltimateCharge;},
       setWeather: function(weather){
