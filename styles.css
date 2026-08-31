@@ -4944,6 +4944,235 @@ body.touch-controls-mirrored .joystick-zone{left:auto;right:0}body.touch-control
 .chord-note.diamond>span{transform:rotate(-45deg)}.chord-note.playing.diamond{transform:rotate(45deg) scale(1.08)}
 @media(max-width:760px),(max-height:560px){.class-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.class-choice{min-height:4.25rem;grid-template-columns:2.5rem minmax(0,1fr);padding:.4rem}.class-choice em{display:none}.class-details{grid-template-columns:1fr}.home-class-studio{grid-template-columns:1fr}.chord-layout{grid-template-columns:minmax(12rem,.72fr) minmax(15rem,1.28fr);gap:.5rem}.chord-demonstration,.chord-input{padding:.55rem;gap:.45rem}.chord-note-grid button{min-height:3.5rem}.action-pad{transform:scale(.86);transform-origin:bottom right}body.touch-controls-mirrored .action-pad{transform-origin:bottom left}}
 @media(max-height:560px) and (orientation:landscape){body:not(.menu-overlay-open) .tutorial-panel{top:max(18%,calc(var(--local-safe-top) + 4rem));right:auto;bottom:auto;left:max(var(--local-safe-left),.45rem);width:min(27vw,17rem);max-height:56%;transform:none;overflow:auto;padding:.52rem .65rem;border-radius:14px}.tutorial-panel .tutorial-progress{margin-bottom:.48rem}.tutorial-panel h2{font-size:clamp(.86rem,3.5vh,1.05rem)}.tutorial-panel p{font-size:clamp(.66rem,2.7vh,.8rem);line-height:1.25}.tutorial-panel .tutorial-actions{flex-wrap:wrap;gap:.35rem;margin-top:.38rem}.tutorial-panel .game-button{min-height:44px;padding:.45em .65em}}
+
+/* -------------------------------------------------------------------------- */
+/* Resonance Gate · four-lane Living Resonance performance                     */
+/* -------------------------------------------------------------------------- */
+
+.resonance-gate-overlay {
+  z-index: 86;
+  padding: max(.5rem, var(--local-safe-top)) max(.5rem, var(--local-safe-right)) max(.5rem, var(--local-safe-bottom)) max(.5rem, var(--local-safe-left));
+  background: radial-gradient(circle at 50% 42%, rgba(39, 173, 144, .18), transparent 42%), rgba(2, 9, 14, .96);
+}
+
+.resonance-gate-card {
+  --gate-primary: #56f0c4;
+  --gate-secondary: #ffc857;
+  width: min(76rem, 100%);
+  height: min(51rem, calc(var(--app-height) - 1rem));
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  padding: clamp(.65rem, 1.5vw, 1.1rem);
+  border-color: color-mix(in srgb, var(--gate-primary) 40%, transparent);
+  background:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--gate-primary) 13%, transparent), transparent 30%),
+    radial-gradient(circle at 86% 82%, color-mix(in srgb, var(--gate-secondary) 11%, transparent), transparent 32%),
+    linear-gradient(145deg, rgba(5, 27, 27, .985), rgba(8, 15, 29, .985));
+}
+
+.resonance-gate-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .75rem;
+  padding: .1rem .2rem .7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.resonance-gate-heading h2 { margin: .08rem 0; font-size: clamp(1.3rem, 2.5vw, 2rem); }
+.resonance-gate-heading p:last-child { margin: 0; color: var(--ink-muted); font-size: .78rem; }
+
+.resonance-gate-intro {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(15rem, .82fr) minmax(20rem, 1.18fr);
+  align-items: center;
+  gap: clamp(1rem, 4vw, 3.5rem);
+  overflow: auto;
+  padding: clamp(.7rem, 3vw, 2rem);
+}
+
+.resonance-intro-art {
+  position: relative;
+  width: min(23rem, 72vh, 100%);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  border: 2px solid color-mix(in srgb, var(--gate-primary) 55%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--gate-primary) 28%, transparent), rgba(3, 14, 20, .2) 42%, rgba(1, 8, 13, .8) 72%);
+  box-shadow: inset 0 0 3rem color-mix(in srgb, var(--gate-primary) 12%, transparent), 0 0 3rem color-mix(in srgb, var(--gate-primary) 10%, transparent);
+}
+
+.resonance-intro-art::before,
+.resonance-intro-art::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border: 1px dashed color-mix(in srgb, var(--gate-secondary) 45%, transparent);
+  border-radius: 50%;
+}
+
+.resonance-intro-art::after { inset: 26%; border-style: solid; opacity: .45; }
+.resonance-intro-art > strong { color: var(--gate-primary); font-size: clamp(3rem, 11vw, 6rem); text-shadow: 0 0 2rem currentColor; }
+.resonance-orbit-note {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: clamp(2.4rem, 6vw, 3.8rem);
+  aspect-ratio: 1;
+  border: 1px solid currentColor;
+  border-radius: 45% 55% 50% 50%;
+  background: rgba(4, 18, 24, .92);
+  font-weight: 950;
+  box-shadow: 0 0 1rem color-mix(in srgb, currentColor 38%, transparent);
+  animation: resonance-orbit-breathe 2.8s ease-in-out infinite alternate;
+}
+.resonance-orbit-note.note-c { left: 1%; top: 44%; color: #56f0c4; }
+.resonance-orbit-note.note-e { left: 42%; bottom: 1%; color: #ffc857; animation-delay: -.7s; }
+.resonance-orbit-note.note-g { right: 1%; top: 44%; color: #62dff5; animation-delay: -1.4s; }
+.resonance-orbit-note.note-b { left: 42%; top: 1%; color: #d77cff; animation-delay: -2.1s; }
+@keyframes resonance-orbit-breathe { from { transform: scale(.96); filter: brightness(.9); } to { transform: scale(1.06); filter: brightness(1.13); } }
+
+.resonance-intro-copy { max-width: 42rem; }
+.resonance-intro-copy h3 { margin: .2rem 0 .5rem; font-size: clamp(1.25rem, 2.6vw, 2rem); }
+.resonance-intro-copy > p:not(.panel-kicker) { color: var(--ink-muted); line-height: 1.55; }
+.resonance-control-guide { display: grid; grid-template-columns: repeat(4, 1fr); gap: .45rem; margin: 1rem 0; }
+.resonance-control-guide span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .4rem;
+  padding: .58rem;
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .035);
+}
+.resonance-control-guide kbd { min-width: 1.7rem; padding: .24rem; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; background: rgba(0,0,0,.38); text-align: center; font: 800 .68rem/1 inherit; }
+.resonance-control-guide b { text-align: center; }
+.resonance-control-guide i { color: var(--gate-primary); font-style: normal; }
+.resonance-assist-summary { padding: .55rem .7rem; border-left: 3px solid var(--gate-secondary); border-radius: 0 8px 8px 0; background: rgba(255,255,255,.04); color: #f8e6ab !important; }
+.resonance-record { font-size: .72rem; }
+.resonance-intro-actions { align-items: stretch; margin-top: 1rem; }
+.resonance-intro-actions .game-button { flex: 1 1 10rem; }
+
+.resonance-gate-play { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: .45rem; padding-top: .55rem; }
+.resonance-performance-hud { display: grid; grid-template-columns: minmax(15rem, 1fr) auto auto auto; align-items: center; gap: .65rem; }
+.resonance-performance-hud > div { min-width: 6.5rem; display: grid; grid-template-columns: auto auto; align-items: center; gap: .12rem .5rem; padding: .35rem .55rem; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(0,0,0,.2); }
+.resonance-performance-hud > div:first-child { grid-template-columns: auto minmax(8rem, 1fr) auto; }
+.resonance-performance-hud small { color: var(--ink-muted); font-size: .52rem; letter-spacing: .12em; }
+.resonance-performance-hud strong { color: #fff; font-size: .95rem; }
+.resonance-performance-hud span { color: var(--ink-muted); font-size: .66rem; }
+.resonance-meter { position: relative; height: .68rem; overflow: hidden; border: 1px solid rgba(255,255,255,.17); border-radius: 999px; background: rgba(0,0,0,.48); }
+.resonance-meter > span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gate-primary), var(--gate-secondary)); box-shadow: 0 0 .8rem color-mix(in srgb, var(--gate-primary) 45%, transparent); transition: width .12s linear; }
+.resonance-meter > i { position: absolute; top: -2px; bottom: -2px; left: 65%; width: 2px; background: white; box-shadow: 0 0 5px white; }
+
+.resonance-stage-wrap { position: relative; min-height: 0; display: grid; place-items: stretch; overflow: hidden; border: 1px solid color-mix(in srgb, var(--gate-primary) 32%, transparent); border-radius: 15px; background: #061619; }
+#resonanceGateCanvas { width: 100%; height: 100%; min-height: 13rem; display: block; image-rendering: pixelated; touch-action: none; }
+.resonance-count-in { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; color: #fff; font: 950 clamp(3.5rem, 14vw, 8rem)/1 Georgia, serif; text-shadow: 0 0 1.5rem var(--gate-primary), 0 4px 0 rgba(0,0,0,.45); }
+.resonance-count-in:empty { display: none; }
+.resonance-judgement { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); pointer-events: none; color: var(--gate-primary); font-weight: 950; font-size: clamp(1rem, 3vw, 1.65rem); letter-spacing: .12em; text-shadow: 0 0 1rem currentColor, 0 2px 0 #000; }
+.resonance-tutorial-prompt { position: absolute; top: .6rem; left: 50%; transform: translateX(-50%); max-width: min(90%, 40rem); margin: 0; padding: .45rem .72rem; border: 1px solid color-mix(in srgb, var(--gate-primary) 44%, transparent); border-radius: 999px; background: rgba(2,12,18,.86); color: #eafff9; text-align: center; font-size: .7rem; pointer-events: none; }
+.resonance-tutorial-prompt:empty { display: none; }
+.resonance-pause-curtain { position: absolute; inset: 0; z-index: 5; display: grid; align-content: center; justify-items: center; gap: .45rem; padding: 1rem; background: rgba(2, 8, 14, .93); text-align: center; }
+.resonance-pause-curtain[hidden] { display: none; }
+.resonance-pause-curtain h3 { margin: 0; font-size: 1.5rem; }
+.resonance-pause-curtain p:not(.panel-kicker) { color: var(--ink-muted); }
+
+.resonance-lane-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; }
+.resonance-lane-buttons button { min-height: 3.6rem; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; justify-content: center; align-items: center; gap: 0 .45rem; border: 1px solid currentColor; border-radius: 11px; background: rgba(255,255,255,.035); color: #56f0c4; touch-action: none; user-select: none; }
+.resonance-lane-buttons button:nth-child(2) { color: #ffc857; }
+.resonance-lane-buttons button:nth-child(3) { color: #62dff5; }
+.resonance-lane-buttons button:nth-child(4) { color: #d77cff; }
+.resonance-lane-buttons button span { grid-row: 1 / 3; font-size: 1.2rem; }
+.resonance-lane-buttons button strong { font-size: .9rem; }
+.resonance-lane-buttons button small { color: var(--ink-muted); font-size: .54rem; }
+.resonance-lane-buttons button.active { transform: translateY(-2px); background: color-mix(in srgb, currentColor 18%, rgba(255,255,255,.05)); box-shadow: 0 0 1rem color-mix(in srgb, currentColor 32%, transparent); }
+.resonance-lane-buttons button.pressed { filter: brightness(1.2); }
+.resonance-progress-line { height: .24rem; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.08); }
+.resonance-progress-line span { display: block; width: 0; height: 100%; background: var(--gate-primary); transition: width .08s linear; }
+
+.resonance-gate-results { min-height: 0; align-self: center; display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1rem 1.3rem; overflow: auto; padding: clamp(.8rem, 3vw, 2rem); }
+.resonance-result-rank { grid-row: 1 / 3; width: min(8rem, 25vw); aspect-ratio: 1; display: grid; place-items: center; align-self: center; border: 3px solid var(--gate-secondary); border-radius: 50%; color: var(--gate-secondary); font: 950 clamp(2.5rem, 8vw, 4.7rem)/1 Georgia, serif; box-shadow: inset 0 0 2rem color-mix(in srgb, var(--gate-secondary) 13%, transparent), 0 0 2rem color-mix(in srgb, var(--gate-secondary) 13%, transparent); }
+.resonance-result-copy h3 { margin: .2rem 0 .35rem; font-size: clamp(1.3rem, 3vw, 2rem); }
+.resonance-result-copy > p:not(.panel-kicker) { margin: .3rem 0; color: var(--ink-muted); }
+.resonance-result-metrics { grid-column: 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: .45rem; margin: 0; }
+.resonance-result-metrics div { padding: .62rem; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; background: rgba(255,255,255,.035); }
+.resonance-result-metrics dt { color: var(--ink-muted); font-size: .57rem; text-transform: uppercase; letter-spacing: .09em; }
+.resonance-result-metrics dd { margin: .16rem 0 0; color: #fff; font-weight: 900; }
+.resonance-result-actions { grid-column: 1 / -1; justify-content: center; }
+
+body.rhythm-high-contrast .resonance-gate-card { --gate-primary: #80ffe3; --gate-secondary: #ffe173; }
+body.rhythm-high-contrast .resonance-lane-buttons button,
+body.rhythm-high-contrast .resonance-stage-wrap { border-width: 2px; }
+body.rhythm-high-contrast #resonanceGateCanvas { filter: contrast(1.14) saturate(1.08); }
+body.rhythm-flash-reduced .resonance-intro-art,
+body.rhythm-flash-reduced .resonance-result-rank,
+body.rhythm-flash-reduced .resonance-meter > span { box-shadow: none; }
+
+.resonance-archive-emblem { display:grid; place-items:center; min-width:7rem; min-height:7rem; border:1px solid rgba(86,240,196,.35); border-radius:50%; background:radial-gradient(circle,rgba(86,240,196,.16),rgba(3,15,22,.68)); color:#cffff0; font:900 1rem/1.7 monospace; text-align:center; }
+.rhythm-record-card { display:grid; align-content:start; gap:.55rem; }
+.rhythm-record-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.35rem; margin:.25rem 0; }
+.rhythm-record-stats div { min-width:0; padding:.45rem; border:1px solid rgba(255,255,255,.08); border-radius:9px; background:rgba(255,255,255,.035); }
+.rhythm-record-stats dt { color:var(--ink-muted); font-size:.52rem; letter-spacing:.08em; text-transform:uppercase; }
+.rhythm-record-stats dd { overflow:hidden; margin:.12rem 0 0; color:#fff; font-weight:850; text-overflow:ellipsis; }
+.rhythm-record-card > small { color:#ffe69b; }
+
+body.reduced-motion .resonance-orbit-note,
+body.reduced-motion .resonance-meter > span,
+body.reduced-motion .resonance-progress-line span,
+body.reduced-motion .resonance-lane-buttons button { animation: none; transition: none; }
+body.reduced-motion .resonance-lane-buttons button.active { transform: none; }
+
+@media (max-width: 760px) {
+  .resonance-gate-intro { grid-template-columns: 1fr; align-items: start; }
+  .resonance-intro-art { width: min(14rem, 55vw); }
+  .resonance-control-guide { grid-template-columns: repeat(2, 1fr); }
+  .resonance-performance-hud { grid-template-columns: minmax(12rem, 1fr) auto auto; }
+  .resonance-performance-hud > div:nth-child(3) { display: none; }
+  .resonance-gate-results { grid-template-columns: 6rem minmax(0, 1fr); }
+  .resonance-result-metrics { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .resonance-gate-overlay { padding: .25rem max(.25rem, var(--local-safe-right)) .25rem max(.25rem, var(--local-safe-left)); }
+  .resonance-gate-card { width: 100%; height: 100%; padding: .4rem .55rem; border-radius: 12px; }
+  .resonance-gate-heading { padding-bottom: .35rem; }
+  .resonance-gate-heading .panel-kicker, .resonance-gate-heading p:last-child { display: none; }
+  .resonance-gate-heading h2 { font-size: 1rem; }
+  .resonance-gate-intro { grid-template-columns: minmax(11rem,.7fr) minmax(22rem,1.3fr); gap: .8rem; padding: .45rem 1rem; }
+  .resonance-intro-art { width: min(12.5rem, 62vh); }
+  .resonance-intro-copy h3 { font-size: 1.2rem; }
+  .resonance-intro-copy > p:not(.panel-kicker) { margin: .3rem 0; line-height: 1.25; font-size: .68rem; }
+  .resonance-control-guide { margin: .45rem 0; }
+  .resonance-control-guide span { padding: .35rem; }
+  .resonance-intro-actions { margin-top: .4rem; }
+  .resonance-intro-actions .game-button { min-height: 40px; padding: .4rem .55rem; }
+  .resonance-gate-play { gap: .22rem; padding-top: .25rem; }
+  .resonance-performance-hud { gap: .3rem; }
+  .resonance-performance-hud > div { padding: .2rem .4rem; }
+  .resonance-performance-hud .game-button { min-height: 34px; padding: .3rem .55rem; }
+  #resonanceGateCanvas { min-height: 9rem; }
+  .resonance-lane-buttons button { min-height: 2.55rem; grid-template-rows: 1fr; grid-template-columns: auto auto; }
+  .resonance-lane-buttons button span { grid-row: auto; font-size: .85rem; }
+  .resonance-lane-buttons button small { display: none; }
+  .resonance-gate-results { grid-template-columns: 5.5rem minmax(0,1fr); gap: .5rem .8rem; padding: .45rem 1rem; }
+  .resonance-result-rank { width: 5.2rem; font-size: 2.7rem; }
+  .resonance-result-copy h3 { font-size: 1.1rem; }
+  .resonance-result-copy p { margin: .15rem 0 !important; font-size: .65rem; }
+  .resonance-result-metrics { grid-template-columns: repeat(4,1fr); gap: .25rem; }
+  .resonance-result-metrics div { padding: .35rem; }
+  .resonance-result-actions .game-button { min-height: 38px; padding: .35rem .55rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resonance-orbit-note { animation: none; }
+  .resonance-meter > span, .resonance-progress-line span, .resonance-lane-buttons button { transition: none; }
+}
 @media(max-width:640px) and (orientation:portrait){.class-choice-grid,.class-details,.home-class-studio,.chord-layout{grid-template-columns:1fr}.chord-card{overflow:auto}.chord-note-grid{grid-template-columns:repeat(2,minmax(4rem,1fr))}}
 @media(max-height:430px) and (orientation:landscape){.action-pad{transform:scale(.76);transform-origin:bottom right;bottom:max(.15rem,var(--local-safe-bottom))}body.touch-controls-mirrored .action-pad{transform-origin:bottom left}.action-button small{font-size:.38rem}.chord-card{height:100%;overflow:hidden}.chord-layout{overflow:auto}.class-details span{font-size:.61rem}}
 @media(prefers-reduced-motion:reduce){.action-button,.chord-note.playing{transition:none}[data-backdrop-dismiss].backdrop-denied>*{animation:none!important}}

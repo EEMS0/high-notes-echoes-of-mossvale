@@ -1,10 +1,16 @@
 (function (root, factory) {
   'use strict';
-  var runtime = factory();
+  var rhythm = root && root.MossResonanceGate;
+  if (!rhythm && typeof require === 'function') {
+    try { rhythm = require('./resonance-gate-runtime.js'); } catch (_error) { rhythm = null; }
+  }
+  var runtime = factory(rhythm);
   if (typeof module === 'object' && module.exports) module.exports = runtime;
   if (root) root.MossLivingResonance = runtime;
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (RHYTHM) {
   'use strict';
+
+  if (!RHYTHM) throw new Error('Living Resonance requires the Resonance Gate timing runtime.');
 
   var CLASS_IDS = Object.freeze(['riffblade','groveguard','echo-weaver','tempo-runner']);
   var INSTRUMENT_IDS = Object.freeze(['guitar','bass','synth','drums','microphone','violin']);
@@ -166,6 +172,7 @@
       classMastery:mastery,
       restoration:restoration,
       rehearsal:{records:{},claimedRewards:[]},
+      rhythmTrials:RHYTHM.freshProgress(),
       loadouts:[freshLoadout(0),freshLoadout(1),freshLoadout(2)],
       quickWheel:['consumable:field-tonic','consumable:tempo-tea','loadout:loadout-1','screen:backpack','screen:map','screen:class','screen:instruments','utility:odin'],
       encoreAdventure:{unlocked:false,active:false,completed:false,cycle:0,stage:1,stageProgress:{mossvale:0,rootsong:0,skyglass:0,moonwake:0},claimedRewards:[],cosmetics:[],normalSnapshot:null,encoreSnapshot:null,runId:'',introSeen:false},
@@ -251,19 +258,20 @@
     clean.classMastery=sanitizeMastery(source.classMastery);
     REGION_IDS.forEach(function(id){var record=source.restoration&&source.restoration[id]&&typeof source.restoration[id]==='object'?source.restoration[id]:{};var points=clamp(Math.floor(Number(record.points)||0),0,8);clean.restoration[id]={points:points,tier:restorationTier(points),claimedTiers:uniqueKnown(record.claimedTiers,[1,2,3],3)};});
     clean.rehearsal=sanitizeRehearsal(source.rehearsal);
+    clean.rhythmTrials=RHYTHM.sanitizeProgress(source.rhythmTrials);
     clean.loadouts=[0,1,2].map(function(index){return sanitizeLoadout(source.loadouts&&source.loadouts[index],index);});
     var wheel=(Array.isArray(source.quickWheel)?source.quickWheel:[]).filter(validWheelAssignment).slice(0,8);clean.quickWheel=freshState().quickWheel.map(function(fallback,index){return wheel[index]||fallback;});
     clean.encoreAdventure=sanitizeEncore(source.encoreAdventure);
-    clean.rewardClaims=(Array.isArray(source.rewardClaims)?source.rewardClaims:[]).filter(function(id){return typeof id==='string'&&/^(mastery|restoration|rehearsal|encore):[a-z0-9:-]{1,64}$/.test(id);}).filter(function(id,index,list){return list.indexOf(id)===index;}).slice(0,200);
+    clean.rewardClaims=(Array.isArray(source.rewardClaims)?source.rewardClaims:[]).filter(function(id){return typeof id==='string'&&/^(mastery|restoration|rehearsal|rhythm|encore):[a-z0-9:-]{1,64}$/.test(id);}).filter(function(id,index,list){return list.indexOf(id)===index;}).slice(0,200);
     return clean;
   }
 
   function rehearsalKey(bossId,challengeId,feedback) { return known(bossId,BOSS_IDS,'nullspeaker')+':'+known(challengeId,CHALLENGE_IDS,'standard')+':'+clamp(Math.floor(Number(feedback)||1),1,5); }
 
   return Object.freeze({
-    schemaVersion:1,classIds:CLASS_IDS,instrumentIds:INSTRUMENT_IDS,regionIds:REGION_IDS,bossIds:BOSS_IDS,challengeIds:CHALLENGE_IDS,
+    schemaVersion:2,classIds:CLASS_IDS,instrumentIds:INSTRUMENT_IDS,regionIds:REGION_IDS,bossIds:BOSS_IDS,challengeIds:CHALLENGE_IDS,
     mastery:MASTERY,synergies:SYNERGIES,regions:REGIONS,challenges:CHALLENGES,xpThresholds:XP_THRESHOLDS,
     freshState:freshState,sanitizeState:sanitizeState,levelForXp:levelForXp,masteryPoints:masteryPoints,nodeById:nodeById,pathForNode:pathForNode,
-    synergyFor:synergyFor,restorationTier:restorationTier,rehearsalKey:rehearsalKey,validWheelAssignment:validWheelAssignment
+    synergyFor:synergyFor,restorationTier:restorationTier,rehearsalKey:rehearsalKey,validWheelAssignment:validWheelAssignment,rhythm:RHYTHM
   });
 });

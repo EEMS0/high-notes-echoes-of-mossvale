@@ -18,11 +18,12 @@
   var OLDEST_SAVE_KEY = 'highNotesSaveV4';
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
-  var GAME_VERSION = '3.1.1';
-  var SAVE_SCHEMA_VERSION = 24;
+  var GAME_VERSION = '3.2.0';
+  var SAVE_SCHEMA_VERSION = 25;
   var NOTE_ORDER = ['C', 'E', 'G', 'B'];
   var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
   var CLASS_IDS = ['riffblade','groveguard','echo-weaver','tempo-runner'];
+  var RHYTHM = window.MossResonanceGate || null;
   var LIVING = window.MossLivingResonance || null;
   var STARTER_CLASSES = Object.freeze({
     'riffblade':Object.freeze({id:'riffblade',name:'Riffblade',short:'RIFF',color:'#56f0c4',accent:'#ffc857',icon:'assets/ui/classes/riffblade.webp',cooldown:8,playstyle:'Balanced close-range rhythm fighter',strengths:'Reliable combos · quick charge recovery',passive:'Steady Cadence — charged attacks build 12% faster and combo grace lasts slightly longer.',ability:'Resonant Cleave',abilityText:'A compact forward chord burst that damages and staggers without replacing your instrument.' ,recommended:'New players and adaptable builds'}),
@@ -399,7 +400,16 @@
     touchLayout: 'normal',
     mobileHaptics: true,
     chordTiming: 'standard',
-    ambientRestoration: true
+    ambientRestoration: true,
+    rhythmTiming: 'standard',
+    rhythmNoFail: false,
+    rhythmSimplified: false,
+    rhythmHoldAssist: false,
+    rhythmLaneLabels: true,
+    rhythmHighContrast: false,
+    rhythmFlashReduction: false,
+    rhythmScrollSpeed: 1,
+    rhythmLatencyOffset: 0
   };
   function readStorage(key) {
     try {
@@ -651,6 +661,14 @@
   var confirmationRuntime = {open:false,onConfirm:null,onCancel:null,returnFocus:null,returnFocusOnAccept:true,returnsToPause:false};
   var quickWheelRuntime = {open:false,pointerId:null,selected:-1,source:'',padHold:0,keyboardIndex:0};
   var rehearsalRuntime = {active:false,bossId:'',stage:0,challenge:'standard',feedback:1,snapshot:null,metrics:null,result:null,lockedInstrument:''};
+  var resonanceGateRuntime = {
+    open:false,phase:'inactive',region:'',stage:0,mode:'scored',session:null,result:null,
+    returnFocus:null,returnContext:'world',startClock:0,pausedSongTime:0,currentSongTime:0,lastFrameTime:0,
+    animationFrame:0,countInHideTimer:0,countCue:-1,resumeCountIn:0,resumeCountStarted:0,
+    laneHeld:[false,false,false,false],laneFlash:[0,0,0,0],laneFeedback:['','','',''],
+    judgement:'',judgementUntil:0,tutorialPrompt:'',tutorialUntil:0,
+    firstVisit:false,autoDemoIndex:0,autoDemoReleases:[],suspendedHoldLanes:[],audioWasPaused:false,audioTier:-1
+  };
   var synergyRuntime = {serial:0,leadPhrase:0,tempoChain:0,breakbeatReady:false,markedEnemy:'',returnEchoes:0,lastCue:0};
 
   var player = {
@@ -880,11 +898,23 @@
     return state.stageBosses.indexOf(def.id) >= 0 || (stage === 1 && state.bossDefeated);
   }
 
-  function bossPrerequisiteMet(stage) {
+  function regionalBossObjectiveMet(stage) {
     if (stage === 1) return state.composed;
     if (stage === 2) return state.chapterRelics.indexOf('rootsong') >= 0;
     if (stage === 3) return state.chapterRelics.indexOf('skyglass') >= 0;
     return state.chapterRelics.indexOf('moonwake') >= 0;
+  }
+
+  function rhythmGateCleared(stage, model) {
+    var source = model || state;
+    if (!RHYTHM || !source || !source.living || !source.living.rhythmTrials) return true;
+    var region = RHYTHM.regionByStage[stage] || 'mossvale';
+    var record = source.living.rhythmTrials[region];
+    return !!(record && record.cleared);
+  }
+
+  function bossPrerequisiteMet(stage) {
+    return regionalBossObjectiveMet(stage) && rhythmGateCleared(stage);
   }
 
   function portalUnlocked(portal) {
@@ -1942,6 +1972,25 @@
       record.xp = Math.max(record.xp,earned);
       record.level = LIVING.levelForXp(record.xp);
     }
+    if (RHYTHM && clean.living.rhythmTrials) {
+      RHYTHM.regionIds.forEach(function (region) {
+        var stage = RHYTHM.stageByRegion[region];
+        var trial = clean.living.rhythmTrials[region];
+        var storyReady = stage === 1 ? clean.composed :
+          stage === 2 ? clean.chapterRelics.indexOf('rootsong') >= 0 :
+          stage === 3 ? clean.chapterRelics.indexOf('skyglass') >= 0 :
+          clean.chapterRelics.indexOf('moonwake') >= 0;
+        trial.unlocked = trial.unlocked || storyReady || stateHasBoss(clean,stage);
+        /* Bosses cleared before schema 25 must never be relocked behind a new
+         * requirement. Their inferred trial clear is marked claimed so migration
+         * cannot mint the new one-time performance reward. */
+        if (savedVersion < 25 && stateHasBoss(clean,stage)) {
+          trial.cleared = true;
+          trial.rewardClaimed = true;
+          trial.bestRank = trial.bestRank || 'C';
+        }
+      });
+    }
     var campaignComplete = stateHasBoss(clean,4) && !!clean.campaignFinaleSeen;
     clean.living.encoreAdventure.unlocked = clean.living.encoreAdventure.unlocked || campaignComplete;
     if (!clean.living.encoreAdventure.unlocked) clean.living.encoreAdventure.active = false;
@@ -2048,7 +2097,7 @@
     writeStorage(SETTINGS_KEY, JSON.stringify(settings));
   }
   function saveGame(force) {
-    if (!started || rehearsalRuntime.active || (!force && nowTime - lastSaveTime < 4)) return false;
+    if (!started || rehearsalRuntime.active || (!force && (resonanceGateRuntime.open || nowTime - lastSaveTime < 4))) return false;
     state.classState.cooldown=clamp(player.classCooldown,0,30);
     if (tutorialRuntime.active && currentLevel && currentLevel.isPrologue) {
       state.tutorial.prologueX = clamp(Math.round(player.x),40,PROLOGUE_LEVEL.world.w-40);
@@ -2410,10 +2459,21 @@
     settings.mobileHaptics = settings.mobileHaptics !== false;
     settings.ambientRestoration = settings.ambientRestoration !== false;
     settings.chordTiming = ['standard','forgiving','relaxed'].indexOf(settings.chordTiming) >= 0 ? settings.chordTiming : 'standard';
+    settings.rhythmTiming = settings.rhythmTiming === 'wide' ? 'wide' : 'standard';
+    settings.rhythmNoFail = !!settings.rhythmNoFail;
+    settings.rhythmSimplified = !!settings.rhythmSimplified;
+    settings.rhythmHoldAssist = !!settings.rhythmHoldAssist;
+    settings.rhythmLaneLabels = settings.rhythmLaneLabels !== false;
+    settings.rhythmHighContrast = !!settings.rhythmHighContrast;
+    settings.rhythmFlashReduction = !!settings.rhythmFlashReduction;
+    settings.rhythmScrollSpeed = clamp(Number(settings.rhythmScrollSpeed) || 1,.75,1.5);
+    settings.rhythmLatencyOffset = clamp(Number(settings.rhythmLatencyOffset) || 0,-200,200);
     document.body.classList.toggle('large-text', !!settings.largeText);
     document.body.classList.toggle('reduced-motion', !!settings.reducedMotion);
     document.body.classList.toggle('touch-controls-mirrored', settings.touchLayout === 'mirrored');
     document.body.classList.toggle('reduced-restoration-ambience', !settings.ambientRestoration);
+    document.body.classList.toggle('rhythm-high-contrast', settings.rhythmHighContrast);
+    document.body.classList.toggle('rhythm-flash-reduced', settings.rhythmFlashReduction);
     var interfaceSizes = { compact: 0.88, standard: 1, large: 1.14 };
     var interfaceSize = interfaceSizes[settings.interfaceSize] ? settings.interfaceSize : 'standard';
     settings.interfaceSize = interfaceSize;
@@ -2430,6 +2490,15 @@
     var mobileHaptics = byId('mobileHaptics');
     var chordTiming = byId('chordTiming');
     var ambientRestoration = byId('ambientRestoration');
+    var rhythmTiming = byId('rhythmTiming');
+    var rhythmNoFail = byId('rhythmNoFail');
+    var rhythmSimplified = byId('rhythmSimplified');
+    var rhythmHoldAssist = byId('rhythmHoldAssist');
+    var rhythmLaneLabels = byId('rhythmLaneLabels');
+    var rhythmHighContrast = byId('rhythmHighContrast');
+    var rhythmFlashReduction = byId('rhythmFlashReduction');
+    var rhythmScrollSpeed = byId('rhythmScrollSpeed');
+    var rhythmLatencyOffset = byId('rhythmLatencyOffset');
     if (difficulty) difficulty.value = settings.difficulty;
     if (music) music.value = settings.musicVolume;
     if (sfx) sfx.value = settings.sfxVolume;
@@ -2442,6 +2511,15 @@
     if (mobileHaptics) mobileHaptics.checked = !!settings.mobileHaptics;
     if (chordTiming) chordTiming.value = settings.chordTiming;
     if (ambientRestoration) ambientRestoration.checked = !!settings.ambientRestoration;
+    if (rhythmTiming) rhythmTiming.value = settings.rhythmTiming;
+    if (rhythmNoFail) rhythmNoFail.checked = settings.rhythmNoFail;
+    if (rhythmSimplified) rhythmSimplified.checked = settings.rhythmSimplified;
+    if (rhythmHoldAssist) rhythmHoldAssist.checked = settings.rhythmHoldAssist;
+    if (rhythmLaneLabels) rhythmLaneLabels.checked = settings.rhythmLaneLabels;
+    if (rhythmHighContrast) rhythmHighContrast.checked = settings.rhythmHighContrast;
+    if (rhythmFlashReduction) rhythmFlashReduction.checked = settings.rhythmFlashReduction;
+    if (rhythmScrollSpeed) rhythmScrollSpeed.value = String(settings.rhythmScrollSpeed);
+    if (rhythmLatencyOffset) rhythmLatencyOffset.value = String(settings.rhythmLatencyOffset);
     var renderScale = byId('renderScale');
     if (renderScale) renderScale.value = settings.renderScale;
     applyRenderScale();
@@ -2549,12 +2627,16 @@
     var el = byId(id);
     if (!el) return;
     el.addEventListener('input', function () {
-      settings[key] = isNumber ? clamp(Number(el.value), 0, 1) : el.type === 'checkbox' ? el.checked : el.value;
+      var minimum = Number.isFinite(Number(el.min)) ? Number(el.min) : 0;
+      var maximum = Number.isFinite(Number(el.max)) ? Number(el.max) : 1;
+      settings[key] = isNumber ? clamp(Number(el.value), minimum, maximum) : el.type === 'checkbox' ? el.checked : el.value;
       saveSettings();
       applySettings();
     });
     el.addEventListener('change', function () {
-      settings[key] = isNumber ? clamp(Number(el.value), 0, 1) : el.type === 'checkbox' ? el.checked : el.value;
+      var minimum = Number.isFinite(Number(el.min)) ? Number(el.min) : 0;
+      var maximum = Number.isFinite(Number(el.max)) ? Number(el.max) : 1;
+      settings[key] = isNumber ? clamp(Number(el.value), minimum, maximum) : el.type === 'checkbox' ? el.checked : el.value;
       saveSettings();
       applySettings();
     });
@@ -2624,6 +2706,7 @@
   }
 
   function clearTransient() {
+    if(resonanceGateRuntime.open)closeResonanceGate();
     worldTransitionRuntime.locked = false;
     worldTransitionRuntime.source = '';
     worldTransitionRuntime.serial++;
@@ -2675,7 +2758,7 @@
     setHidden(byId('shopScreen'), true); setHidden(byId('skillsScreen'), true); setHidden(byId('statisticsScreen'), true);
     setHidden(byId('instrumentsScreen'), true); setHidden(byId('homeScreen'), true);
     setHidden(byId('endingScreen'), true);
-    setHidden(byId('livingPanel'),true);setHidden(byId('quickWheelOverlay'),true);setHidden(byId('livingConfirmOverlay'),true);setHidden(byId('rehearsalResultsOverlay'),true);
+    setHidden(byId('livingPanel'),true);setHidden(byId('quickWheelOverlay'),true);setHidden(byId('livingConfirmOverlay'),true);setHidden(byId('rehearsalResultsOverlay'),true);setHidden(byId('resonanceGateOverlay'),true);
   }
 
   function beginAudio() {
@@ -2696,7 +2779,7 @@
     controller:['controllerEnabled','moveDeadzone','lookDeadzone','lookSensitivityX','lookSensitivityY','triggerThreshold','controllerVibration','southpaw'],
     display:['fullscreenToggle','renderScale','interfaceSize','ambientRestoration'],
     firstPerson:['viewMode','fov','mouseSensitivity','mobileLookSensitivity','invertLookY','headBob','cameraEffects','reticle'],
-    accessibility:['reducedMotion','largeText','screenShake','mobileHaptics','chordTiming']
+    accessibility:['reducedMotion','largeText','screenShake','mobileHaptics','chordTiming','rhythmTiming','rhythmNoFail','rhythmSimplified','rhythmHoldAssist','rhythmLaneLabels','rhythmHighContrast','rhythmFlashReduction','rhythmScrollSpeed','rhythmLatencyOffset']
   };
   function enhanceSettingsPanel() {
     var list = document.querySelector('#settingsPanel .settings-list');
@@ -2765,7 +2848,9 @@
       function render() {
         var number = Number(range.value);
         var percent = range.max === '1' && range.min === '0';
-        output.textContent = percent ? Math.round(number * 100) + '%' :
+        output.textContent = range.id === 'rhythmLatencyOffset' ? (number > 0 ? '+' : '') + Math.round(number) + ' ms' :
+          range.id === 'rhythmScrollSpeed' ? number.toFixed(2).replace(/0+$/,'').replace(/\.$/,'') + '×' :
+          percent ? Math.round(number * 100) + '%' :
           (range.id === 'fov' ? Math.round(number) + '°' : number.toFixed(number % 1 ? 2 : 0));
       }
       range.closest('.setting-row').appendChild(output);
@@ -2784,7 +2869,7 @@
       tab.tabIndex = selected ? 0 : -1;
     });
   }
-  function resetSettingsCategory(){var gameDefaults={difficultySelect:'standard',musicVolume:.62,sfxVolume:.78,screenShake:true,reducedMotion:false,objectiveArrow:true,largeText:false,interfaceSize:'standard',renderScale:'balanced',touchLayout:'normal',mobileHaptics:true,chordTiming:'standard',ambientRestoration:true};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var el=byId(id);if(!el)return;if(Object.prototype.hasOwnProperty.call(gameDefaults,id)){var key={difficultySelect:'difficulty',musicVolume:'musicVolume',sfxVolume:'sfxVolume',screenShake:'screenShake',reducedMotion:'reducedMotion',objectiveArrow:'objectiveArrow',largeText:'largeText',interfaceSize:'interfaceSize',renderScale:'renderScale',touchLayout:'touchLayout',mobileHaptics:'mobileHaptics',chordTiming:'chordTiming',ambientRestoration:'ambientRestoration'}[id];settings[key]=gameDefaults[id];} });saveSettings();applySettings();if(window.MossInput){var controllerDefaults={controllerEnabled:true,moveDeadzone:.18,lookDeadzone:.2,lookSensitivityX:1,lookSensitivityY:1,invertLookY:false,vibration:true,promptStyle:'auto',triggerThreshold:.5,southpaw:false,swapConfirmCancel:false,viewMode:'topDown',fov:70,mouseSensitivity:1,mobileLookSensitivity:1,headBob:true,cameraEffects:true,reticle:true};var patch={};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var key=id==='controllerVibration'?'vibration':id;if(Object.prototype.hasOwnProperty.call(controllerDefaults,key))patch[key]=controllerDefaults[key];});window.MossInput.applySettings(patch);}applyControllerSettings();enhanceRangeOutputs();}
+  function resetSettingsCategory(){var gameDefaults={difficultySelect:'standard',musicVolume:.62,sfxVolume:.78,screenShake:true,reducedMotion:false,objectiveArrow:true,largeText:false,interfaceSize:'standard',renderScale:'balanced',touchLayout:'normal',mobileHaptics:true,chordTiming:'standard',ambientRestoration:true,rhythmTiming:'standard',rhythmNoFail:false,rhythmSimplified:false,rhythmHoldAssist:false,rhythmLaneLabels:true,rhythmHighContrast:false,rhythmFlashReduction:false,rhythmScrollSpeed:1,rhythmLatencyOffset:0};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var el=byId(id);if(!el)return;if(Object.prototype.hasOwnProperty.call(gameDefaults,id)){var key={difficultySelect:'difficulty',musicVolume:'musicVolume',sfxVolume:'sfxVolume',screenShake:'screenShake',reducedMotion:'reducedMotion',objectiveArrow:'objectiveArrow',largeText:'largeText',interfaceSize:'interfaceSize',renderScale:'renderScale',touchLayout:'touchLayout',mobileHaptics:'mobileHaptics',chordTiming:'chordTiming',ambientRestoration:'ambientRestoration',rhythmTiming:'rhythmTiming',rhythmNoFail:'rhythmNoFail',rhythmSimplified:'rhythmSimplified',rhythmHoldAssist:'rhythmHoldAssist',rhythmLaneLabels:'rhythmLaneLabels',rhythmHighContrast:'rhythmHighContrast',rhythmFlashReduction:'rhythmFlashReduction',rhythmScrollSpeed:'rhythmScrollSpeed',rhythmLatencyOffset:'rhythmLatencyOffset'}[id];settings[key]=gameDefaults[id];} });saveSettings();applySettings();if(window.MossInput){var controllerDefaults={controllerEnabled:true,moveDeadzone:.18,lookDeadzone:.2,lookSensitivityX:1,lookSensitivityY:1,invertLookY:false,vibration:true,promptStyle:'auto',triggerThreshold:.5,southpaw:false,swapConfirmCancel:false,viewMode:'topDown',fov:70,mouseSensitivity:1,mobileLookSensitivity:1,headBob:true,cameraEffects:true,reticle:true};var patch={};SETTINGS_CATEGORIES[activeSettingsCategory].forEach(function(id){var key=id==='controllerVibration'?'vibration':id;if(Object.prototype.hasOwnProperty.call(controllerDefaults,key))patch[key]=controllerDefaults[key];});window.MossInput.applySettings(patch);}applyControllerSettings();enhanceRangeOutputs();}
   function enhanceRangeOutputs(){document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){range.dispatchEvent(new Event('input'));});}
   function renderCharacterCreator() {
     if (!characterDraft || !window.MossCharacter) return;
@@ -2992,7 +3077,7 @@
     livingReturnsToPause=false;
   }
   function setLivingTab(tab) {
-    if(['mastery','synergies','restoration','rehearsal','loadouts','encore'].indexOf(tab)<0)return;
+    if(['mastery','synergies','restoration','rehearsal','rhythm','loadouts','encore'].indexOf(tab)<0)return;
     activeLivingTab=tab;renderLivingPanel();
   }
   function showLivingConfirmation(options) {
@@ -3061,6 +3146,15 @@
       var controls=document.createElement('div');controls.className='rehearsal-controls';controls.appendChild(challenge);controls.appendChild(feedback);controls.appendChild(livingButton(unlocked?'Begin rehearsal':'Locked','button-primary',function(){confirmRehearsalStart(def.id,challenge.value,Number(feedback.value));},!unlocked));card.appendChild(controls);
       var records=Object.keys(livingState().rehearsal.records).filter(function(key){return key.indexOf(def.id+':')===0;});if(records.length){var best=records.map(function(key){return livingState().rehearsal.records[key];}).sort(function(a,b){return(b.rank||'').localeCompare(a.rank||'')||a.bestTime-b.bestTime;})[0];var note=document.createElement('small');note.textContent='Best record · '+(best.rank||'—')+' · '+formatTime(best.bestTime||0);card.appendChild(note);}grid.appendChild(card);});host.appendChild(grid);
   }
+  function renderRhythmTrialsContent(host) {
+    host.innerHTML='<section class="living-section-head"><div><p class="panel-kicker">RESONANCE GATE ARCHIVE</p><h3>Regional performance records</h3><p>Cleared arrangements stay available for score-chasing and practice. Practice never changes campaign progression or personal bests.</p></div><div class="living-feature-emblem resonance-archive-emblem" aria-hidden="true">C · E<br>G · B</div></section>';
+    var living=livingState();living.rhythmTrials=RHYTHM.sanitizeProgress(living.rhythmTrials);
+    var grid=document.createElement('div');grid.className='rehearsal-grid rhythm-record-grid';RHYTHM.regionIds.forEach(function(id){
+      var chart=RHYTHM.charts[id],record=living.rhythmTrials[id],unlocked=record.unlocked||record.cleared||stateHasBoss(state,chart.stage),card=document.createElement('article');card.className='rehearsal-card rhythm-record-card'+(unlocked?'':' locked');card.style.setProperty('--boss-color',chart.palette.primary);
+      card.innerHTML='<p class="panel-kicker">'+(record.cleared?'GATE RESTORED':unlocked?'ARRANGEMENT DISCOVERED':'REGIONAL GATE DORMANT')+'</p><h3>'+livingEscape(chart.name)+'</h3><p>'+livingEscape(chart.subtitle)+' · '+livingEscape(chart.arrangement)+'</p><dl class="rhythm-record-stats"><div><dt>Rank</dt><dd>'+(record.bestRank||'—')+'</dd></div><div><dt>Accuracy</dt><dd>'+(record.bestRank?record.bestAccuracy.toFixed(1)+'%':'—')+'</dd></div><div><dt>Score</dt><dd>'+(record.bestScore?record.bestScore.toLocaleString():'—')+'</dd></div><div><dt>Attempts</dt><dd>'+record.attempts+'</dd></div></dl>'+(record.assistedClear?'<small>Boss road opened with accessibility assistance.</small>':'');
+      var actions=document.createElement('div');actions.className='button-row';actions.appendChild(livingButton(record.cleared?'Scored replay':'Attempt gate','button-primary',function(){openResonanceGate(id,{replay:true});},!unlocked));actions.appendChild(livingButton('Practice','button-secondary',function(){if(openResonanceGate(id,{replay:true}))startResonanceGate('practice');},!unlocked));card.appendChild(actions);grid.appendChild(card);
+    });host.appendChild(grid);
+  }
   function canChangeLoadout(){return started&&!dialogue&&!boss&&!rehearsalRuntime.active&&!tutorialRuntime.active;}
   function saveLoadout(index) {
     var loadout=livingState().loadouts[index];loadout.instrument=state.equippedInstrument;loadout.resonance=state.activeResonance||'';loadout.equipment=Object.assign({},state.inventory.equipped);loadout.quickConsumables=Object.keys(state.inventory.consumables||{}).filter(function(id){return state.inventory.consumables[id]>0;}).slice(0,4);loadout.saved=true;audioCall('sfx','unlock');showToast('LOADOUT SAVED',loadout.name+' captured your current field arrangement.','#56f0c4',2.8);saveGame(true);renderLivingPanel();
@@ -3080,7 +3174,7 @@
   }
   function renderLivingPanel() {
     if(!LIVING)return;var host=byId('livingContent');if(!host)return;host.innerHTML='';document.querySelectorAll('[data-living-tab]').forEach(function(tab){var selected=tab.dataset.livingTab===activeLivingTab;tab.classList.toggle('active',selected);tab.setAttribute('aria-selected',selected?'true':'false');tab.tabIndex=selected?0:-1;});
-    if(activeLivingTab==='mastery')renderMasteryContent(host);else if(activeLivingTab==='synergies')renderSynergyContent(host);else if(activeLivingTab==='restoration')renderRestorationContent(host);else if(activeLivingTab==='rehearsal')renderRehearsalContent(host);else if(activeLivingTab==='loadouts')renderLoadoutContent(host);else renderEncoreContent(host);
+    if(activeLivingTab==='mastery')renderMasteryContent(host);else if(activeLivingTab==='synergies')renderSynergyContent(host);else if(activeLivingTab==='restoration')renderRestorationContent(host);else if(activeLivingTab==='rehearsal')renderRehearsalContent(host);else if(activeLivingTab==='rhythm')renderRhythmTrialsContent(host);else if(activeLivingTab==='loadouts')renderLoadoutContent(host);else renderEncoreContent(host);
     var synergy=activeClassSynergy(),restoration=activeRestoration(),region=LIVING.regions[restoration.region];if(byId('livingStatusClass'))byId('livingStatusClass').textContent=starterClass(state.character.classId).name;if(byId('livingStatusInstrument'))byId('livingStatusInstrument').textContent=equippedInstrument().name;if(byId('livingStatusSynergy'))byId('livingStatusSynergy').textContent=synergy?synergy.name:'Untuned';if(byId('livingStatusRegion'))byId('livingStatusRegion').textContent=region.name+' · '+region.tiers[restoration.tier];
   }
 
@@ -3412,6 +3506,10 @@
     else if(step.kind==='combat')target=state.stage===1?{x:1760,y:740}:storyEnemyTarget(state.stage);
     else if(step.kind==='compose')target={x:1435,y:880};
     else if(step.kind==='boss')target=BOSS_CENTER;
+    if(step.kind==='boss'&&regionalBossObjectiveMet(state.stage)&&!rhythmGateCleared(state.stage)){
+      var gateChart=RHYTHM&&RHYTHM.charts[regionIdForStage(state.stage)];
+      return{text:'Perform '+(gateChart?gateChart.name:'the Resonance Gate')+' · press E at the arena',x:BOSS_CENTER.x,y:BOSS_CENTER.y,story:true,step:step,arc:arc};
+    }
     var progressValue=step.kind==='combat'?storyCombatCount(state.stage):step.kind==='pulse'?countCollected(state.stage===2?drums:speakers,state.stage===2?state.drums:state.speakers):step.id==='recover-notes'?state.notes.length:step.kind==='collect'&&state.stage===4?countCollected(stageTokens,state.stageTokens):state.weeds.length;
     var suffix=step.goal?' · '+progressValue+'/'+step.goal:'';
     return{text:step.objective+suffix,x:target.x,y:target.y,story:true,step:step,arc:arc};
@@ -3454,6 +3552,409 @@
     else if(result.complete){var firstCompletion=puzzle.status!=='completed';puzzle.status='completed';puzzle.input=chord.notes.slice();chordRuntime.input=chord.notes.slice();if(firstCompletion&&!puzzle.rewardClaimed){puzzle.rewardClaimed=true;state.beatcoins+=3;state.statistics.beatcoinsEarned+=3;}audioCall('sfx','unlock');mobileHaptic([20,30,42]);if(byId('chordStatus'))byId('chordStatus').textContent=firstCompletion?'Chord complete. The region answers in harmony. +3 Beatcoins':'Replay complete. No progression reward was repeated.';syncStoryProgress(true);saveGame(true);}
     else {if(puzzle.status!=='completed'){puzzle.status='in-progress';puzzle.input=chordRuntime.input.slice();}if(byId('chordStatus'))byId('chordStatus').textContent='Good. '+result.matched+' of '+chord.notes.length+' tones are holding.';saveGame(true);}
     renderChordPanel();return result.complete;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Resonance Gate                                                     */
+  /* ------------------------------------------------------------------ */
+
+  var RESONANCE_ACTION_LANES={rhythmC:0,rhythmE:1,rhythmG:2,rhythmB:3};
+  var RESONANCE_CAPTURE_KEYS=new Set(['d','f','j','k','arrowleft','arrowdown','arrowup','arrowright']);
+  var RESONANCE_TUTORIAL_COPY={
+    C:'C · press D or Left as the leaf reaches the Crown.',
+    E:'E · press F or Down as the diamond reaches the Crown.',
+    G:'G · press J or Up as the wave reaches the Crown.',
+    B:'B · press K or Right as the star reaches the Crown.',
+    hold:'Hold the lane until the glowing root has passed the Crown.',
+    chord:'Two paths answer together · press both shown lanes at once.'
+  };
+
+  function resonanceTrialRecord(region) {
+    var living=livingState();
+    if(!living||!RHYTHM)return null;
+    living.rhythmTrials=RHYTHM.sanitizeProgress(living.rhythmTrials);
+    return living.rhythmTrials[region]||null;
+  }
+
+  function resonanceClockSnapshot() {
+    var fallback=performance.now()/1000;
+    var snapshot=audioCall('getTransportSnapshot',fallback);
+    if(!snapshot||!Number.isFinite(snapshot.audioTime))return{audioTime:fallback,bpm:104,beatDuration:60/104,phase:0,running:false};
+    return snapshot;
+  }
+
+  function resonanceSongTime() {
+    if(!resonanceGateRuntime.open||!resonanceGateRuntime.session)return 0;
+    if(resonanceGateRuntime.phase==='paused'||resonanceGateRuntime.phase==='resuming')return resonanceGateRuntime.pausedSongTime;
+    return Math.max(-0.5,resonanceClockSnapshot().audioTime-resonanceGateRuntime.startClock);
+  }
+
+  function resonanceAssistanceSummary(mode) {
+    var parts=[];
+    if(mode==='practice')parts.push('practice · score not recorded');
+    else if(mode==='demo')parts.push('guided demonstration · score not recorded');
+    else parts.push(settings.rhythmNoFail?'No-Fail assisted progression':'ranked progression');
+    parts.push(settings.rhythmTiming==='wide'?'wider timing':'standard timing');
+    parts.push(settings.rhythmSimplified?'simplified arrangement':'full arrangement');
+    if(settings.rhythmHoldAssist)parts.push('hold assistance');
+    if(Number(settings.rhythmLatencyOffset))parts.push((Number(settings.rhythmLatencyOffset)>0?'+':'')+Number(settings.rhythmLatencyOffset)+' ms calibration');
+    return parts.join(' · ');
+  }
+
+  function setResonancePerformanceStatus(message) {
+    var status=byId('resonancePerformanceStatus'),text=String(message||'');
+    if(status&&status.textContent!==text)status.textContent=text;
+  }
+
+  function renderResonanceInputPrompts() {
+    var input=window.MossInput,method=input&&input.getActiveMethod?input.getActiveMethod():'keyboard';
+    var actions=['rhythmC','rhythmE','rhythmG','rhythmB'],fallback=['D / ←','F / ↓','J / ↑','K / →'];
+    actions.forEach(function(action,lane){
+      var label=method==='touch'?'Tap':input&&input.label?(input.label(action)||fallback[lane]):fallback[lane];
+      var guide=document.querySelector('[data-resonance-control="'+lane+'"] kbd');if(guide)guide.textContent=label;
+      var button=document.querySelector('[data-resonance-lane="'+lane+'"]'),small=button&&button.querySelector('small');if(small)small.textContent=label;
+    });
+  }
+
+  function setResonanceGatePhase(phase) {
+    resonanceGateRuntime.phase=phase;
+    var intro=phase==='intro',results=phase==='results',play=!intro&&!results&&phase!=='inactive';
+    setHidden(byId('resonanceGateIntro'),!intro);
+    setHidden(byId('resonanceGatePlay'),!play);
+    setHidden(byId('resonanceGateResults'),!results);
+    setHidden(byId('resonancePauseCurtain'),phase!=='paused');
+    document.body.classList.toggle('resonance-gate-playing',play);
+    document.body.classList.toggle('resonance-gate-paused',phase==='paused');
+  }
+
+  function renderResonanceGateIntro() {
+    var chart=RHYTHM&&RHYTHM.charts[resonanceGateRuntime.region],record=resonanceTrialRecord(resonanceGateRuntime.region);
+    if(!chart||!record)return;
+    var card=document.querySelector('.resonance-gate-card');if(card){card.style.setProperty('--gate-primary',chart.palette.primary);card.style.setProperty('--gate-secondary',chart.palette.secondary);}
+    if(byId('resonanceGateKicker'))byId('resonanceGateKicker').textContent=(record.cleared?'RESONANCE ARCHIVE · REPLAY':'RESONANCE GATE · BOSS ROAD')+' · '+STAGE_NAMES[chart.stage].toUpperCase();
+    if(byId('resonanceGateTitle'))byId('resonanceGateTitle').textContent=chart.name;
+    if(byId('resonanceGateSubtitle'))byId('resonanceGateSubtitle').textContent=chart.subtitle+' · '+chart.arrangement;
+    var threshold=RHYTHM.completionThresholds[settings.difficulty]||RHYTHM.completionThresholds.standard;
+    if(byId('resonanceGateObjective'))byId('resonanceGateObjective').textContent=record.cleared?'The boss road is permanently open. Replay for a stronger record, or practice without changing your best.':'Guide C, E, G, and B into the Resonance Crown. Restore '+threshold+'% resonance to open the boss arena permanently.';
+    if(byId('resonanceGateAssistSummary'))byId('resonanceGateAssistSummary').textContent=resonanceAssistanceSummary('scored');
+    if(byId('resonanceGateRecord'))byId('resonanceGateRecord').textContent=record.bestRank?('Best '+record.bestRank+' · '+record.bestAccuracy.toFixed(1)+'% · '+record.bestScore.toLocaleString()+' · '+record.maxCombo+' max combo'+(record.assistedClear?' · assisted clear':'')):('No performance recorded · '+record.attempts+' scored attempt'+(record.attempts===1?'':'s'));
+    if(byId('resonanceGateStartButton'))byId('resonanceGateStartButton').textContent=record.cleared?'Play scored replay':'Begin performance';
+    setResonanceGatePhase('intro');
+  }
+
+  function openResonanceGate(region,options) {
+    options=options||{};
+    if(!RHYTHM||!started||boss||rehearsalRuntime.active||resonanceGateRuntime.open)return false;
+    var id=RHYTHM.regionIds.indexOf(region)>=0?region:regionIdForStage(state.stage),chart=RHYTHM.charts[id];
+    if(!chart)return false;
+    var inCurrentRegion=chart.stage===state.stage,record=resonanceTrialRecord(id),storyReady=inCurrentRegion&&regionalBossObjectiveMet(chart.stage);
+    var replayAllowed=!!(record&&(record.unlocked||record.cleared))||stateHasBoss(state,chart.stage);
+    if(!storyReady&&!options.replay&&!replayAllowed){audioCall('sfx','error');showToast('GATE STILL SLEEPING','Complete this region’s restoration story before attempting its performance.',chart.palette.primary,2.8);return false;}
+    if(livingOpen)closeLiving();
+    releaseHeldInputs();
+    var living=livingState();
+    living.rhythmTrials=RHYTHM.sanitizeProgress(living.rhythmTrials);
+    living.rhythmTrials[id].unlocked=true;
+    resonanceGateRuntime.open=true;
+    resonanceGateRuntime.region=id;
+    resonanceGateRuntime.stage=chart.stage;
+    resonanceGateRuntime.mode='scored';
+    resonanceGateRuntime.session=null;
+    resonanceGateRuntime.result=null;
+    resonanceGateRuntime.returnFocus=document.activeElement;
+    resonanceGateRuntime.firstVisit=!living.rhythmTrials[id].cleared;
+    resonanceGateRuntime.audioWasPaused=paused||orientationBlocked;
+    resonanceGateRuntime.previousRecord=JSON.parse(JSON.stringify(living.rhythmTrials[id]));
+    resonanceGateRuntime.currentSongTime=0;
+    resonanceGateRuntime.pausedSongTime=0;
+    resonanceGateRuntime.laneHeld=[false,false,false,false];
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
+    resonanceGateRuntime.laneFlash=[0,0,0,0];
+    resonanceGateRuntime.laneFeedback=['','','',''];
+    resonanceGateRuntime.countCue=-1;
+    resonanceGateRuntime.autoDemoIndex=0;
+    resonanceGateRuntime.autoDemoReleases=[];
+    resonanceGateRuntime.audioTier=-1;
+    setHidden(byId('resonanceGateOverlay'),false);
+    setOverlayIsolation('resonance-gate','resonanceGateOverlay',true);
+    document.body.classList.add('resonance-gate-open');
+    renderResonanceGateIntro();
+    audioCall('pause',false);
+    saveGame(true);
+    focusSoon('resonanceGateStartButton');
+    return true;
+  }
+
+  function resonanceSessionOptions(mode) {
+    return{
+      difficulty:settings.difficulty,mode:mode,
+      widerTiming:settings.rhythmTiming==='wide',simplified:!!settings.rhythmSimplified,
+      holdAssist:!!settings.rhythmHoldAssist,noFail:mode==='demo'||(mode==='scored'&&!!settings.rhythmNoFail),
+      latencyOffsetMs:clamp(Number(settings.rhythmLatencyOffset)||0,-300,300)
+    };
+  }
+
+  function startResonanceGate(mode) {
+    if(!resonanceGateRuntime.open||!RHYTHM)return false;
+    var cleanMode=['scored','practice','demo'].indexOf(mode)>=0?mode:'scored';
+    var chart=RHYTHM.charts[resonanceGateRuntime.region];
+    try{resonanceGateRuntime.session=RHYTHM.createSession(chart,resonanceSessionOptions(cleanMode));}
+    catch(error){reportRuntimeIssue('The Resonance Gate chart could not start.',error);showToast('CHART COULD NOT START','The performance data failed validation. Your progression is safe.','#ff718d',3);return false;}
+    if(resonanceGateRuntime.animationFrame)cancelAnimationFrame(resonanceGateRuntime.animationFrame);
+    if(resonanceGateRuntime.countInHideTimer){clearTimeout(resonanceGateRuntime.countInHideTimer);resonanceGateRuntime.countInHideTimer=0;}
+    resonanceGateRuntime.mode=cleanMode;
+    resonanceGateRuntime.result=null;
+    resonanceGateRuntime.currentSongTime=0;
+    resonanceGateRuntime.pausedSongTime=0;
+    resonanceGateRuntime.countCue=-1;
+    resonanceGateRuntime.autoDemoIndex=0;
+    resonanceGateRuntime.autoDemoReleases=[];
+    resonanceGateRuntime.laneHeld=[false,false,false,false];
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
+    resonanceGateRuntime.laneFlash=[0,0,0,0];
+    resonanceGateRuntime.judgement='LISTEN';
+    resonanceGateRuntime.judgementUntil=0;
+    resonanceGateRuntime.tutorialPrompt='';
+    resonanceGateRuntime.lastFrameTime=performance.now()/1000;
+    var clock=resonanceClockSnapshot(),alignDelay=clock.beatDuration?((1-clamp(clock.phase,0,1))*clock.beatDuration)%clock.beatDuration:0;
+    if(alignDelay<0.045)alignDelay=0;
+    resonanceGateRuntime.startClock=clock.audioTime+alignDelay;
+    if(cleanMode==='scored'){
+      var living=livingState();living.rhythmTrials=RHYTHM.recordAttempt(living.rhythmTrials,resonanceGateRuntime.region);saveGame(true);
+    }
+    setResonanceGatePhase('count-in');
+    if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent=(cleanMode==='demo'?'Demonstration':'Performance')+' count-in started.';
+    audioCall('pause',false);
+    drawResonanceGateFrame(0);
+    resonanceGateRuntime.animationFrame=requestAnimationFrame(stepResonanceGate);
+    focusSoon('resonancePauseButton');
+    return true;
+  }
+
+  function resonanceFeedback(event) {
+    if(!event)return;
+    var now=resonanceGateRuntime.currentSongTime;
+    (event.lanes||[]).forEach(function(lane){resonanceGateRuntime.laneFlash[lane]=event.judgement==='miss'?0.28:0.7;resonanceGateRuntime.laneFeedback[lane]=event.judgement||event.type;});
+    if(event.type==='chord-part')return;
+    if(event.type==='stray'){resonanceGateRuntime.judgement='';return;}
+    var judgement=event.judgement||'';
+    if(judgement){
+      resonanceGateRuntime.judgement=judgement.toUpperCase();
+      resonanceGateRuntime.judgementUntil=now+0.62;
+      audioCall('sfx','resonance-'+judgement);
+      if(judgement==='perfect'){rumble(0.18,55);mobileHaptic(12);}else if(judgement==='miss'){rumble(0.08,45);mobileHaptic(8);}
+      if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent=judgement+' timing. Combo '+event.combo+'.';
+    }
+  }
+
+  function handleResonanceActionEvent(detail) {
+    if(!resonanceGateRuntime.open||!resonanceGateRuntime.session||resonanceGateRuntime.mode==='demo')return;
+    var lane=RESONANCE_ACTION_LANES[detail&&detail.action];
+    if(!Number.isInteger(lane))return;
+    if(detail.phase==='released'){
+      resonanceGateRuntime.laneHeld[lane]=false;
+      var touchButton=document.querySelector('[data-resonance-lane="'+lane+'"]');if(touchButton)touchButton.classList.remove('pressed','active');
+      if(resonanceGateRuntime.phase==='playing')resonanceFeedback(resonanceGateRuntime.session.releaseLane(lane,resonanceSongTime()));
+      return;
+    }
+    if(detail.phase!=='pressed'||resonanceGateRuntime.phase!=='playing')return;
+    resonanceGateRuntime.laneHeld[lane]=true;
+    var activeButton=document.querySelector('[data-resonance-lane="'+lane+'"]');if(activeButton)activeButton.classList.add('active');
+    var event=resonanceGateRuntime.session.pressLane(lane,resonanceSongTime());
+    if(event&&event.type!=='stray')audioCall('rhythmHit',RHYTHM.lanes[lane].id,event.judgement||'great');
+    resonanceFeedback(event);
+  }
+
+  function processResonanceDemo(songTime) {
+    var runtime=resonanceGateRuntime,notes=runtime.session.chart.notes;
+    while(runtime.autoDemoIndex<notes.length){
+      var note=notes[runtime.autoDemoIndex],noteTime=RHYTHM.beatToSeconds(note.beat,runtime.session.chart.bpm);
+      if(noteTime>songTime+0.006)break;
+      var lanes=Array.isArray(note.lanes)?note.lanes:[note.lane];
+      lanes.forEach(function(lane){audioCall('rhythmHit',RHYTHM.lanes[lane].id,'perfect');resonanceFeedback(runtime.session.pressLane(lane,noteTime));});
+      if(note.type==='hold')runtime.autoDemoReleases.push({lane:lanes[0],time:RHYTHM.beatToSeconds(note.beat+note.durationBeats,runtime.session.chart.bpm)});
+      runtime.autoDemoIndex++;
+    }
+    runtime.autoDemoReleases=runtime.autoDemoReleases.filter(function(release){if(release.time>songTime)return true;resonanceFeedback(runtime.session.releaseLane(release.lane,release.time));return false;});
+  }
+
+  function resonanceTutorialAt(songTime) {
+    if(resonanceGateRuntime.region!=='mossvale')return'';
+    var chart=resonanceGateRuntime.session&&resonanceGateRuntime.session.chart;if(!chart)return'';
+    for(var i=0;i<chart.notes.length;i++){
+      var note=chart.notes[i];if(!note.tutorial)continue;
+      var time=RHYTHM.beatToSeconds(note.beat,chart.bpm);
+      if(songTime>=time-1.45&&songTime<=time+0.55)return RESONANCE_TUTORIAL_COPY[note.tutorial]||'';
+    }
+    return'';
+  }
+
+  function resonanceGlyph(ctx,lane,x,y,size,alpha) {
+    var def=RHYTHM.lanes[lane];ctx.save();ctx.translate(x,y);ctx.globalAlpha=alpha==null?1:alpha;ctx.fillStyle=def.color;ctx.strokeStyle=settings.rhythmHighContrast?'#ffffff':'rgba(255,255,255,.72)';ctx.lineWidth=settings.rhythmHighContrast?4:2;
+    if(def.shape==='diamond'){ctx.rotate(Math.PI/4);ctx.fillRect(-size*.55,-size*.55,size*1.1,size*1.1);ctx.strokeRect(-size*.55,-size*.55,size*1.1,size*1.1);}
+    else if(def.shape==='wave'){ctx.lineWidth=Math.max(3,size*.22);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-size*.72,0);ctx.quadraticCurveTo(-size*.36,-size*.65,0,0);ctx.quadraticCurveTo(size*.36,size*.65,size*.72,0);ctx.stroke();}
+    else if(def.shape==='star'){ctx.beginPath();for(var i=0;i<10;i++){var a=-Math.PI/2+i*Math.PI/5,r=i%2?size*.42:size*.78;if(!i)ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);}ctx.closePath();ctx.fill();ctx.stroke();}
+    else{ctx.beginPath();ctx.ellipse(0,0,size*.72,size*.56,-.4,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(-size*.34,size*.34);ctx.lineTo(size*.34,-size*.34);ctx.stroke();}
+    if(settings.rhythmLaneLabels){ctx.fillStyle='#061513';ctx.font='800 '+Math.max(11,size*.72)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(def.id,0,1);}
+    ctx.restore();
+  }
+
+  function drawResonanceGateFrame(songTime,snapshot) {
+    var canvasEl=byId('resonanceGateCanvas'),session=resonanceGateRuntime.session;if(!canvasEl||!session)return;
+    var gateCtx=canvasEl.getContext('2d'),w=canvasEl.width,h=canvasEl.height,chart=session.chart,palette=chart.palette;
+    gateCtx.clearRect(0,0,w,h);
+    var bg=gateCtx.createLinearGradient(0,0,0,h);bg.addColorStop(0,palette.background);bg.addColorStop(.68,'#06191c');bg.addColorStop(1,'#031012');gateCtx.fillStyle=bg;gateCtx.fillRect(0,0,w,h);
+    var energy=snapshot?Number(snapshot.resonance)||0:0,ambientCount=(settings.reducedMotion?8:14)+Math.floor(energy/10);
+    for(var p=0;p<ambientCount;p++){
+      var pulse=settings.reducedMotion?0:Math.sin(songTime*(0.7+p%3*.12)+p)*16;
+      gateCtx.globalAlpha=(p%2?.14:.1)+energy*.0012;gateCtx.fillStyle=p%2?palette.primary:palette.secondary;gateCtx.beginPath();gateCtx.arc((p*137+chart.stage*71)%w,(p*83+chart.stage*41+pulse+h)%h,1.5+(p%3),0,Math.PI*2);gateCtx.fill();
+    }
+    gateCtx.globalAlpha=.14+energy*.0015;gateCtx.strokeStyle=palette.secondary;gateCtx.fillStyle=palette.primary;gateCtx.lineWidth=2;
+    for(var regional=0;regional<6;regional++){
+      var rx=90+regional*156,ry=h-38-(regional%2)*18,shift=settings.reducedMotion?0:Math.sin(songTime*1.2+regional)*8;
+      if(chart.stage===1){gateCtx.beginPath();gateCtx.ellipse(rx+shift,ry,5,2.5,-.4,0,Math.PI*2);gateCtx.fill();gateCtx.beginPath();gateCtx.moveTo(rx,ry+8);gateCtx.quadraticCurveTo(rx-7+shift,ry,rx,ry-8);gateCtx.stroke();}
+      else if(chart.stage===2){gateCtx.beginPath();gateCtx.moveTo(rx-34,ry+13);gateCtx.quadraticCurveTo(rx-4,ry-18+shift,rx+36,ry+8);gateCtx.stroke();gateCtx.beginPath();gateCtx.arc(rx,ry-4,3+energy*.02,0,Math.PI*2);gateCtx.fill();}
+      else if(chart.stage===3){gateCtx.save();gateCtx.translate(rx,ry-12+shift*.3);gateCtx.rotate(Math.PI/4);gateCtx.strokeRect(-8,-8,16,16);gateCtx.restore();}
+      else{gateCtx.beginPath();gateCtx.arc(rx,ry+shift*.2,18+energy*.05,.1,Math.PI*1.05);gateCtx.stroke();gateCtx.beginPath();gateCtx.arc(rx+20,ry-14,2.4,0,Math.PI*2);gateCtx.fill();}
+    }
+    gateCtx.globalAlpha=1;
+    var laneX=[258,406,554,702],spawnY=54,hitY=438,travel=clamp(2.9/Math.max(.5,Number(settings.rhythmScrollSpeed)||1),1.35,4.4);
+    gateCtx.lineCap='round';
+    laneX.forEach(function(x,lane){
+      var held=resonanceGateRuntime.laneHeld[lane],flash=resonanceGateRuntime.laneFlash[lane],visualFlash=settings.rhythmFlashReduction?flash*.25:flash;
+      gateCtx.strokeStyle=held||visualFlash>0?RHYTHM.lanes[lane].color:'rgba(171,240,225,.22)';gateCtx.lineWidth=held?10:5;gateCtx.beginPath();gateCtx.moveTo(w/2+(x-w/2)*.42,spawnY);gateCtx.quadraticCurveTo(x+(lane-1.5)*10,h*.48,x,hitY);gateCtx.stroke();
+      gateCtx.save();gateCtx.globalAlpha=.18+visualFlash*.42;gateCtx.fillStyle=RHYTHM.lanes[lane].color;gateCtx.beginPath();gateCtx.arc(x,hitY,31+visualFlash*9,0,Math.PI*2);gateCtx.fill();gateCtx.restore();resonanceGlyph(gateCtx,lane,x,hitY,22,1);
+    });
+    function yFor(time){return hitY-clamp((time-songTime)/travel,0,1)*(hitY-spawnY);}
+    var notes=session.renderable(songTime,travel);
+    notes.forEach(function(note){
+      var y=yFor(note.time);
+      if(note.type==='hold'){
+        var endY=yFor(note.endTime),x=laneX[note.lanes[0]];gateCtx.strokeStyle=RHYTHM.lanes[note.lanes[0]].color;gateCtx.globalAlpha=.66;gateCtx.lineWidth=14;gateCtx.beginPath();gateCtx.moveTo(x,y);gateCtx.lineTo(x,endY);gateCtx.stroke();gateCtx.globalAlpha=1;
+      }
+      if(note.lanes.length>1){gateCtx.strokeStyle='rgba(242,255,249,.55)';gateCtx.lineWidth=4;gateCtx.beginPath();gateCtx.moveTo(laneX[note.lanes[0]],y);gateCtx.lineTo(laneX[note.lanes[1]],y);gateCtx.stroke();}
+      note.lanes.forEach(function(lane){resonanceGlyph(gateCtx,lane,laneX[lane],y,note.accent?24:20,note.optional ? .72 : 1);});
+    });
+    gateCtx.strokeStyle=palette.primary;gateCtx.lineWidth=3;gateCtx.beginPath();gateCtx.moveTo(180,hitY);gateCtx.lineTo(780,hitY);gateCtx.stroke();
+    gateCtx.fillStyle='rgba(230,255,246,.76)';gateCtx.font='700 15px system-ui';gateCtx.textAlign='center';gateCtx.fillText(chart.name.toUpperCase()+' · '+chart.bpm+' BPM',w/2,28);
+  }
+
+  function updateResonanceGateHud(songTime) {
+    var session=resonanceGateRuntime.session,snapshot=session.snapshot(songTime),length=snapshot.chartLength;
+    var fill=byId('resonanceMeterFill');if(fill)fill.style.width=snapshot.resonance+'%';
+    var meter=fill&&fill.parentElement;if(meter)meter.setAttribute('aria-valuenow',String(Math.round(snapshot.resonance)));
+    if(byId('resonanceMeterThreshold'))byId('resonanceMeterThreshold').style.left=snapshot.threshold+'%';
+    if(byId('resonanceMeterValue'))byId('resonanceMeterValue').textContent=Math.round(snapshot.resonance)+'% / '+snapshot.threshold+'%';
+    if(byId('resonanceCombo'))byId('resonanceCombo').textContent=String(snapshot.combo);
+    if(byId('resonanceMultiplier'))byId('resonanceMultiplier').textContent='×'+RHYTHM.multiplierForCombo(snapshot.combo).toFixed(snapshot.combo>=10?1:0);
+    if(byId('resonanceScore'))byId('resonanceScore').textContent=snapshot.score.toLocaleString();
+    if(byId('resonanceAccuracy'))byId('resonanceAccuracy').textContent=snapshot.accuracy.toFixed(1)+'%';
+    if(byId('resonanceProgressFill'))byId('resonanceProgressFill').style.width=clamp(songTime/length*100,0,100)+'%';
+    var judgement=byId('resonanceJudgement');if(judgement){judgement.textContent=songTime<=resonanceGateRuntime.judgementUntil?resonanceGateRuntime.judgement:'';judgement.dataset.quality=(resonanceGateRuntime.judgement||'').toLowerCase();}
+    var tutorial=resonanceTutorialAt(songTime);if(byId('resonanceTutorialPrompt')){byId('resonanceTutorialPrompt').textContent=tutorial;byId('resonanceTutorialPrompt').hidden=!tutorial;}
+    var audioTier=clamp(Math.floor(snapshot.resonance/25),0,4);if(audioTier!==resonanceGateRuntime.audioTier){resonanceGateRuntime.audioTier=audioTier;audioCall('setAdaptiveState',{stage:resonanceGateRuntime.stage,scene:'exploration',intensity:.22+audioTier*.18,track:'resonance-gate-'+resonanceGateRuntime.region});}
+    drawResonanceGateFrame(songTime,snapshot);
+  }
+
+  function stepResonanceGate(frameMs) {
+    var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session)return;
+    runtime.animationFrame=0;
+    var frameSeconds=frameMs/1000,dt=clamp(frameSeconds-runtime.lastFrameTime,0,0.08);runtime.lastFrameTime=frameSeconds;
+    for(var f=0;f<4;f++)runtime.laneFlash[f]=Math.max(0,runtime.laneFlash[f]-dt*2.5);
+    if(runtime.phase==='paused'){updateResonanceGateHud(runtime.pausedSongTime);return;}
+    if(runtime.phase==='resuming'){
+      var resumeElapsed=resonanceClockSnapshot().audioTime-runtime.resumeCountStarted,beatLength=60/runtime.session.chart.bpm,total=beatLength*4,remaining=Math.max(0,4-Math.floor(resumeElapsed/beatLength));
+      if(byId('resonanceCountIn')){byId('resonanceCountIn').textContent=remaining?String(remaining):'PLAY';byId('resonanceCountIn').hidden=false;}
+      if(remaining>0&&remaining!==runtime.countCue){runtime.countCue=remaining;audioCall('sfx','resonance-countdown');}
+      updateResonanceGateHud(runtime.pausedSongTime);
+      if(resumeElapsed>=total){runtime.startClock=resonanceClockSnapshot().audioTime-runtime.pausedSongTime;runtime.phase='playing';setHidden(byId('resonancePauseCurtain'),true);if(byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent='Performance resumed.';}
+      runtime.animationFrame=requestAnimationFrame(stepResonanceGate);return;
+    }
+    var songTime=resonanceSongTime();runtime.currentSongTime=songTime;
+    var countLength=RHYTHM.beatToSeconds(runtime.session.chart.countInBeats,runtime.session.chart.bpm),beat=60/runtime.session.chart.bpm;
+    if(songTime<countLength){
+      runtime.phase='count-in';var beatIndex=Math.max(0,Math.floor(Math.max(0,songTime)/beat)),cue=clamp(4-beatIndex,1,4);
+      if(byId('resonanceCountIn')){byId('resonanceCountIn').hidden=false;byId('resonanceCountIn').textContent=songTime<0?'READY':String(cue);}
+      if(songTime>=0&&cue!==runtime.countCue){runtime.countCue=cue;audioCall('sfx','resonance-countdown');}
+    }else if(runtime.phase==='count-in'){
+      runtime.phase='playing';if(byId('resonanceCountIn')){byId('resonanceCountIn').textContent='PLAY';runtime.countInHideTimer=window.setTimeout(function(){runtime.countInHideTimer=0;if(runtime.open&&runtime.phase==='playing'&&byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;},360);}audioCall('sfx','resonance-go');
+    }
+    if(runtime.phase==='playing'){
+      if(runtime.mode==='demo')processResonanceDemo(songTime);
+      runtime.session.update(songTime).forEach(resonanceFeedback);
+    }
+    updateResonanceGateHud(songTime);
+    if(runtime.session.isComplete()){finishResonanceGate();return;}
+    runtime.animationFrame=requestAnimationFrame(stepResonanceGate);
+  }
+
+  function pauseResonanceGate(interrupted) {
+    var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session||['results','intro','paused'].indexOf(runtime.phase)>=0)return false;
+    if(runtime.countInHideTimer){clearTimeout(runtime.countInHideTimer);runtime.countInHideTimer=0;}
+    runtime.pausedSongTime=resonanceSongTime();runtime.currentSongTime=runtime.pausedSongTime;runtime.phase='paused';runtime.laneHeld=[false,false,false,false];
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
+    setHidden(byId('resonancePauseCurtain'),false);document.body.classList.add('resonance-gate-paused');audioCall('pause',true);releaseHeldInputs();
+    if(runtime.animationFrame){cancelAnimationFrame(runtime.animationFrame);runtime.animationFrame=0;}
+    updateResonanceGateHud(runtime.pausedSongTime);
+    if(byId('resonancePauseTitle'))byId('resonancePauseTitle').textContent=interrupted?'Performance safely suspended':'Performance paused';
+    focusSoon('resonanceResumeButton');return true;
+  }
+
+  function resumeResonanceGate() {
+    var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session||runtime.phase!=='paused')return false;
+    runtime.phase='resuming';runtime.resumeCountStarted=resonanceClockSnapshot().audioTime;runtime.lastFrameTime=performance.now()/1000;runtime.countCue=-1;document.body.classList.remove('resonance-gate-paused');setHidden(byId('resonancePauseCurtain'),true);audioCall('pause',false);
+    if(runtime.animationFrame)cancelAnimationFrame(runtime.animationFrame);runtime.animationFrame=requestAnimationFrame(stepResonanceGate);focusSoon('resonancePauseButton');return true;
+  }
+
+  function finishResonanceGate(forcedResult) {
+    var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session)return false;
+    if(runtime.animationFrame){cancelAnimationFrame(runtime.animationFrame);runtime.animationFrame=0;}
+    if(runtime.countInHideTimer){clearTimeout(runtime.countInHideTimer);runtime.countInHideTimer=0;}
+    var outcome=forcedResult||runtime.session.result(),living=livingState(),previous=JSON.parse(JSON.stringify(resonanceTrialRecord(runtime.region)||{})),firstClear=false,rewardCoins=0;
+    runtime.result=outcome;
+    if(runtime.mode==='scored'){
+      var applied=RHYTHM.applyResult(living.rhythmTrials,runtime.region,outcome);living.rhythmTrials=applied.progress;firstClear=applied.firstClear;
+      if(applied.rewardAvailable){
+        rewardCoins={Practice:1,C:2,B:3,A:4,S:6}[outcome.rank]||1;
+        state.beatcoins=clamp(state.beatcoins+rewardCoins,0,99999);state.statistics.beatcoinsEarned+=rewardCoins;
+        var restoration=living.restoration[runtime.region];if(restoration)restoration.points=clamp(restoration.points+1,0,8);
+        var claim='rhythm:'+runtime.region+':first-clear';if(living.rewardClaims.indexOf(claim)<0)living.rewardClaims.push(claim);
+        living.rhythmTrials=RHYTHM.markRewardClaimed(living.rhythmTrials,runtime.region);refreshLivingRestoration(false);
+      }
+      saveGame(true);syncStoryProgress(false);updateHUD(true);
+    }
+    var record=resonanceTrialRecord(runtime.region),cleared=runtime.mode==='scored'&&outcome.cleared;
+    if(byId('resonanceResultRank')){byId('resonanceResultRank').textContent=outcome.rank||'—';byId('resonanceResultRank').dataset.rank=outcome.rank||'';}
+    if(byId('resonanceResultKicker'))byId('resonanceResultKicker').textContent=cleared?'GATE RESTORED':runtime.mode==='practice'?'PRACTICE COMPLETE':runtime.mode==='demo'?'DEMONSTRATION COMPLETE':'RESONANCE UNSTABLE';
+    if(byId('resonanceResultsTitle'))byId('resonanceResultsTitle').textContent=cleared?(firstClear?'The boss road is open':'Performance cleared'):runtime.mode==='scored'?'The gate needs another phrase':'Arrangement explored';
+    var summary=cleared?(firstClear?'The regional resonator now stays awake. Losing the boss fight will never relock it.':'Your permanent gate remains open; this replay strengthened your record.'):(runtime.mode==='scored'?'Restore '+outcome.threshold+'% resonance to clear. Retry immediately, practise, or enable Wider Timing, Simplified Charts, Hold Assist, or No-Fail in Accessibility.':'Practice and demonstrations never change campaign progress or personal bests.');
+    if(rewardCoins)summary+=' First-clear restoration: +1 resonance and +'+rewardCoins+' Beatcoins.';
+    if(byId('resonanceResultSummary'))byId('resonanceResultSummary').textContent=summary;
+    if(byId('resonanceResultAssist'))byId('resonanceResultAssist').textContent=outcome.assistanceUsed?'Assisted result · '+resonanceAssistanceSummary(runtime.mode):'Unassisted result · standard chart rules';
+    [['resonanceResultScore',outcome.score.toLocaleString()],['resonanceResultAccuracy',outcome.accuracy.toFixed(1)+'%'],['resonanceResultCombo',String(outcome.maxCombo)],['resonanceResultPerfect',String(outcome.perfect)],['resonanceResultGreat',String(outcome.great)],['resonanceResultGood',String(outcome.good)],['resonanceResultMiss',String(outcome.miss)]].forEach(function(entry){if(byId(entry[0]))byId(entry[0]).textContent=entry[1];});
+    if(byId('resonanceResultBest'))byId('resonanceResultBest').textContent=runtime.mode==='scored'&&record&&record.bestRank?(record.bestRank+' · '+record.bestAccuracy.toFixed(1)+'%'+(outcome.score>Number(previous.bestScore||0)?' · NEW SCORE':'')):'Not recorded';
+    var canBoss=!!(record&&record.cleared&&runtime.stage===state.stage&&!bossDefeatedForStage(runtime.stage));setHidden(byId('resonanceContinueBossButton'),!canBoss);
+    if(byId('resonanceRetryButton'))byId('resonanceRetryButton').textContent=outcome.cleared?'Play again':'Retry now';
+    setResonanceGatePhase('results');audioCall('sfx',cleared?'resonance-clear':runtime.mode==='scored'?'resonance-miss':'unlock');if(cleared)rumble(.32,180);
+    focusSoon(canBoss?'resonanceContinueBossButton':'resonanceRetryButton');return true;
+  }
+
+  function closeResonanceGate(options) {
+    options=options||{};var runtime=resonanceGateRuntime;if(!runtime.open)return false;
+    var continuingToBoss=!!(options.toBoss&&runtime.stage===state.stage&&rhythmGateCleared(runtime.stage)&&!bossDefeatedForStage(runtime.stage));
+    if(runtime.animationFrame)cancelAnimationFrame(runtime.animationFrame);
+    if(runtime.countInHideTimer){clearTimeout(runtime.countInHideTimer);runtime.countInHideTimer=0;}
+    runtime.animationFrame=0;runtime.open=false;runtime.phase='inactive';runtime.session=null;runtime.result=null;runtime.autoDemoReleases=[];runtime.laneHeld=[false,false,false,false];runtime.audioTier=-1;
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
+    setOverlayIsolation('resonance-gate','resonanceGateOverlay',false);setHidden(byId('resonanceGateOverlay'),true);document.body.classList.remove('resonance-gate-open','resonance-gate-playing','resonance-gate-paused');releaseHeldInputs();
+    if(continuingToBoss&&homeOpen)closeHome();
+    if(continuingToBoss&&paused&&!orientationBlocked){paused=false;setOverlayIsolation('pause','pauseScreen',false);setHidden(byId('pauseScreen'),true);resumeAudioOnGesture=false;}
+    audioCall('pause',orientationBlocked||(!continuingToBoss&&(paused||runtime.audioWasPaused)));saveGame(true);
+    if(continuingToBoss){
+      var dx=player.x-BOSS_CENTER.x,dy=player.y-BOSS_CENTER.y,n=Math.sqrt(dx*dx+dy*dy)>0.001?normalize(dx,dy):{x:-1,y:0};player.x=BOSS_CENTER.x+n.x*292;player.y=BOSS_CENTER.y+n.y*292;camera.x=player.x;camera.y=player.y;focusSoon('gameCanvas');showToast('BOSS ROAD OPEN','The restored gate carries you into '+bossDefForStage(runtime.stage).shortName+'’s arena.',bossDefForStage(runtime.stage).shieldColor,2.6);
+    }else if(runtime.returnFocus&&runtime.returnFocus.isConnected&&typeof runtime.returnFocus.focus==='function'){var returnFocus=runtime.returnFocus;requestAnimationFrame(function(){returnFocus.focus({preventScroll:true});});}
+    else focusSoon('gameCanvas');
+    runtime.returnFocus=null;updateHUD(true);return true;
   }
 
   function getObjective() {
@@ -4650,11 +5151,12 @@
       var n = d > 0.001 ? normalize(dx, dy) : {x:-1,y:0};
       player.x = BOSS_CENTER.x + n.x * 357;
       player.y = BOSS_CENTER.y + n.y * 357;
-      var barrierText = state.stage === 1 ? 'Compose all four notes with EEMS to open the gate.' :
+      var storyReady = regionalBossObjectiveMet(state.stage);
+      var barrierText = storyReady ? 'Press E to perform the Resonance Gate and wake the boss road.' : state.stage === 1 ? 'Compose all four notes with EEMS to open the gate.' :
         state.stage === 2 ? 'Wake the drums and bring their rhythm to Pip.' :
         state.stage === 3 ? 'Retune the chimes and bring their chord to Zephra.' :
         'Gather all three shells and bring their tide-song to Tavi.';
-      if (toastTimer <= 0) showToast('BOSS ROAD SEALED', barrierText, bossDefForStage(state.stage).shieldColor, 2.7);
+      if (toastTimer <= 0) showToast(storyReady ? 'RESONANCE GATE DORMANT' : 'BOSS ROAD SEALED', barrierText, bossDefForStage(state.stage).shieldColor, 2.7);
     }
     if (boss && !boss.dead && d > 310) {
       var inside = normalize(dx, dy);
@@ -4991,6 +5493,9 @@
     stagePortals.forEach(function (p) { consider('portal', p, 76); });
     var story=storyArc(state.stage),resonator=STORY_RESONATORS[state.stage];
     if(story&&resonator){var storyIndex=state.questStates[story.id]||0,chordStep=story.steps.findIndex(function(step){return step.kind==='chord';}),puzzle=storyPuzzle(story.chord);if(storyIndex===chordStep||(puzzle&&puzzle.status==='completed'))consider('story-chord',resonator,78);}
+    if (!bossDefeatedForStage(state.stage) && regionalBossObjectiveMet(state.stage) && !rhythmGateCleared(state.stage)) {
+      consider('resonance-gate',{x:BOSS_CENTER.x,y:BOSS_CENTER.y,stage:state.stage},390);
+    }
     if(currentLevel&&currentLevel.isPrologue)consider('tutorial',PROLOGUE_OBJECTS[0],76);
     if(encounterDirector.activeEvent)consider('world-event',encounterDirector.activeEvent,72);
     return best;
@@ -5000,6 +5505,9 @@
     if (dialogue) { advanceDialogue(); return; }
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
     var near = firstPersonActive()&&window.MossFP&&window.MossFP.getInteractionTarget?window.MossFP.getInteractionTarget():nearestInteractable();
+    if (!near && !bossDefeatedForStage(state.stage) && regionalBossObjectiveMet(state.stage) && !rhythmGateCleared(state.stage) && distance(player,BOSS_CENTER) <= 390) {
+      near={type:'resonance-gate',item:{x:BOSS_CENTER.x,y:BOSS_CENTER.y,stage:state.stage},d:distance(player,BOSS_CENTER)};
+    }
     if (!near) {
       if (!fromBuffer) inputBuffer.interact = FIRST_STAGE_BALANCE.inputBufferSeconds;
       if (fromBuffer) return;
@@ -5013,6 +5521,7 @@
     else if (near.type === 'portal') enterStage(near.item);
     else if (near.type === 'world-event') resolveWorldEvent(near.item);
     else if (near.type === 'story-chord') openChordPanel(near.item.chord,storyPuzzle(near.item.chord).status==='completed');
+    else if (near.type === 'resonance-gate') openResonanceGate(RHYTHM && RHYTHM.regionByStage[near.item.stage]);
     else if (near.type === 'tutorial') showToast('RESONATOR TUNED','Its answering note opens the rhythm clearing.','#56f0c4',2.5);
     else collectNote(near.item);
   }
@@ -7425,6 +7934,7 @@
     if(near.type==='tutorial')return{verb:'TUNE',label:'Tune the rehearsal resonator'};
     if(near.type==='world-event')return{verb:'JOIN',label:'Join '+(near.item.name||'world event')};
     if(near.type==='story-chord')return{verb:'PLAY',label:'Play '+(near.item.label||'the story chord')};
+    if(near.type==='resonance-gate')return{verb:'PERFORM',label:'Perform the regional Resonance Gate'};
     return{verb:'LISTEN',label:'Listen to the musical object'};
   }
 
@@ -7503,6 +8013,17 @@
     if (menuHandled || !started) {
       releaseGamepadHolds();
       /* Menu button still resumes from a pad while the pause card is up. */
+      return;
+    }
+
+    /* During a live Gate performance, MossInput owns the lane buttons. */
+    if (resonanceGateRuntime.open) {
+      releaseGamepadHolds();
+      if (input.padPressed('pause')) {
+        if (resonanceGateRuntime.phase === 'paused') resumeResonanceGate();
+        else if (resonanceGateRuntime.phase === 'intro' || resonanceGateRuntime.phase === 'results') closeResonanceGate();
+        else pauseResonanceGate(false);
+      }
       return;
     }
 
@@ -7721,6 +8242,9 @@
   function closeSettingsPanel() {
     setOverlayIsolation('settings', 'settingsPanel', false);
     setHidden(byId('settingsPanel'), true);
+    setHidden(byId('livingPanel'),true);
+    setHidden(byId('resonanceGateOverlay'),true);
+    setHidden(byId('rehearsalResultsOverlay'),true);
     if (settingsReturnsToPause && paused) setOverlayIsolation('pause', 'pauseScreen', true);
     settingsReturnsToPause = false;
     if (settingsOpenedFromOrientation && orientationBlocked) {
@@ -7739,6 +8263,7 @@
   }
 
   function pauseForInterruption() {
+    if(resonanceGateRuntime.open){if(!pauseResonanceGate(true)){releaseHeldInputs();audioCall('pause',true);resumeAudioOnGesture=true;saveGame(true);}canvasDirty=true;return;}
     releaseHeldInputs();
     if (!started) return;
     saveGame(true);
@@ -7757,7 +8282,8 @@
   }
 
   function closeTopOverlay() {
-    if(confirmationRuntime.open)closeLivingConfirmation(false);
+    if(resonanceGateRuntime.open){if(resonanceGateRuntime.phase==='paused')resumeResonanceGate();else if(resonanceGateRuntime.phase==='intro'||resonanceGateRuntime.phase==='results')closeResonanceGate();else pauseResonanceGate(false);}
+    else if(confirmationRuntime.open)closeLivingConfirmation(false);
     else if(panelIsOpen('rehearsalResultsOverlay')){closeRehearsalResults();openLiving('rehearsal');}
     else if(quickWheelRuntime.open)closeQuickWheel(false);
     else if(livingOpen)closeLiving();
@@ -7810,6 +8336,12 @@
   window.addEventListener('keydown', function (event) {
     var key = keyName(event);
     recoverAudioFromGesture();
+    if(resonanceGateRuntime.open){
+      if(controlledKeys.has(key))event.preventDefault();
+      if(key==='escape'&&!event.repeat){if(resonanceGateRuntime.phase==='paused')resumeResonanceGate();else if(resonanceGateRuntime.phase==='intro'||resonanceGateRuntime.phase==='results')closeResonanceGate();else pauseResonanceGate(false);}
+      return;
+    }
+
     if(chordRuntime.open){
       var chordKeys={'1':'C','2':'E','3':'G','4':'B'};
       if(chordKeys[key]){event.preventDefault();submitChordNote(chordKeys[key]);return;}
@@ -7884,6 +8416,7 @@
   });
   window.addEventListener('keyup', function (event) {
     var key = keyName(event);
+    if(resonanceGateRuntime.open){if(controlledKeys.has(key))event.preventDefault();keys.delete(key);return;}
     keys.delete(key);
     if ((key === 'space' && !firstPersonActive()) || key === 'j') {
       releaseAttackIfIdle();
@@ -8006,6 +8539,28 @@
     if(byId('synergyHudChip'))byId('synergyHudChip').addEventListener('click',function(event){openLiving('synergies',event.currentTarget);});
     if(byId('closeLivingButton'))byId('closeLivingButton').addEventListener('click',closeLiving);
     document.querySelectorAll('[data-living-tab]').forEach(function(tab){tab.addEventListener('click',function(){setLivingTab(tab.dataset.livingTab);});});
+    if(byId('resonanceGateExitButton'))byId('resonanceGateExitButton').addEventListener('click',function(){closeResonanceGate();});
+    if(byId('resonanceGateStartButton'))byId('resonanceGateStartButton').addEventListener('click',function(){startResonanceGate('scored');});
+    if(byId('resonanceGatePracticeButton'))byId('resonanceGatePracticeButton').addEventListener('click',function(){startResonanceGate('practice');});
+    if(byId('resonanceGateDemoButton'))byId('resonanceGateDemoButton').addEventListener('click',function(){startResonanceGate('demo');});
+    if(byId('resonancePauseButton'))byId('resonancePauseButton').addEventListener('click',function(){pauseResonanceGate(false);});
+    if(byId('resonanceResumeButton'))byId('resonanceResumeButton').addEventListener('click',resumeResonanceGate);
+    if(byId('resonanceRestartButton'))byId('resonanceRestartButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode==='demo'?'practice':resonanceGateRuntime.mode);});
+    if(byId('resonancePauseExitButton'))byId('resonancePauseExitButton').addEventListener('click',function(){closeResonanceGate();});
+    if(byId('resonanceContinueBossButton'))byId('resonanceContinueBossButton').addEventListener('click',function(){closeResonanceGate({toBoss:true});});
+    if(byId('resonanceRetryButton'))byId('resonanceRetryButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode==='demo'?'practice':resonanceGateRuntime.mode);});
+    if(byId('resonanceResultsPracticeButton'))byId('resonanceResultsPracticeButton').addEventListener('click',function(){startResonanceGate('practice');});
+    if(byId('resonanceReturnButton'))byId('resonanceReturnButton').addEventListener('click',function(){closeResonanceGate();});
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){
+      var lane=Number(button.dataset.resonanceLane),pointerId=null,action=['rhythmC','rhythmE','rhythmG','rhythmB'][lane];
+      function dispatch(phase,source){if(window.MossInput)window.MossInput.dispatchVirtualAction(action,phase,source||'touch');else handleResonanceActionEvent({action:action,phase:phase,source:source||'touch'});}
+      button.addEventListener('click',function(event){if(event.detail!==0)return;dispatch('pressed','keyboard');dispatch('released','keyboard');});
+      if(window.PointerEvent){
+        button.addEventListener('pointerdown',function(event){if(pointerId!==null||(event.pointerType==='mouse'&&event.button!==0))return;event.preventDefault();pointerId=event.pointerId;button.classList.add('pressed');try{button.setPointerCapture(pointerId);}catch(_error){}dispatch('pressed',event.pointerType==='mouse'?'keyboard':'touch');},{passive:false});
+        function releaseLanePointer(event){if(pointerId!==event.pointerId)return;event.preventDefault();var source=event.pointerType==='mouse'?'keyboard':'touch';pointerId=null;button.classList.remove('pressed');dispatch('released',source);}
+        button.addEventListener('pointerup',releaseLanePointer,{passive:false});button.addEventListener('pointercancel',releaseLanePointer,{passive:false});button.addEventListener('lostpointercapture',releaseLanePointer,{passive:false});
+      }
+    });
     if(byId('livingConfirmCancel'))byId('livingConfirmCancel').addEventListener('click',function(){closeLivingConfirmation(false);});
     if(byId('livingConfirmAccept'))byId('livingConfirmAccept').addEventListener('click',function(){closeLivingConfirmation(true);});
     document.querySelectorAll('#quickWheelLinear [data-wheel-index]').forEach(function(button){button.addEventListener('click',function(){quickWheelRuntime.selected=Number(button.dataset.wheelIndex);renderQuickWheel();closeQuickWheel(true);});});
@@ -8083,6 +8638,15 @@
     bindSetting('mobileHaptics', 'mobileHaptics', false);
     bindSetting('chordTiming', 'chordTiming', false);
     bindSetting('ambientRestoration', 'ambientRestoration', false);
+    bindSetting('rhythmTiming', 'rhythmTiming', false);
+    bindSetting('rhythmNoFail', 'rhythmNoFail', false);
+    bindSetting('rhythmSimplified', 'rhythmSimplified', false);
+    bindSetting('rhythmHoldAssist', 'rhythmHoldAssist', false);
+    bindSetting('rhythmLaneLabels', 'rhythmLaneLabels', false);
+    bindSetting('rhythmHighContrast', 'rhythmHighContrast', false);
+    bindSetting('rhythmFlashReduction', 'rhythmFlashReduction', false);
+    bindSetting('rhythmScrollSpeed', 'rhythmScrollSpeed', true);
+    bindSetting('rhythmLatencyOffset', 'rhythmLatencyOffset', true);
 
     bindControllerSetting('controllerEnabled', 'controllerEnabled', 'check');
     bindControllerSetting('moveDeadzone', 'moveDeadzone', 'number');
@@ -8127,6 +8691,7 @@
       /* Refresh the status line and prompt glyphs the moment a pad appears. */
       window.MossInput.onConnectionChange(function () { applyControllerSettings(); });
       window.MossInput.onMethodChange(function () { applyControllerSettings(); });
+      window.MossInput.onActionEvent(handleResonanceActionEvent);
     }
 
     var controlButtons = Array.prototype.slice.call(document.querySelectorAll('[data-control]'));
@@ -9312,10 +9877,11 @@
        */
       if (window.MossInput.anyPressed()) recoverAudioFromGesture();
     }
-    var menuHandled = window.MossControllerUI ? window.MossControllerUI.update(dt) : false;
+    var rhythmOwnsPad=resonanceGateRuntime.open&&['count-in','playing','resuming'].indexOf(resonanceGateRuntime.phase)>=0;
+    var menuHandled = window.MossControllerUI&&!rhythmOwnsPad ? window.MossControllerUI.update(dt) : false;
     pollGamepad(menuHandled, dt);
     updateTouchActionUi();
-    if (!started || paused || orientationBlocked || livingOpen || quickWheelRuntime.open || panelIsOpen('rehearsalResultsOverlay') || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    if (!started || paused || orientationBlocked || resonanceGateRuntime.open || livingOpen || quickWheelRuntime.open || panelIsOpen('rehearsalResultsOverlay') || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     state.playSeconds += dt;
     syncExpansionQuests(dt);
     updateRhythmCombo(dt);
@@ -11650,7 +12216,7 @@
       isPlaying: function () {
         return started && !paused && !orientationBlocked && !dialogue && !mapOpen &&
           !composerOpen && !inventoryOpen && !shopOpen && !skillsOpen &&
-          !statisticsOpen && !instrumentsOpen && !homeOpen && !livingOpen && !quickWheelRuntime.open && !chordRuntime.open;
+          !statisticsOpen && !instrumentsOpen && !homeOpen && !livingOpen && !quickWheelRuntime.open && !chordRuntime.open && !resonanceGateRuntime.open;
       },
       markDirty: function () { canvasDirty = true; }
     },
@@ -11697,6 +12263,9 @@
           instrumentsOpen: instrumentsOpen,
           homeOpen: homeOpen,
           livingOpen: livingOpen,
+          resonanceGateOpen:resonanceGateRuntime.open,
+          resonanceGatePhase:resonanceGateRuntime.phase,
+          resonanceGateRegion:resonanceGateRuntime.region,
           quickWheelOpen: quickWheelRuntime.open,
           worldTransitionLocked: worldTransitionRuntime.locked,
           worldTransitionSource: worldTransitionRuntime.source,
@@ -11915,6 +12484,39 @@
       openSkills: openSkills,
       openHome: openHome,
       openLiving:function(tab){return openLiving(tab||'mastery');},
+      openRhythmTrial:function(regionId){return openResonanceGate(regionId,{replay:true});},
+      startRhythmTrial:function(regionId){
+        var id=RHYTHM&&RHYTHM.regionIds.indexOf(regionId)>=0?regionId:regionIdForStage(state.stage);
+        if(!resonanceGateRuntime.open&&!openResonanceGate(id,{replay:true}))return false;
+        return startResonanceGate('scored');
+      },
+      setRhythmAssist:function(options){
+        options=options&&typeof options==='object'?options:{};
+        if(Object.prototype.hasOwnProperty.call(options,'widerTiming'))settings.rhythmTiming=options.widerTiming?'wide':'standard';
+        if(Object.prototype.hasOwnProperty.call(options,'noFail'))settings.rhythmNoFail=!!options.noFail;
+        if(Object.prototype.hasOwnProperty.call(options,'simplified'))settings.rhythmSimplified=!!options.simplified;
+        if(Object.prototype.hasOwnProperty.call(options,'holdAssist'))settings.rhythmHoldAssist=!!options.holdAssist;
+        if(Object.prototype.hasOwnProperty.call(options,'latencyOffsetMs'))settings.rhythmLatencyOffset=clamp(Number(options.latencyOffsetMs)||0,-300,300);
+        saveSettings();applySettings();if(resonanceGateRuntime.open&&resonanceGateRuntime.phase==='intro')renderResonanceGateIntro();
+        return resonanceSessionOptions('scored');
+      },
+      getRhythmSnapshot:function(){
+        var session=resonanceGateRuntime.session;
+        return JSON.parse(JSON.stringify({open:resonanceGateRuntime.open,phase:resonanceGateRuntime.phase,region:resonanceGateRuntime.region,mode:resonanceGateRuntime.mode,songTime:resonanceGateRuntime.currentSongTime,result:resonanceGateRuntime.result,session:session?session.snapshot(resonanceGateRuntime.currentSongTime):null,progress:livingState().rhythmTrials}));
+      },
+      injectRhythmInput:function(lane,audioTime,phase){
+        if(!resonanceGateRuntime.open||!resonanceGateRuntime.session)return null;
+        var laneIndex=typeof lane==='string'?RHYTHM.lanes.findIndex(function(entry){return entry.id===lane.toUpperCase();}):Number(lane),songTime=Number.isFinite(Number(audioTime))?Number(audioTime):resonanceSongTime();
+        var event=phase==='released'?resonanceGateRuntime.session.releaseLane(laneIndex,songTime):resonanceGateRuntime.session.pressLane(laneIndex,songTime);resonanceFeedback(event);return event;
+      },
+      completeRhythmTrial:function(rank){
+        if(!resonanceGateRuntime.open||!resonanceGateRuntime.session)return false;
+        var cleanRank=['C','B','A','S','Practice'].indexOf(rank)>=0?rank:'C',accuracy={C:70,B:82,A:90,S:97,Practice:70}[cleanRank],assisted=cleanRank==='Practice';resonanceGateRuntime.mode='scored';
+        return finishResonanceGate({chartId:resonanceGateRuntime.session.chart.id,region:resonanceGateRuntime.region,mode:'scored',completed:true,cleared:true,progressionEligible:true,assistanceUsed:assisted,assistance:{widerTiming:false,simplified:false,holdAssist:false,noFail:assisted,demo:false,strong:assisted},score:Math.round(accuracy*1000),accuracy:accuracy,resonance:accuracy,combo:0,maxCombo:Math.round(accuracy/2),perfect:Math.round(accuracy/2),great:0,good:0,miss:0,rank:cleanRank,threshold:RHYTHM.completionThresholds[settings.difficulty]||65,bestPossibleNotes:resonanceGateRuntime.session.chart.notes.length,totalNotes:resonanceGateRuntime.session.chart.notes.length});
+      },
+      resetRhythmTrial:function(regionId){
+        var id=RHYTHM.regionIds.indexOf(regionId)>=0?regionId:regionIdForStage(state.stage);if(resonanceGateRuntime.open)closeResonanceGate();var fresh=RHYTHM.freshProgress();livingState().rhythmTrials[id]=fresh[id];livingState().rewardClaims=livingState().rewardClaims.filter(function(claim){return claim.indexOf('rhythm:'+id+':')!==0;});saveGame(true);return JSON.parse(JSON.stringify(livingState().rhythmTrials[id]));
+      },
       startRehearsal:function(bossId,challenge,feedback){return startRehearsal(bossId,challenge,feedback);},
       finishRehearsal:function(success){return finishRehearsal(!!success);},
       triggerWorldEvent: function(id){triggerWorldEvent(id);return encounterDirector.activeEvent||state.weather;},

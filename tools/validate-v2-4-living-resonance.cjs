@@ -16,7 +16,7 @@ const expectedBosses = ['nullspeaker', 'rootbound', 'prism-choir', 'tidebreaker'
 const expectedChallenges = ['standard', 'no-healing', 'perfect-guard', 'time-trial', 'instrument-locked'];
 const expectedTiers = ['Disturbed', 'Returning Rhythm', 'Shared Harmony', 'Fully Resonant'];
 
-assert.equal(living.schemaVersion, 1, 'Living Resonance catalog schema');
+assert.equal(living.schemaVersion, 2, 'Living Resonance catalog schema');
 assert.deepEqual(Array.from(living.classIds), expectedClasses, 'four known campaign classes');
 assert.deepEqual(Array.from(living.instrumentIds), expectedInstruments, 'six known instruments');
 assert.deepEqual(Array.from(living.regionIds), expectedRegions, 'four known regions');
@@ -86,6 +86,9 @@ assert.equal(fresh.quickWheel.length, 8, 'exactly eight quick-wheel sectors');
 assert.equal(fresh.quickWheel.every(living.validWheelAssignment), true, 'fresh wheel assignments are valid');
 assert.deepEqual(Object.keys(fresh.classMastery), expectedClasses, 'fresh mastery records are per class');
 assert.deepEqual(Object.keys(fresh.restoration), expectedRegions, 'fresh restoration records are per region');
+assert.deepEqual(Object.keys(fresh.rhythmTrials), expectedRegions, 'fresh rhythm records are per region');
+assert.equal(Object.values(fresh.rhythmTrials).every((record) => !record.cleared && record.bestScore === 0), true,
+  'fresh rhythm records begin safely uncleared');
 
 // Corrupt/forward-looking data must clamp or fail closed without mutating the input.
 const corrupt = {
@@ -195,7 +198,10 @@ const arena = read('v2-platform-fighter.js');
 const expansion = read('v1-expansion.js');
 assert.ok(index.indexOf('living-resonance-runtime.js') >= 0, 'living runtime script is included');
 assert.ok(index.indexOf('living-resonance-runtime.js') < index.indexOf('game.js'), 'living runtime loads before game.js');
-assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*24\b/, 'embedded save schema must be 24');
+assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*25\b/, 'embedded save schema must be 25');
+assert.ok(index.indexOf('resonance-gate-runtime.js') < index.indexOf('living-resonance-runtime.js'),
+  'rhythm runtime loads before Living Resonance');
+assert.match(game, /function openResonanceGate\b/, 'Resonance Gate controller is integrated');
 assert.match(game, /window\.MossLivingResonance/, 'campaign consumes the central Living Resonance catalog');
 assert.match(game, /function triggerLivingSynergy\b/, 'central synergy event hook is implemented');
 for (const entry of synergies) assert.ok(game.includes(`case'${entry.effect}'`), `${entry.id} has a bounded gameplay hook`);

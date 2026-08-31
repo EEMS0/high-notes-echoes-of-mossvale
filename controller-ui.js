@@ -24,7 +24,7 @@
    * cancel always dismisses the panel the player believes is on top.
    */
   var OVERLAYS = [
-    'livingConfirmOverlay', 'rehearsalResultsOverlay', 'characterCreator', 'chordPanel', 'livingPanel',
+    'resonanceGateOverlay', 'livingConfirmOverlay', 'rehearsalResultsOverlay', 'characterCreator', 'chordPanel', 'livingPanel',
     'settingsPanel', 'howPanel', 'inventoryScreen', 'shopScreen', 'skillsScreen',
     'instrumentsScreen', 'homeScreen', 'statisticsScreen', 'mapScreen',
     'composerScreen', 'productionHub', 'endingScreen', 'pauseScreen', 'titleScreen'

@@ -651,6 +651,50 @@
       return snapshot;
     }
 
+    /**
+     * Read the same Web Audio clock that drives the 104 BPM scheduler. Rhythm
+     * gameplay uses this value for judgement and only falls back to monotonic
+     * wall time while audio is unavailable or waiting for a user gesture.
+     */
+    getTransportSnapshot(fallbackTimeSeconds) {
+      const beat = this.getBeatSnapshot(fallbackTimeSeconds);
+      const hasAudioClock = Boolean(this.context && Number.isFinite(this.context.currentTime));
+      const audioTime = hasAudioClock ? this.context.currentTime : beat.transportTime;
+      let phase = beat.phase;
+      let distanceSeconds = beat.distanceSeconds;
+      if (hasAudioClock && !beat.running) {
+        const wrapped = ((audioTime % beat.beatDuration) + beat.beatDuration) % beat.beatDuration;
+        phase = wrapped / beat.beatDuration;
+        distanceSeconds = Math.min(wrapped, beat.beatDuration - wrapped);
+      }
+      return {
+        bpm: MUSIC_BPM,
+        audioTime,
+        running: beat.running,
+        contextState: this.context ? this.context.state : "unavailable",
+        beatDuration: beat.beatDuration,
+        phase,
+        distanceSeconds
+      };
+    }
+
+    /** Immediate pitched feedback for one Resonance Gate lane. */
+    rhythmHit(noteName, judgement = "great") {
+      if (!this._soundReady()) return false;
+      const clean = String(noteName || "").trim().toUpperCase().replace(/[0-9]/g, "");
+      if (!Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean)) return false;
+      const quality = ["perfect", "great", "good"].includes(judgement) ? judgement : "good";
+      const volume = quality === "perfect" ? 0.11 : quality === "great" ? 0.085 : 0.064;
+      const now = this.context.currentTime + 0.004;
+      const midi = NOTE_MIDI[clean];
+      this._osc({ time: now, freq: midiToHz(midi), duration: quality === "perfect" ? 0.42 : 0.3,
+        type: quality === "good" ? "sine" : "triangle", volume, attack: 0.003,
+        release: quality === "perfect" ? 0.26 : 0.17, filter: quality === "perfect" ? 3400 : 2500 });
+      if (quality === "perfect") this._osc({ time: now + 0.018, freq: midiToHz(midi + 12),
+        duration: 0.34, type: "sine", volume: 0.036, attack: 0.004, release: 0.23, pan: 0.18 });
+      return true;
+    }
+
     _scheduleMusicStep(step, time) {
       const inBar = step % 16;
       const bar = Math.floor(step / 16);
@@ -1193,6 +1237,30 @@
           [60, 64, 67, 71].forEach((midi, i) => tone(i * 0.075, midi, 0.42,
             i === 3 ? "sine" : "triangle", 0.058,
             { release: 0.25, pan: (i - 1.5) * 0.12 }));
+          break;
+        case "resonance-countdown":
+          tone(0, 72, 0.11, "square", 0.045, { release: 0.05, filter: 1900 });
+          break;
+        case "resonance-go":
+          [60, 67, 72].forEach((midi, i) => tone(i * 0.018, midi, 0.34,
+            i === 2 ? "sine" : "triangle", 0.058, { release: 0.2, pan: (i - 1) * 0.15 }));
+          break;
+        case "resonance-perfect":
+          tone(0, 84, 0.13, "sine", 0.046, { release: 0.075, pan: 0.18 });
+          break;
+        case "resonance-great":
+          tone(0, 79, 0.1, "sine", 0.028, { release: 0.055 });
+          break;
+        case "resonance-good":
+          tone(0, 72, 0.085, "triangle", 0.022, { release: 0.045, filter: 1750 });
+          break;
+        case "resonance-miss":
+          tone(0, 49, 0.16, "square", 0.038, { slideTo: midiToHz(46), release: 0.09, filter: 720 });
+          break;
+        case "resonance-clear":
+          [60, 64, 67, 71, 72].forEach((midi, i) => tone(i * 0.07, midi,
+            0.35 + i * 0.08, i > 2 ? "sine" : "triangle", 0.052,
+            { release: 0.22 + i * 0.05, pan: (i - 2) * 0.1 }));
           break;
         case "encore":
         case "encore-unlock":

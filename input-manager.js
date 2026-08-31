@@ -57,6 +57,11 @@
     menuDown: [STANDARD_BUTTONS.dpadDown],
     menuLeft: [STANDARD_BUTTONS.dpadLeft],
     menuRight: [STANDARD_BUTTONS.dpadRight],
+    /* Resonance Gate follows the physical four-point face-button diamond. */
+    rhythmC: [STANDARD_BUTTONS.x, STANDARD_BUTTONS.dpadLeft],
+    rhythmE: [STANDARD_BUTTONS.a, STANDARD_BUTTONS.dpadDown],
+    rhythmG: [STANDARD_BUTTONS.y, STANDARD_BUTTONS.dpadUp],
+    rhythmB: [STANDARD_BUTTONS.b, STANDARD_BUTTONS.dpadRight],
     /*
      * First-person additions; the 2D view simply never queries these. A is jump
      * in first person, so attackAlt moves the swing onto the right trigger and
@@ -98,7 +103,11 @@
     menuUp: ['w', 'arrowup'],
     menuDown: ['s', 'arrowdown'],
     menuLeft: ['a', 'arrowleft'],
-    menuRight: ['d', 'arrowright']
+    menuRight: ['d', 'arrowright'],
+    rhythmC: ['d', 'arrowleft'],
+    rhythmE: ['f', 'arrowdown'],
+    rhythmG: ['j', 'arrowup'],
+    rhythmB: ['k', 'arrowright']
   };
 
   var LABELS = {
@@ -108,6 +117,7 @@
       quickWheel: 'View hold', inventory: 'L3', instruments: 'R3', classAbility: 'L3+R3', tabPrev: 'LB', tabNext: 'RB',
       moveUp: 'D-pad', moveDown: 'D-pad', moveLeft: 'D-pad', moveRight: 'D-pad',
       menuUp: 'D-pad', menuDown: 'D-pad', menuLeft: 'D-pad', menuRight: 'D-pad',
+      rhythmC: 'X / ←', rhythmE: 'A / ↓', rhythmG: 'Y / ↑', rhythmB: 'B / →',
       home: 'Menu'
     },
     keyboard: {
@@ -116,6 +126,7 @@
       quickWheel: 'G', inventory: 'I', instruments: 'V', classAbility: 'C', tabPrev: 'Q', tabNext: 'E',
       moveUp: 'W', moveDown: 'S', moveLeft: 'A', moveRight: 'D',
       menuUp: 'W', menuDown: 'S', menuLeft: 'A', menuRight: 'D',
+      rhythmC: 'D / ←', rhythmE: 'F / ↓', rhythmG: 'J / ↑', rhythmB: 'K / →',
       home: 'O'
     }
   };
@@ -284,6 +295,27 @@
   var activeMethod = 'keyboard';
   var methodListeners = [];
   var connectionListeners = [];
+  var actionEventListeners = [];
+  var RHYTHM_ACTIONS = ['rhythmC','rhythmE','rhythmG','rhythmB'];
+
+  function inputTimeSeconds() {
+    return window.performance && typeof window.performance.now === 'function' ? window.performance.now() / 1000 : Date.now() / 1000;
+  }
+
+  function emitActionEvent(action, phase, source, nativeEvent) {
+    if (actionNames.indexOf(action) < 0 || (phase !== 'pressed' && phase !== 'released')) return false;
+    var detail = {
+      action:action,
+      phase:phase,
+      source:source || activeMethod,
+      timestamp:inputTimeSeconds(),
+      nativeTimeStamp:nativeEvent && Number.isFinite(nativeEvent.timeStamp) ? nativeEvent.timeStamp / 1000 : 0
+    };
+    actionEventListeners.slice().forEach(function (listener) {
+      try { listener(detail); } catch (_error) { /* Input observers cannot stall gameplay. */ }
+    });
+    return true;
+  }
 
   /* Debounce so stick drift or a nudged mouse cannot flicker the prompt style. */
   var METHOD_SWITCH_COOLDOWN = 0.35;
@@ -488,6 +520,10 @@
         else buttonSuppress[i] = 0;
       }
     }
+    RHYTHM_ACTIONS.forEach(function (action) {
+      if (padPressed(action)) emitActionEvent(action,'pressed','gamepad');
+      else if (padReleased(action)) emitActionEvent(action,'released','gamepad');
+    });
     for (i = 0; i < AXIS_SLOTS; i++) {
       var raw = pad.axes[i];
       axisRaw[i] = typeof raw === 'number' && isFinite(raw) ? raw : 0;
@@ -794,12 +830,22 @@
   }
 
   function handleKeyDown(event) {
-    keysDown.add(normaliseKey(event));
+    var key = normaliseKey(event);
+    var fresh = !keysDown.has(key);
+    keysDown.add(key);
     setActiveMethod('keyboard');
+    if (fresh && !event.repeat) RHYTHM_ACTIONS.forEach(function (action) {
+      if ((keyBindings[action] || []).indexOf(key) >= 0) emitActionEvent(action,'pressed','keyboard',event);
+    });
   }
 
   function handleKeyUp(event) {
-    keysDown.delete(normaliseKey(event));
+    var key = normaliseKey(event);
+    var wasDown = keysDown.has(key);
+    keysDown.delete(key);
+    if (wasDown) RHYTHM_ACTIONS.forEach(function (action) {
+      if ((keyBindings[action] || []).indexOf(key) >= 0) emitActionEvent(action,'released','keyboard',event);
+    });
   }
 
   var pointerAccum = 0;
@@ -941,6 +987,18 @@
     setActiveMethod: function (method) { setActiveMethod(method, true); },
     onMethodChange: function (fn) { if (typeof fn === 'function') methodListeners.push(fn); },
     onConnectionChange: function (fn) { if (typeof fn === 'function') connectionListeners.push(fn); },
+    onActionEvent: function (fn) {
+      if (typeof fn !== 'function') return function () {};
+      actionEventListeners.push(fn);
+      return function () {
+        var index = actionEventListeners.indexOf(fn);
+        if (index >= 0) actionEventListeners.splice(index,1);
+      };
+    },
+    dispatchVirtualAction: function (action, phase, source) {
+      if (source === 'touch') setActiveMethod('touch',true);
+      return emitActionEvent(action,phase,source || 'touch');
+    },
     saveSettings: saveSettings,
     applySettings: function (patch) {
       if (patch && typeof patch === 'object') validateSettings(patch, settings);
