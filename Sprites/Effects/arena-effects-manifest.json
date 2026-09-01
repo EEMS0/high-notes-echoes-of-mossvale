@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "image": "arena-effects-sheet.png",
-  "columns": 8,
-  "rows": 1,
-  "cellWidth": 128,
-  "cellHeight": 256,
-  "effects": ["hit", "guard", "perfect", "dodge", "projectile", "ultimate", "knockout", "respawn"]
-}
