@@ -11,7 +11,8 @@ This document separates the playable V2 production slice from the deliberately l
 - Private room codes, ready/loadout state, host start, authoritative host snapshots, client input messages, safe match completion, host migration handling, relay diagnostics, and bounded reconnect behaviour are connected to protocol version 2.
 - The Cloudflare Worker and SQLite Durable Object relay in `multiplayer-relay/` is deployed at `high-notes-v2-relay.jl-bmfx.workers.dev`. Public matchmaking stays disabled; the completed online path is private rooms.
 - The campaign player uses the central `MossEquipmentRig` hybrid attachment system for Guitar, Bass, Synth, Drumsticks, Microphone, and Violin. It supplies directional hand/back/effect anchors, frame-aware front/rear ordering, switch visibility, and hitbox/projectile/effect/trail origins.
-- Living Resonance is an integrated schema-24 campaign layer: four class mastery records, all 24 class × instrument synergies, four restoration tracks, isolated boss rehearsals, three loadouts, an eight-sector accessible quick wheel, and one reversible Encore cycle. These systems do not enter Stock Battle.
+- Living Resonance is embedded in the current schema-26 campaign save: four class mastery records, all 24 class × instrument synergies, four restoration tracks, four authored Resonance Gates, isolated boss rehearsals, three loadouts, an eight-sector accessible quick wheel, and one reversible Encore cycle. Schema 26 also adds the separate two-bar polyphonic composition record. These systems do not enter Stock Battle.
+- Resonance Gate is a completed campaign path: each restored region exposes an original 104 BPM four-lane arrangement; a qualifying or No-Fail assisted clear permanently opens that boss road; results, personal bests, first-clear rewards, old-save migration, practice, demonstration, keyboard/gamepad/touch input, and accessibility settings are integrated. It is not a branded or copied Guitar Hero mode.
 
 ## Foundations, not claimed as complete
 
@@ -27,6 +28,8 @@ This document separates the playable V2 production slice from the deliberately l
 - Unknown or missing instrument identifiers fall back to Guitar without discarding ownership data.
 - Online results never grant trusted campaign currency or rating on the authority of a browser client.
 - Rehearsal and Encore snapshots are sanitized and separated from canonical progression. Reload, abandon, victory, death, and mode return cannot transfer temporary currency, consumables, health, equipment, boss rewards, or story flags.
+- Schema 25 sanitizes regional Gate records. A defeated boss from an older save infers an already cleared/reward-claimed Gate, replays cannot relock it, and first-clear rewards remain one-time.
+- Schema 26 adds a bounded 16-step polyphonic composition. Existing eight-step melodies repeat into the second bar, completed scores stay completed, and the four collectible anchors and Nullspeaker pads remain unchanged.
 
 ## Production acceptance checks
 
@@ -35,10 +38,10 @@ Before a release is reported as deployed, run:
 1. `node --check` for every root JavaScript runtime.
 2. `node tools/validate-production-sprites.cjs`.
 3. `node tools/validate-v2-release.cjs`.
-4. `node tools/validate-v2-3-upgrade.cjs` and `node tools/validate-v2-4-living-resonance.cjs`.
-5. With Playwright available and a server on port 4173, run `qa-v2-3-browser.cjs`, `qa-v2-4-living-resonance-browser.cjs`, `qa-release-playthrough-browser.cjs`, and `qa-performance-browser.cjs` from `tools/`.
+4. `node tools/validate-v2-3-upgrade.cjs`, `node tools/validate-v2-4-living-resonance.cjs`, `node tools/validate-resonance-gate.cjs`, and `node tools/validate-expanded-music.cjs`.
+5. With Playwright available and a server on port 4173, run `qa-v2-3-browser.cjs`, `qa-expanded-music-browser.cjs`, `qa-v2-4-living-resonance-browser.cjs`, `qa-release-playthrough-browser.cjs`, and `qa-performance-browser.cjs` from `tools/`.
 6. `npm run typecheck`, `npm test`, and `npm run deploy:dry` in `multiplayer-relay/`.
-7. Browser smoke tests for campaign load, local Stock Battle, private-room start/end, mobile landscape layout, and console/network failures.
+7. Browser smoke tests for campaign load, Resonance Gate tutorial/success/failure/retry/pause/assist/boss continuation, local Stock Battle, private-room start/end, mobile landscape layout, and console/network failures.
 8. If Cloudflare access is authorised, deploy with Wrangler, check the real `/health` response, configure the real public `wss://` endpoint, and repeat the private-room test through the public Worker.
 9. After pushing `main`, wait for the existing GitHub Pages workflow and verify the live asset versions and game runtime.
 

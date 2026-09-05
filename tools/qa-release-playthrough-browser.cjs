@@ -80,12 +80,14 @@ fs.mkdirSync(outputDir, { recursive: true });
       assert.ok(after.state.unlockedInstruments.includes(expectedRewards[stage - 1]), `stage ${stage} grants ${expectedRewards[stage - 1]}`);
       assert.ok(after.state.statistics.bestBossTimes[expectedBosses[stage - 1]] > 0, `stage ${stage} records a boss clear time`);
 
-      if (stage === 1) {
+      if (stage < 4) {
         await page.locator('#endingScreen:not([hidden])').waitFor({ timeout: 5000 });
-        assert.equal(await page.locator('#replayButton').textContent(), 'Continue to Rootsong');
-        await page.screenshot({ path: path.join(outputDir, 'mossvale-ending.png') });
+        assert.equal(await page.locator('#replayButton').textContent(), ['Continue to Rootsong','Continue to Skyglass','Continue to Moonwake'][stage-1]);
+        await page.screenshot({ path: path.join(outputDir, `chapter-${stage}-ending.png`) });
         await page.locator('#replayButton').click();
-        await page.waitForFunction(() => window.__HIGH_NOTES__.snapshot().state.stage === 2);
+        assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.snapshot().state.stage), stage+1,
+          `chapter ${stage} continues; runtime: ${JSON.stringify(await page.evaluate(() => window.__HIGH_NOTES__.snapshot().runtime))}`);
+        await page.waitForFunction((next) => window.__HIGH_NOTES__.snapshot().state.stage === next, stage+1);
       }
     }
 

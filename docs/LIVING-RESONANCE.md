@@ -1,6 +1,6 @@
 # Living Resonance architecture
 
-`living-resonance-runtime.js` is the dependency-free, immutable catalog and pure sanitation boundary for the Living Resonance update. It is loaded before `game.js`; campaign code queries it through `window.MossLivingResonance`. The module's own catalog format is version 1, while the embedded game save moves from schema 23 to schema 24.
+`living-resonance-runtime.js` is the dependency-free, immutable catalog and pure sanitation boundary for the Living Resonance update. It is loaded before `game.js`; campaign code queries it through `window.MossLivingResonance`. The module's own catalog format is version 2, while the current embedded game save is schema 26. Schema 24 introduced the original Living layer, schema 25 added sanitized Resonance Gate records, and schema 26 adds the separate polyphonic composition record without replacing prior Living fields.
 
 The catalog contains definitions and safe data transformations, not a second combat, inventory, audio, world, input, or networking engine. `game.js` remains authoritative for campaign mutations. `v2-platform-fighter.js` must not import or query the catalog: class mastery, campaign synergies, equipment/loadouts, restoration, rehearsal, the quick wheel, and Encore never modify Stock Battle.
 
@@ -77,11 +77,13 @@ Encore unlocks immediately after canonical Tidebreaker and the campaign finale a
 
 Encore has deterministic remixes, capped enemy modifiers, extended C/E/G/B patterns, additional boss arrangements, and cosmetic rewards. It neither repeats character creation nor forces the prologue. Switching is limited to title/Player Home outside combat, dialogue, puzzles, bosses, rehearsal, or multiplayer. Encore state and bonuses never enter Stock Battle.
 
-## Schema-24 migration and sanitation
+## Schema-25 migration and sanitation
 
-Schema 24 adds the `living` record returned by `MossLivingResonance.freshState()`: four per-class mastery records, four restoration records, rehearsal records/claims, three loadouts, eight wheel assignments, Encore state, and global reward claims. Migration from schema 23 must be pure: it clamps and infers state without calling reward, toast, audio, spawn, or combat functions.
+The `living` record returned by `MossLivingResonance.freshState()` contains four per-class mastery records, four restoration records, four regional Resonance Gate records, rehearsal records/claims, three loadouts, eight wheel assignments, Encore state, and global reward claims. Migration from schema 23 or 24 must be pure: it clamps and infers state without calling reward, toast, audio, spawn, or combat functions.
 
 - Existing campaign, identity, tutorial, story/chords, inventory/equipment, currency, skills, instrument mastery, Player Home, statistics, settings, and multiplayer profile remain untouched.
+- Existing defeated bosses infer a cleared, reward-claimed regional Gate during the schema-25 migration so an old save is never relocked or granted a duplicate first-clear reward.
+- Gate attempts, scores, accuracy, ranks, combos, assisted-first-clear history, unlock state, and reward state are bounded. A later assisted replay cannot rewrite an earlier unassisted first clear.
 - Completed campaigns unlock Encore. Partial saves infer restoration from canonical story/chord/boss flags and never receive duplicate rewards.
 - XP, levels, respecs, restoration points, records, stages, counters, lists, feedback level, and Encore cycle are bounded.
 - Unknown class nodes, paths, regions, bosses, challenges, instruments, equipment, consumables, assignments, cosmetics, run IDs, and claim formats fail closed.
@@ -90,7 +92,7 @@ Schema 24 adds the `living` record returned by `MossLivingResonance.freshState()
 
 The browser save boundary validates minimum campaign structure before showing Continue or mutating runtime state. Each successful write rotates the last valid primary into `highNotesSaveV7Backup`; corrupt or truncated primaries never replace that backup. Load order is valid primary, valid backup, then validated historical keys, and reset removes every generation. Portals, map travel, shop travel, and map-to-home share a preflight that rejects bosses, Dream Encore, hostile attacks, nearby engaged enemies, rehearsals, protected interactions, invalid routes, and overlapping transitions before any stage state is changed. Stage-scoped effects and attack state are cleared centrally after that preflight succeeds.
 
-Run `node tools/validate-v2-4-living-resonance.cjs` to exercise the complete catalog matrix, corrupt-state fixtures, gameplay-hook coverage, generated-asset manifest, save-schema integration, rehearsal side-mode guards, and source-level Stock Battle isolation. With a local server on port `4173` and Playwright available, `node tools/qa-v2-4-living-resonance-browser.cjs` mutates temporary rehearsal state and proves exact restoration, reward isolation, accessible pause/confirmation/results focus, retry records, mastery allocation, eight-sector wheel access, and reversible Encore snapshots. `node tools/qa-release-playthrough-browser.cjs` validates all four campaign bosses, both ending flows, title-level Encore entry, and post-finale reload.
+Run `node tools/validate-v2-4-living-resonance.cjs` and `node tools/validate-resonance-gate.cjs` to exercise the complete catalog matrix, corrupt-state fixtures, gameplay hooks, deterministic Gate timing/scoring, generated-asset manifest, save-schema integration, rehearsal side-mode guards, and source-level Stock Battle isolation. With a local server on port `4173` and Playwright available, `node tools/qa-v2-4-living-resonance-browser.cjs` mutates temporary rehearsal state and proves exact restoration, reward isolation, accessible pause/confirmation/results focus, retry records, mastery allocation, eight-sector wheel access, and reversible Encore snapshots. `node tools/qa-release-playthrough-browser.cjs` validates all four campaign bosses, both ending flows, title-level Encore entry, and post-finale reload. Gate-specific architecture, chart rules, controls, assistance, and manual play paths are in `RESONANCE-GATE.md`.
 
 ## Assets, audio, and inputs
 
@@ -102,7 +104,7 @@ All new UI actions use the existing input manager, controller focus layer, share
 
 ## Known limitations and extension rules
 
-- Catalog `schemaVersion: 1` versions the immutable definitions; it is intentionally independent from embedded save schema 24.
+- Catalog `schemaVersion: 2` versions the immutable definitions and Resonance Gate state shape; it is intentionally independent from embedded save schema 26.
 - The current catalog recognizes the `standard` cosmetic instrument variant. Add future variants to the allowlist before saves may reference them.
 - Normal and Encore snapshots are accepted only as plain objects by the catalog; campaign migration/application code must still sanitize the snapshot fields it reads.
 - Synergy records describe event modifiers. Balance constants and effect pools remain in the established campaign systems and need focused playtesting before adjustment.
@@ -112,4 +114,4 @@ All new UI actions use the existing input manager, controller focus layer, share
 
 ## Implemented runtime surface
 
-The schema-24 update now has production interaction paths in `game.js`: mastery earning/allocation and home-only refunds; a central bounded switch covering all 24 synergy tokens; tier-driven top-down, first-person, HUD, and adaptive-audio restoration; isolated boss rehearsals with records/results; three save/apply loadouts; keyboard, gamepad-hold, touch-pointer, and linear quick-wheel input; and reversible Normal/Encore snapshots with deterministic enemy remix offsets. `styles.css` supplies responsive layouts, safe-area behavior, short-landscape compaction, focusable fallbacks, and reduced-motion behavior for the complete Living Resonance surface.
+The Living Resonance update has production interaction paths in `game.js`: mastery earning/allocation and home-only refunds; a central bounded switch covering all 24 synergy tokens; tier-driven top-down, first-person, HUD, and adaptive-audio restoration; four audio-clock Resonance Gates with permanent boss-road clears and Gate Records; isolated boss rehearsals with records/results; three save/apply loadouts; keyboard, gamepad-hold, touch-pointer, and linear quick-wheel input; and reversible Normal/Encore snapshots with deterministic enemy remix offsets. `styles.css` supplies responsive layouts, safe-area behavior, short-landscape compaction, focusable fallbacks, and reduced-motion behavior for the complete Living Resonance surface.

@@ -14,6 +14,8 @@ python -m http.server 8000
 
 Then open [http://localhost:8000](http://localhost:8000) in a modern browser. No packages, build tools, or internet connection are required.
 
+For a deployment artifact, run `node tools/build-pages.cjs` with Node.js 22 or newer, then serve `_site` with `python -m http.server 8000 --directory _site`. The builder requires a fresh `_site` directory; move an earlier artifact aside before rebuilding. Pushes to `main` run release validation and publish this artifact through `.github/workflows/static.yml`. Only runtime code, `assets`, `Sprites`, and `vendor` are published. `release.json` identifies the deployed commit; relay source and trailer working media are excluded.
+
 ## iPhone and iPad Safari
 
 If the game is running on another computer, serve it with `python -m http.server 8000 --bind 0.0.0.0`, then open `http://<computer-LAN-IP>:8000` on the device while both are on the same Wi-Fi network.
@@ -46,22 +48,25 @@ Launch the new **HIGH NOTES** Home Screen icon and keep the device in landscape 
 
 Standard gamepads are supported: left stick/D-pad moves, `A` attacks, `B` dodges or closes a menu, `X` pulses, `Y` interacts, the left shoulder blocks, both stick buttons trigger the campaign class ability, and Start pauses.
 
-The composer opens when you interact with EEMS after finding four notes. Use a mouse or touchscreen to edit the melody. Landscape touch devices also get on-screen movement, attack, dodge, pulse, interact, Heal, Map, and Pause controls. Walk over a Heartbloom to store it in the medicine pouch, then tap **Heal** when hurt or use it from the backpack’s **Supplies** tab. Tap the **Pack** counter in the HUD to open the backpack.
+Each region's **Resonance Gate** uses four musical lanes before its boss: `D/F/J/K` or Left/Down/Up/Right play C/E/G/B; gamepads use `X/A/Y/B` or the matching D-pad directions; touch players tap the labelled lanes. The Gate supports taps, two-note chords, holds, practice, demonstration, pausing with a fresh count-in, latency offset, Wider Timing, Simplified Charts, Hold Assistance, and No-Fail progression. A successful first clear opens that boss road permanently.
+
+The composer opens when you interact with EEMS after finding the four anchor notes. Those anchors awaken a full octave—C, D, E, F, G, A, B, and high C—in a 16-step, two-bar sequencer. Select a step and toggle up to four tones, or place one of ten triad/seventh-chord presets. Mouse, touch, and keyboard are supported: number keys `1–8` toggle the displayed tones, arrow keys move between sequencer steps, and `0`, Backspace, or Delete clears a step. Old eight-step songs migrate by repeating into the second bar. Landscape touch devices also get on-screen movement, attack, dodge, pulse, interact, Heal, Map, and Pause controls. Walk over a Heartbloom to store it in the medicine pouch, then tap **Heal** when hurt or use it from the backpack’s **Supplies** tab. Tap the **Pack** counter in the HUD to open the backpack.
 
 Open **Statistics** from the title screen or pause menu to see completion, combat, exploration, economy, and boss-clear records.
 
 ## Living Resonance
 
-Open **Living Resonance** from the pause menu or its region/synergy HUD chips. The schema-24 progression layer is integrated with the existing campaign rather than running as a separate game:
+Open **Living Resonance** from the pause menu or its region/synergy HUD chips. The save-schema-26 progression layer is integrated with the existing campaign rather than running as a separate game:
 
 - Four classes each have two three-node mastery paths, earned through valid combat, story, timing, and rehearsal performance. Mastery can be refunded only at the Player Home.
 - All 24 class × instrument pairings have bounded combat behaviours, visual identity, and procedural audio feedback.
 - Story, chord, quest, and boss milestones restore each region through four visible and audible tiers without changing gameplay objects when ambient effects are reduced.
 - Defeated bosses unlock five-arrangement, five-feedback-level rehearsals. Starting and ending practice are confirmed; currency, consumables, health, equipment, location, rewards, and story state restore from the canonical snapshot. Pause exposes **End Rehearsal** and disables side modes that could violate that isolation.
+- Four authored 104 BPM Resonance Gates connect regional restoration to boss progression. Gate clears are permanent, old defeated-boss saves migrate safely, assisted progression is honest, first-clear rewards are idempotent, and cleared arrangements remain available through Gate Records.
 - Three named loadouts preserve owned equipment arrangements. Hold `G`, the gamepad quick-wheel binding, or the touch **Wheel** control to select from eight accessible shortcuts.
 - Defeating Tidebreaker and viewing the campaign finale unlocks one bounded **Encore Adventure** cycle. Normal and Encore saves remain reversible and do not exchange earned currency or progression.
 
-The complete catalog, save boundary, balance rules, asset provenance, and extension constraints are documented in `docs/LIVING-RESONANCE.md`.
+The complete Living catalog, save boundary, balance rules, asset provenance, and extension constraints are documented in `docs/LIVING-RESONANCE.md`. Resonance Gate timing, charts, controls, scoring, accessibility, migration, QA, and extension rules are documented in `docs/RESONANCE-GATE.md`.
 
 ## Version 2.0 hub and Echo Arena
 
@@ -104,6 +109,12 @@ Run the dependency-free client checks from the repository root:
 
 ```bash
 node --check game.js
+node --check music-runtime.js
+node --check story-runtime.js
+node --check resonance-gate-runtime.js
+node --check audio.js
+node --check input-manager.js
+node --check controller-ui.js
 node --check equipment-runtime.js
 node --check v1-expansion.js
 node --check v2-platform-fighter.js
@@ -112,6 +123,8 @@ node tools/validate-v2-3-upgrade.cjs
 node tools/validate-v2-4-living-resonance.cjs
 node tools/validate-save-recovery.cjs
 node tools/validate-world-transitions.cjs
+node tools/validate-resonance-gate.cjs
+node tools/validate-expanded-music.cjs
 ```
 
 The deeper production-sprite audit uses `sharp` to inspect PNG alpha data. Run `node tools/validate-production-sprites.cjs` in a tooling environment where `sharp` is available; `sharp` is not a browser/runtime dependency and is intentionally not shipped with the static game.
@@ -121,6 +134,7 @@ With Playwright available in the tooling environment and a local server running 
 ```bash
 python -m http.server 4173 --bind 127.0.0.1
 node tools/qa-v2-3-browser.cjs
+node tools/qa-expanded-music-browser.cjs
 node tools/qa-character-customization-browser.cjs
 node tools/qa-save-recovery-browser.cjs
 node tools/qa-world-transitions-browser.cjs
@@ -154,8 +168,9 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - A quest path built around Blu, Jimbo, EEMS, Odin, and a wider NPC cast, with directional pixel sprites and expressive dialogue portraits.
 - Three full follow-on maps—Rootsong Hollows, Skyglass Reach, and Moonwake Coast—with their own terrain, enemies, puzzles, NPC layouts, health pickups, return gates, and atlas fast travel between discovered worlds.
 - Four stage bosses with distinct mechanics: the Nullspeaker, Rootbound Colossus, Prism Choir, and Tidebreaker.
+- Four original lane-based Resonance Gate arrangements that restore each regional resonator and permanently open its boss road, with score records, practice, demonstration, audio-clock timing, keyboard/gamepad/touch input, and meaningful accessibility assists.
 - Persistent Heartbloom health pickups that can be banked and triggered later, enemy Beatcoin rewards, Brad's item shop, and a six-skill training tree.
-- Weed gathering, four lost notes, a categorized adventure backpack, playable step composer, proportional road map, quest log, persistent statistics, and finale.
+- Weed gathering, four collectible anchor notes, a categorized adventure backpack, an eight-pitch polyphonic composer with 16 steps and named chord voicings, proportional road map, quest log, persistent statistics, and finale.
 - Procedural Web Audio music and sound effects—there are no audio downloads.
 - Three difficulty modes, separate music/SFX volume, screen-shake and motion controls, an objective arrow, and a large-text option.
 - Responsive 16:9 play on desktop and landscape mobile, with local progress/settings persistence where browser storage is available.
@@ -165,14 +180,16 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `index.html` — canvas, HUD, menus, overlays, composer, map, dialogue, and touch controls.
 - `styles.css` — responsive presentation and accessibility states.
 - `game.js` — world, story, input, combat, rendering, save state, and UI behavior.
-- `story-runtime.js` — immutable four-stage story/chord catalogs and pure chord evaluation.
-- `living-resonance-runtime.js` — immutable schema-24 mastery, synergy, restoration, rehearsal, loadout, wheel, and Encore catalog plus pure sanitation.
+- `music-runtime.js` — canonical eight-pitch catalog, chord presets/naming, polyphonic composition sanitation, old-melody migration, and four-pad boss-sequence compatibility.
+- `story-runtime.js` — immutable four-stage story/chord catalogs and pure seven-tone chord evaluation.
+- `living-resonance-runtime.js` — immutable Living Resonance state embedded in save schema 26, including mastery, synergy, restoration, Resonance Gate records, rehearsal, loadout, wheel, and Encore sanitation.
+- `resonance-gate-runtime.js` — four authored charts plus pure validation, beat timing, judgement, scoring, hold/chord handling, ranks, and trial-record sanitation.
 - `equipment-runtime.js` — central hybrid equipment registry, frame attachments, layer order, and combat origins.
 - `v1-expansion.js` — guild contracts, professions/crafting UI, relationships, protocol-v2 Echo Network client, health checks, and diagnostics (the legacy filename/global is retained for compatibility).
 - `v2-platform-fighter.js` — fixed-step Stock Battle simulation, six instrument-fighter move catalogs, local ownership, bot logic, host snapshots, and arena results.
 - `sprite-runtime.js` — manifest-driven production sprite loading, animation timing, and frame rendering.
 - Production sprite atlases are retained per active region; the soak QA tours all four stages and verifies old decoded sheets are released.
-- `audio.js` — music and sound synthesis.
+- `audio.js` — adaptive music and sound synthesis, including bounded polyphonic composer playback.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
 - `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
 - `assets/mossvale-key-art.png` — original generated title/menu artwork made for this project.
@@ -182,10 +199,15 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - `docs/HIGH_NOTES_V2_ARCHITECTURE.md` — evidence-based architecture and migration baseline captured before the V2 client work.
 - `docs/HIGH_NOTES_V2_RELEASE_SCOPE.md` — honest completion boundary, save notes, release checks, and external-network playtest checklist.
 - `docs/HIGH_NOTES_V2_3_UPGRADE.md` — shared overlay dismissal, mobile action states, class balance, story checkpoints, chord reasoning, assets, and schema-23 migration.
-- `docs/LIVING-RESONANCE.md` — schema-24 architecture, balance contracts, mode isolation, generated-asset provenance, and extension rules.
+- `docs/EXPANDED-MUSIC.md` — eight-pitch composer, polyphonic voicings, story harmonies, schema-26 migration, boss compatibility, and focused QA.
+- `docs/LIVING-RESONANCE.md` — Living Resonance architecture, schema-26 save boundary, balance contracts, mode isolation, generated-asset provenance, and extension rules.
+- `docs/RESONANCE-GATE.md` — Resonance Gate controls, timing architecture, charts, accessibility, save schema, QA, and extension rules.
 - `tools/validate-v2-release.cjs` — dependency-free equipment, integration, and relay-structure regression checks.
 - `tools/validate-v2-3-upgrade.cjs` — focused class, story, save, asset, and integration regression checks.
 - `tools/validate-v2-4-living-resonance.cjs` — exhaustive Living Resonance catalog, corrupt-save, integration, asset-manifest, and Stock Battle isolation checks.
+- `tools/validate-resonance-gate.cjs` — deterministic timing/scoring, chart, input, pause/cleanup, save, progression, assistance, and audio-clock regression checks.
+- `tools/validate-expanded-music.cjs` — eight-pitch catalog, chord recognition, polyphonic bounds, old-save migration, story-harmony prefixes, audio ingestion, and Nullspeaker-pad safety checks.
+- `tools/qa-expanded-music-browser.cjs` — end-to-end schema migration, composer keyboard/touch behavior, seventh-chord bounds, playback cleanup, draft discard, save/reload persistence, and compact-layout checks.
 - `tools/qa-v2-4-living-resonance-browser.cjs` — browser validation for rehearsal restoration, mastery, quick-wheel accessibility, and reversible Encore state.
 - `tools/qa-character-customization-browser.cjs` — exhaustive attached-hair compositor validation plus creator/action contact sheets.
 - `tools/qa-rhythm-combat-browser.cjs` — confirms empty swings cannot farm combo and valid hits follow the shared 104 BPM audio transport.

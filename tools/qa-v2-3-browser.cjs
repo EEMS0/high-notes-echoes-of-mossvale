@@ -70,8 +70,18 @@ async function inspectCreator(page, viewport, label) {
   const close = await page.locator('#closeCharacterCreator').boundingBox();
   assert.ok(inside(card, viewport, 2), `${label}: creator card must fit the viewport`);
   assert.ok(inside(close, viewport, 2), `${label}: creator close control must remain reachable`);
-  const iconFailures = await page.locator('#characterClassChoices img').evaluateAll((images) => images.filter((image) => !image.complete || image.naturalWidth !== 256 || image.naturalHeight !== 256).length);
-  assert.equal(iconFailures, 0, `${label}: class icons must load at declared dimensions`);
+  const visibleCards = await page.locator('#characterClassChoices .class-choice').evaluateAll((cards) => cards.filter((card) => {
+    const rect = card.getBoundingClientRect();
+    return rect.width > 40 && rect.height > 40 && getComputedStyle(card).opacity === '1';
+  }).length);
+  assert.equal(visibleCards, 4, `${label}: class cards must render visibly`);
+  const previewPainted = await page.locator('#characterPreview').evaluate((canvas) => {
+    const ctx = canvas.getContext('2d');
+    const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true;
+    return false;
+  });
+  assert.equal(previewPainted, true, `${label}: live character preview must be painted`);
   await assertNoOverflow(page, `${label} creator`);
   await shot(page, `${label}-creator`);
 }
@@ -140,7 +150,7 @@ async function desktopChecks(browser, failures) {
     });
     return { fresh, hostile, oldStageOne, oldStageThree, completed, interrupted };
   });
-  assert.equal(migration.fresh.version, 24);
+  assert.equal(migration.fresh.version, 26);
   assert.equal(migration.fresh.character.classId, 'riffblade');
   assert.equal(migration.hostile.character.classId, 'riffblade');
   assert.equal(migration.hostile.classState.cooldown, 30);
@@ -213,7 +223,7 @@ async function keyboardChecks(browser, failures) {
   assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.snapshot().state.classState.abilityUses), 1, 'keyboard class ability fires exactly once');
 
   assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.story.openChord('mossvale-major', false)), true);
-  for (const key of ['1', '2', '3']) await page.keyboard.press(key);
+  for (const key of ['1', '3', '5']) await page.keyboard.press(key);
   await page.waitForFunction(() => window.__HIGH_NOTES__.story.state().puzzleStates['mossvale-major'].status === 'completed');
   await context.close();
 }
@@ -322,7 +332,9 @@ async function controllerChecks(browser, failures) {
   assert.ok(await page.evaluate(() => window.__HIGH_NOTES__.firstPerson.getPlayer().classCooldown > 0), 'controller L3+R3 triggers class ability');
 
   assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.story.openChord('rootsong-minor', false)), true);
-  for (const note of ['E', 'G', 'B']) {
+  // Wait for the panel's scheduled initial focus before navigating its notes.
+  await page.waitForFunction(() => document.activeElement.id === 'replayChordButton');
+  for (const note of ['E', 'G', 'B', 'D']) {
     await page.locator(`[data-chord-note="${note}"]`).focus();
     await pressPad([0]);
   }
@@ -365,18 +377,20 @@ async function chordChecks(browser, failures) {
   assert.equal(await page.locator('#chordInputProgress .filled').count(), 2, 'partial chord input survives a real save/reload');
   const card = await page.locator('#chordPanel .chord-card').boundingBox();
   assert.ok(inside(card, viewport, 2), 'tablet chord card fits viewport');
-  for (const note of ['C', 'E', 'G', 'B']) {
+  for (const note of ['C', 'D', 'E', 'F', 'G', 'A', 'B']) {
     const rect = await page.locator(`[data-chord-note="${note}"]`).boundingBox();
     assert.ok(rect.width >= 44 && rect.height >= 44, `chord note ${note} remains touch-sized`);
   }
   await shot(page, '1024x768-chord');
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('highNotesSaveV7')).beatcoins);
   await page.locator('[data-chord-note="B"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.dataset.chordNote), 'B', 'tone focus survives partial chord rendering');
+  await page.locator('[data-chord-note="D"]').click();
   const afterFirst = await page.evaluate(() => JSON.parse(localStorage.getItem('highNotesSaveV7')).beatcoins);
   assert.equal(afterFirst, before + 6, 'first chord completion and first restoration tier each award once');
   await page.locator('#closeChordButton').click();
   assert.equal(await page.evaluate(() => window.__HIGH_NOTES__.story.openChord('rootsong-minor', true)), true);
-  for (const note of ['E', 'G', 'B']) await page.locator(`[data-chord-note="${note}"]`).click();
+  for (const note of ['E', 'G', 'B', 'D']) await page.locator(`[data-chord-note="${note}"]`).click();
   const afterReplay = await page.evaluate(() => JSON.parse(localStorage.getItem('highNotesSaveV7')).beatcoins);
   assert.equal(afterReplay, afterFirst, 'chord replay never duplicates its reward');
   await context.close();

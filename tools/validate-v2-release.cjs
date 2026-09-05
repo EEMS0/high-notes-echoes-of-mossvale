@@ -77,7 +77,7 @@ const index = read('index.html');
 const audioRuntime = read('audio.js');
 const characterRuntime = read('character-runtime.js');
 const scriptOrder = [
-  'audio.js', 'sprite-runtime.js', 'equipment-runtime.js', 'game.js',
+  'music-runtime.js', 'audio.js', 'sprite-runtime.js', 'equipment-runtime.js', 'game.js',
   'v1-expansion.js', 'v2-platform-fighter.js'
 ].map((name) => index.indexOf(name));
 scriptOrder.forEach((position, indexPosition) => assert.ok(position >= 0, `Missing script ${indexPosition}`));
@@ -85,13 +85,13 @@ for (let i = 1; i < scriptOrder.length; i += 1) {
   assert.ok(scriptOrder[i] > scriptOrder[i - 1], 'Runtime scripts are in the wrong dependency order');
 }
 assert.match(index, /character-runtime\.js\?v=4/, 'character compositor cache version');
-assert.match(index, /styles\.css\?v=36/, 'release stylesheet cache version');
-assert.match(index, /audio\.js\?v=16/, 'audio transport cache version');
+assert.match(index, /styles\.css\?v=39/, 'release stylesheet cache version');
+assert.match(index, /audio\.js\?v=17/, 'audio transport cache version');
 assert.match(index, /sprite-runtime\.js\?v=14/, 'retained sprite runtime cache version');
-assert.match(index, /game\.js\?v=40/, 'game cache version');
-assert.match(index, /input-manager\.js\?v=7/, 'input runtime cache version');
+assert.match(index, /game\.js\?v=42/, 'game cache version');
+assert.match(index, /input-manager\.js\?v=8/, 'input runtime cache version');
 assert.match(index, /controller-ui\.js\?v=6/, 'controller UI cache version');
-assert.match(index, /v1-expansion\.js\?v=12/, 'expansion data cache version');
+assert.match(index, /v1-expansion\.js\?v=13/, 'expansion data cache version');
 
 const audioSandbox = { window: { performance: { now: () => 0 } }, console };
 vm.createContext(audioSandbox);
@@ -163,7 +163,7 @@ Object.values(arenaRoster).forEach((fighter) => {
   assert.ok(fighter.moves.neutralSpecial.projectile, `${fighter.id} needs a projectile identity`);
   assert.ok(fighter.moves.recovery.recoveryImpulse, `${fighter.id} needs a recovery special`);
 });
-assert.match(game, /GAME_VERSION\s*=\s*['"]3\.2\.0['"]/, 'current production game version');
+assert.match(game, /GAME_VERSION\s*=\s*['"]3\.3\.0['"]/, 'current production game version');
 assert.match(game, /MossEquipmentRig/);
 assert.match(game, /equipment:\s*currentEquipmentNetworkSnapshot/);
 assert.match(game, /sanitizeOnlineEquipment/);

@@ -15,18 +15,20 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=36">
-  <script src="audio.js?v=16" defer></script>
+  <link rel="stylesheet" href="styles.css?v=39">
+  <script src="music-runtime.js?v=1" defer></script>
+  <script src="map-label-runtime.js?v=1" defer></script>
+  <script src="audio.js?v=17" defer></script>
   <script src="sprite-runtime.js?v=14" defer></script>
   <script src="equipment-runtime.js?v=3" defer></script>
   <script src="character-runtime.js?v=4" defer></script>
-  <script src="input-manager.js?v=7" defer></script>
-  <script src="story-runtime.js?v=1" defer></script>
+  <script src="input-manager.js?v=8" defer></script>
+  <script src="story-runtime.js?v=2" defer></script>
   <script src="resonance-gate-runtime.js?v=1" defer></script>
   <script src="living-resonance-runtime.js?v=3" defer></script>
-  <script src="game.js?v=40" defer></script>
+  <script src="game.js?v=42" defer></script>
   <script src="controller-ui.js?v=6" defer></script>
-  <script src="v1-expansion.js?v=12" defer></script>
+  <script src="v1-expansion.js?v=13" defer></script>
   <script src="v2-platform-fighter.js?v=32" defer></script>
   <!-- First-person view. ES modules defer by default and load after the classic
        scripts above, so game.js feature-detects window.MossFP every frame. -->
@@ -211,13 +213,13 @@
           </section>
           <div class="character-control-column">
           <form id="characterForm" class="character-options" autocomplete="off">
+            <fieldset class="creator-choice creator-class-choice"><legend>Choose your part in the band</legend><p>Choose a playstyle. You can retune your class later at home.</p><div id="characterClassChoices" class="class-choice-grid"></div><div id="characterClassDetails" class="class-details" aria-live="polite"></div></fieldset>
             <label class="creator-field" for="characterName"><span><strong>Display name</strong><small>Used in your adventure and natural dialogue.</small></span><input id="characterName" maxlength="18" value="Echo" required aria-describedby="characterNameHint"><small id="characterNameHint">1–18 letters, numbers, spaces, apostrophes or hyphens.</small></label>
             <label class="creator-field" for="characterPronouns"><span><strong>Pronouns</strong><small>Only used where dialogue naturally refers to you.</small></span><select id="characterPronouns"><option value="they">They / them</option><option value="she">She / her</option><option value="he">He / him</option><option value="name">Use my name</option></select></label>
             <fieldset class="creator-choice"><legend>Body palette</legend><div id="characterBodyChoices" class="swatch-grid"></div></fieldset>
             <fieldset class="creator-choice"><legend>Hair / head style</legend><div id="characterHairChoices" class="choice-grid"></div></fieldset>
             <fieldset class="creator-choice"><legend>Outfit palette</legend><div id="characterOutfitChoices" class="swatch-grid"></div></fieldset>
             <fieldset class="creator-choice"><legend>Accent colour</legend><div id="characterAccentChoices" class="swatch-grid"></div></fieldset>
-            <fieldset class="creator-choice creator-class-choice"><legend>Starter class</legend><p>Class changes playstyle, never appearance or instrument choice.</p><div id="characterClassChoices" class="class-choice-grid"></div><div id="characterClassDetails" class="class-details" aria-live="polite"></div></fieldset>
           </form>
           <div class="button-row creator-actions"><button id="randomizeCharacter" class="game-button button-ghost" type="button">Randomize</button><button id="resetCharacter" class="game-button button-secondary" type="button">Reset</button><button id="confirmCharacter" class="game-button button-primary" type="submit" form="characterForm">Begin Prologue</button></div>
           </div>
@@ -591,7 +593,11 @@
         <div class="settings-footer">
           <div class="button-row settings-reset-actions"><button id="resetSettingsCategory" class="game-button button-secondary" type="button">Reset this category</button><button id="resetAllSettings" class="game-button button-ghost" type="button">Reset all settings</button></div>
           <p>Settings save automatically on this device.</p>
-          <button id="resetButton" class="game-button button-danger" type="button">Reset Adventure</button>
+          <details class="settings-danger-zone">
+            <summary>! · Erase adventure data</summary>
+            <p>Delete this browser’s character, progress, inventory, scores, and save backups. Settings stay. This cannot be undone.</p>
+            <button id="resetButton" class="game-button button-danger" type="button" aria-haspopup="dialog">Review adventure reset</button>
+          </details>
         </div>
       </div>
     </section>
@@ -783,18 +789,41 @@
         <div class="panel-heading">
           <div>
             <p class="panel-kicker">EEMS' MOSSBOX</p>
-            <h2 id="composerTitle">Build the High Note</h2>
+            <h2 id="composerTitle">Shape the Living Score</h2>
           </div>
           <button id="closeComposerButton" class="icon-button" type="button" aria-label="Close composer">×</button>
         </div>
 
-        <p class="panel-intro">Tap a step to place a note. Stack your recovered sounds into a four-beat loop.</p>
-        <div id="composerGrid" class="composer-grid" role="grid" aria-label="Melody sequencer"></div>
-        <div id="composerInfo" class="composer-info" aria-live="polite">Choose a recovered note to start arranging.</div>
+        <p class="panel-intro">Your four recovered anchor tones have awakened a full C-major octave. Select a step, then add up to four tones to write melodies, triads, and seventh chords across two bars. Changes stay in this draft until you save the score; closing discards them.</p>
+        <div class="composer-layout">
+          <section class="composer-sequencer" aria-labelledby="composerSequenceTitle">
+            <div class="composer-section-heading">
+              <div><p class="panel-kicker">TWO-BAR PHRASE · 104 BPM</p><h3 id="composerSequenceTitle">Sixteen eighth-note steps</h3></div>
+              <p id="composerSelectionInfo" class="composer-selection-info">Step 1 selected.</p>
+            </div>
+            <div id="composerGrid" class="composer-grid" role="grid" aria-label="Two-bar polyphonic sequencer" aria-rowcount="2" aria-colcount="8"></div>
+          </section>
+          <aside class="composer-tools" aria-label="Composition tools">
+            <section aria-labelledby="composerToneTitle">
+              <div class="composer-tool-heading"><h3 id="composerToneTitle">Tones</h3><span>Keys 1–8</span></div>
+              <div id="composerNotePalette" class="composer-note-palette" role="group" aria-label="Toggle tones on the selected step"></div>
+            </section>
+            <section aria-labelledby="composerChordTitle">
+              <div class="composer-tool-heading"><h3 id="composerChordTitle">Voicings</h3><span>Replace selected step</span></div>
+              <div id="composerChordPresets" class="composer-chord-presets" role="group" aria-label="Chord presets"></div>
+            </section>
+            <div class="composer-edit-actions">
+              <button id="copyComposerStepButton" class="game-button button-secondary" type="button">Copy previous</button>
+              <button id="clearComposerStepButton" class="game-button button-secondary" type="button">Clear step</button>
+            </div>
+          </aside>
+        </div>
+        <div id="composerInfo" class="composer-info" aria-live="polite">Build at least four sounding steps with three distinct tones. Rests are welcome.</div>
+        <p id="composerStatus" class="composer-status" role="status" aria-live="polite" aria-atomic="true"></p>
 
         <div class="button-row composer-actions">
-          <button id="playMelodyButton" class="game-button button-secondary" type="button">▶ Play Loop</button>
-          <button id="saveMelodyButton" class="game-button button-primary" type="button">Save Melody</button>
+          <button id="playMelodyButton" class="game-button button-secondary" type="button">▶ Play Score</button>
+          <button id="saveMelodyButton" class="game-button button-primary" type="button">Save Score</button>
         </div>
       </div>
     </section>
@@ -850,12 +879,7 @@
           </section>
           <section class="chord-input" aria-labelledby="chordInputTitle">
             <h3 id="chordInputTitle">Play the resonator</h3><div id="chordInputProgress" class="chord-input-progress" aria-live="polite"></div>
-            <div class="chord-note-grid">
-              <button type="button" data-chord-note="C" aria-label="Play note C, circle">C<span aria-hidden="true">●</span></button>
-              <button type="button" data-chord-note="E" aria-label="Play note E, triangle">E<span aria-hidden="true">▲</span></button>
-              <button type="button" data-chord-note="G" aria-label="Play note G, diamond">G<span aria-hidden="true">◆</span></button>
-              <button type="button" data-chord-note="B" aria-label="Play note B, square">B<span aria-hidden="true">■</span></button>
-            </div>
+            <div id="chordNoteGrid" class="chord-note-grid" role="group" aria-label="Playable resonator tones"></div>
             <p id="chordStatus" class="chord-status" role="status" aria-live="polite">Listen to the pattern, then answer.</p>
           </section>
         </div>
@@ -1065,7 +1089,12 @@
         <p class="panel-kicker">THE VALE REMEMBERS</p>
         <h2 id="endingTitle">A New Song Rises</h2>
         <p id="endingText">Your melody rolls through the old stones, and Mossvale answers in harmony.</p>
-        <button id="replayButton" class="game-button button-primary" type="button">Play Again</button>
+        <p id="endingRewards" class="ending-rewards"></p>
+        <p id="endingNext" class="ending-next"></p>
+        <div class="button-row ending-actions">
+          <button id="replayButton" class="game-button button-primary" type="button">Continue</button>
+          <button id="endingStayButton" class="game-button button-secondary" type="button" hidden>Keep exploring</button>
+        </div>
       </div>
     </section>
 

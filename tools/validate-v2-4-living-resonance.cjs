@@ -198,7 +198,7 @@ const arena = read('v2-platform-fighter.js');
 const expansion = read('v1-expansion.js');
 assert.ok(index.indexOf('living-resonance-runtime.js') >= 0, 'living runtime script is included');
 assert.ok(index.indexOf('living-resonance-runtime.js') < index.indexOf('game.js'), 'living runtime loads before game.js');
-assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*25\b/, 'embedded save schema must be 25');
+assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*26\b/, 'embedded save schema must include the composition migration');
 assert.ok(index.indexOf('resonance-gate-runtime.js') < index.indexOf('living-resonance-runtime.js'),
   'rhythm runtime loads before Living Resonance');
 assert.match(game, /function openResonanceGate\b/, 'Resonance Gate controller is integrated');

@@ -18,10 +18,20 @@
   var OLDEST_SAVE_KEY = 'highNotesSaveV4';
   var ANCIENT_SAVE_KEY = 'highNotesSaveV2';
   var SETTINGS_KEY = 'highNotesSettingsV2';
-  var GAME_VERSION = '3.2.0';
-  var SAVE_SCHEMA_VERSION = 25;
-  var NOTE_ORDER = ['C', 'E', 'G', 'B'];
-  var NOTE_COLORS = { C: '#56f0c4', E: '#ffc857', G: '#66b8ff', B: '#db80ff' };
+  var GAME_VERSION = '3.3.0';
+  var SAVE_SCHEMA_VERSION = 26;
+  var MUSIC = window.MossMusic || null;
+  /* The four anchor notes remain the collectible/progression contract. The
+     larger performance palette is deliberately separate so old saves, the
+     four Nullspeaker floor pads, and the four-lane Resonance Gate cannot be
+     relocked by adding musical pitches. */
+  var NOTE_ORDER = MUSIC ? Array.from(MUSIC.anchorNotes) : ['C', 'E', 'G', 'B'];
+  var COMPOSER_NOTE_ORDER = MUSIC ? Array.from(MUSIC.noteOrder) : ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C5'];
+  var NOTE_COLORS = {};
+  COMPOSER_NOTE_ORDER.forEach(function (note) {
+    NOTE_COLORS[note] = MUSIC && MUSIC.notes[note] ? MUSIC.notes[note].color :
+      ({C:'#56f0c4',D:'#ff8f8f',E:'#ffc857',F:'#ff91c8',G:'#66b8ff',A:'#a9dc76',B:'#db80ff',C5:'#a8ffe7'}[note] || '#d7e7e2');
+  });
   var CLASS_IDS = ['riffblade','groveguard','echo-weaver','tempo-runner'];
   var RHYTHM = window.MossResonanceGate || null;
   var LIVING = window.MossLivingResonance || null;
@@ -264,7 +274,7 @@
   function focusSoon(id) {
     window.requestAnimationFrame(function () {
       var el = byId(id);
-      if (!el || el.hidden || typeof el.focus !== 'function') return;
+      if (!el || el.closest('[hidden],[inert]') || !el.getClientRects().length || typeof el.focus !== 'function') return;
       try { el.focus({ preventScroll: true }); } catch (_) { el.focus(); }
     });
   }
@@ -383,6 +393,7 @@
       child.inert = true;
       child.setAttribute('aria-hidden', 'true');
     });
+    records.panelId=panelId;
     overlayIsolationRecords.set(token, records);
   }
 
@@ -576,6 +587,7 @@
       speakers: [],
       defeated: [],
       melody: ['C', '-', 'E', '-', 'G', '-', 'B', '-'],
+      composition: MUSIC ? MUSIC.defaultComposition() : {version:1,steps:[['C'],[],['E'],[],['G'],[],['B'],[],['C'],[],['E'],[],['G'],[],['B'],[]]},
       composed: false,
       bossDefeated: false,
       metEems: false,
@@ -646,6 +658,11 @@
   var gameWonTimer = 0;
   var hudSignature = '';
   var melodyPreviewTimer = null;
+  var composerSelectedStep = 0;
+  var composerDraft = null;
+  var composerReturnFocus = null;
+  var chapterTransitionRuntime = {stage:0,remaining:0};
+  var respawnTimer = 0;
   var mapAnimationTime = 0;
   var skillFilter = 'all';
   var skillZoom = 1;
@@ -663,7 +680,7 @@
   var rehearsalRuntime = {active:false,bossId:'',stage:0,challenge:'standard',feedback:1,snapshot:null,metrics:null,result:null,lockedInstrument:''};
   var resonanceGateRuntime = {
     open:false,phase:'inactive',region:'',stage:0,mode:'scored',session:null,result:null,
-    returnFocus:null,returnContext:'world',startClock:0,pausedSongTime:0,currentSongTime:0,lastFrameTime:0,
+    returnFocus:null,returnContext:'world',clockMode:'audio',startClock:0,pausedSongTime:0,currentSongTime:0,lastFrameTime:0,
     animationFrame:0,countInHideTimer:0,countCue:-1,resumeCountIn:0,resumeCountStarted:0,
     laneHeld:[false,false,false,false],laneFlash:[0,0,0,0],laneFeedback:['','','',''],
     judgement:'',judgementUntil:0,tutorialPrompt:'',tutorialUntil:0,
@@ -863,7 +880,7 @@
       id:'nullspeaker', assetId:'nullspeaker', name:'THE NULLSPEAKER', shortName:'Nullspeaker', spriteRow:0,
       mechanic:'sequence', color:'#ff5f83', shieldColor:'#d77cff', projectileColor:'#f05ad7',
       hp:{story:14,standard:18,hard:22},
-      intro:'Strike the core. When it shields, play your gate-tone on the floor pads.',
+      intro:'Strike the core. When it shields, answer with your Living Score on the four anchor pads.',
       victory:'The Feedback Amphitheatre is silent at last.'
     },
     2: {
@@ -1135,11 +1152,11 @@
     { id: 'jimbo-keepsake', name: 'Jimbo\'s Leaf Pin', category: 'quest', row: 0, col: 2, color: '#ffb454',
       description: 'A sturdy little pin from Mossvale\'s most enthusiastic gardener.', unlocked: function () { return state.metJimbo; }, meta: function () { return 'Soil says hello'; } },
     { id: 'eems-mossbox', name: 'EEMS Mossbox', category: 'quest', row: 2, col: 3, color: '#d77cff',
-      description: 'A pocket loop machine holding every recovered frequency.', unlocked: function () { return state.metEems; }, meta: function () { return state.notes.length + ' / 4 frequencies recovered'; },
+      description: 'A pocket loop machine that turns four recovered anchors into a full diatonic octave.', unlocked: function () { return state.metEems; }, meta: function () { return state.notes.length + ' / 4 anchor frequencies recovered'; },
       actionLabel: 'Open composer', action: function () { if (hasAllNotes()) { closeInventory(); openComposer(); } else audioCall('sfx', 'error'); } },
-    { id: 'gate-tone', name: 'Eight-Beat Gate-Tone', category: 'quest', row: 1, col: 3, color: '#e39bff',
-      description: 'Your own arrangement. The Feedback Amphitheatre knows its shape.', unlocked: function () { return state.composed; }, meta: function () { return state.melody.join(' · '); },
-      actionLabel: 'Play gate-tone', action: function () { audioCall('playMelody', state.melody); } },
+    { id: 'gate-tone', name: 'Living Gate Score', category: 'quest', row: 1, col: 3, color: '#e39bff',
+      description: 'Your own two-bar melody and harmony. The Feedback Amphitheatre knows its shape.', unlocked: function () { return state.composed; }, meta: function () { var summary=MUSIC?MUSIC.compositionSummary(state.composition):null;return summary?(summary.occupiedSteps+' steps · '+summary.chordSteps+' chords'):state.melody.join(' · '); },
+      actionLabel: 'Play Living Score', action: function () { audioCall('playComposition', state.composition||state.melody); } },
     { id:'beatcoin-pouch', name:'Beatcoin Pouch', category:'gear', row:3, col:0, color:'#f4d35e',
       description:'Brad accepts these warm, humming coins for field supplies and upgrades.', unlocked:function(){return true;}, meta:function(){return state.beatcoins + ' Beatcoins';} },
     { id:'rootsong-relic', name:'Rootsong Record', category:'quest', row:3, col:1, color:'#d9a85d',
@@ -1738,9 +1755,14 @@
     ['composed', 'bossDefeated', 'campaignFinaleSeen', 'metEems', 'metJimbo', 'metBlu', 'odinRecruited', 'metMara', 'metPip',
       'metZephra', 'metNix', 'metTavi', 'metLuma', 'pruner', 'pulse',
       'extraHeart', 'charged', 'perfectHarvest', 'encoreUsed'].forEach(function (key) { clean[key] = !!raw[key]; });
-    if (Array.isArray(raw.melody) && raw.melody.length === 8) {
-      clean.melody = raw.melody.map(function (n) { return NOTE_ORDER.indexOf(n) >= 0 ? n : '-'; });
+    if (Array.isArray(raw.melody) && raw.melody.length) {
+      clean.melody = raw.melody.slice(0,8).map(function (n) {
+        var note=MUSIC?MUSIC.normalizeNote(n):String(n||'').toUpperCase();
+        return note&&COMPOSER_NOTE_ORDER.indexOf(note)>=0?(note==='C5'?'C':note):'-';
+      });
+      while(clean.melody.length<8)clean.melody.push('-');
     }
+    clean.composition = MUSIC ? MUSIC.sanitizeComposition(raw.composition,clean.melody) : clean.composition;
     clean.totalKills = clamp(Number(raw.totalKills) || 0, 0, 99999);
     clean.damagingPulses = clamp(Math.floor(Number(raw.damagingPulses) || 0), 0, 99999);
     clean.playSeconds = clamp(Number(raw.playSeconds) || 0, 0, 9999999);
@@ -1917,7 +1939,7 @@
     clean.charged = clean.charged || clean.weeds.length >= 24;
     clean.perfectHarvest = clean.perfectHarvest || clean.weeds.length >= 30;
     clean.composed = clean.composed && NOTE_ORDER.every(function (n) { return clean.notes.indexOf(n) >= 0; }) &&
-      NOTE_ORDER.every(function (n) { return clean.melody.indexOf(n) >= 0; });
+      (MUSIC ? MUSIC.isReady(clean.composition) : NOTE_ORDER.every(function (n) { return clean.melody.indexOf(n) >= 0; }));
     clean.bossDefeated = clean.bossDefeated && clean.composed;
     if (clean.bossDefeated && clean.stageBosses.indexOf('nullspeaker') < 0) clean.stageBosses.push('nullspeaker');
     if (clean.stageBosses.indexOf('nullspeaker') >= 0 && clean.composed) clean.bossDefeated = true;
@@ -2595,6 +2617,7 @@
       window.MossControllerUI.refreshPrompts();
       window.MossControllerUI.syncFullscreenLabel();
     }
+    renderResonanceInputPrompts();
   }
 
   /*
@@ -2673,9 +2696,10 @@
     player.y = useSavedPosition ? state.y : spawn.y;
     player.classCooldown=clamp(Number(state.classState.cooldown)||0,0,30);
     player.classBarrier=0;player.classBarrierCharges=0;player.classDashTimer=0;classFields=[];
-    if (state.stage === 1 && distance(player, BOSS_CENTER) < 370) {
-      player.x = 1900;
-      player.y = 1320;
+    if (!bossDefeatedForStage(state.stage) && distance(player, BOSS_CENTER) < 355) {
+      var approach=bossApproachPoint(player);
+      player.x=approach.x;
+      player.y=approach.y;
     }
     if (circleHitsObstacle(player.x, player.y, player.r)) {
       player.x = spawn.x;
@@ -2706,6 +2730,8 @@
   }
 
   function clearTransient() {
+    if(respawnTimer){clearTimeout(respawnTimer);respawnTimer=0;}
+    chapterTransitionRuntime.stage=0;chapterTransitionRuntime.remaining=0;
     if(resonanceGateRuntime.open)closeResonanceGate();
     worldTransitionRuntime.locked = false;
     worldTransitionRuntime.source = '';
@@ -2762,7 +2788,7 @@
   }
 
   function beginAudio() {
-    audioCall('setProgress', state.notes.length, state.melody, state.notes.slice());
+    syncMusicProgress();
     audioCall('start');
     settlePromise(audioCall('unlock'));
   }
@@ -2873,6 +2899,7 @@
   function enhanceRangeOutputs(){document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function(range){range.dispatchEvent(new Event('input'));});}
   function renderCharacterCreator() {
     if (!characterDraft || !window.MossCharacter) return;
+    cancelAnimationFrame(characterPreviewFrame);
     var groups=[['body','characterBodyChoices'],['hair','characterHairChoices'],['outfit','characterOutfitChoices'],['accent','characterAccentChoices']];
     groups.forEach(function(pair){var group=pair[0],host=byId(pair[1]);if(!host)return;host.innerHTML='';window.MossCharacter.options[group].forEach(function(option){var button=document.createElement('button');button.type='button';button.className='creator-option'+(characterDraft.appearance[group]===option.id?' selected':'');button.setAttribute('aria-pressed',characterDraft.appearance[group]===option.id?'true':'false');button.title=option.label;button.innerHTML='<span style="--swatch:'+(option.color||window.MossCharacter.color('accent',characterDraft.appearance.accent))+'"></span><small>'+option.label+'</small>';button.onclick=function(){characterDraft.appearance[group]=option.id;renderCharacterCreator();};host.appendChild(button);});});
     renderClassChoices(byId('characterClassChoices'),characterDraft.classId,function(id){characterDraft.classId=id;renderCharacterCreator();},false);
@@ -2894,7 +2921,10 @@
     if(!settings.reducedMotion&&!byId('characterCreator').hidden)characterPreviewFrame=requestAnimationFrame(drawCharacterPreview);
   }
   function openCharacterCreator() {
-    warmGameplayAssets();releaseHeldInputs();characterDraft=creatorDefault();setHidden(byId('characterCreator'),false);setOverlayIsolation('creator','characterCreator',true);renderCharacterCreator();focusSoon('characterName');
+    warmGameplayAssets();releaseHeldInputs();characterDraft=creatorDefault();renderCharacterCreator();
+    setHidden(byId('characterCreator'),false);setOverlayIsolation('creator','characterCreator',true);
+    byId('characterForm').scrollTop=0;drawCharacterPreview();
+    var selected=byId('characterClassChoices').querySelector('[aria-pressed="true"]');if(selected)selected.focus({preventScroll:true});
   }
   function closeCharacterCreator() {
     cancelAnimationFrame(characterPreviewFrame);setOverlayIsolation('creator','characterCreator',false);setHidden(byId('characterCreator'),true);characterDraft=null;focusSoon('startButton');
@@ -3081,23 +3111,30 @@
     activeLivingTab=tab;renderLivingPanel();
   }
   function showLivingConfirmation(options) {
-    options=options||{};var returnsToPause=paused&&panelIsOpen('pauseScreen')&&!livingOpen;if(returnsToPause)setOverlayIsolation('pause','pauseScreen',false);
+    releaseHeldInputs();
+    var suspended=Array.from(overlayIsolationRecords.entries()).map(function(entry){return {token:entry[0],panelId:entry[1].panelId};});
+    suspended.slice().reverse().forEach(function(entry){setOverlayIsolation(entry.token,entry.panelId,false);});
+    options=options||{};var returnsToPause=!suspended.length&&paused&&panelIsOpen('pauseScreen')&&!livingOpen;if(returnsToPause)setOverlayIsolation('pause','pauseScreen',false);
     confirmationRuntime.open=true;confirmationRuntime.onConfirm=options.onConfirm||null;confirmationRuntime.onCancel=options.onCancel||null;confirmationRuntime.returnFocus=options.returnFocus||document.activeElement;confirmationRuntime.returnFocusOnAccept=options.returnFocusOnAccept!==false;confirmationRuntime.returnsToPause=returnsToPause;
+    confirmationRuntime.suspended=suspended;
     if(byId('livingConfirmKicker'))byId('livingConfirmKicker').textContent=options.kicker||'CONFIRM ARRANGEMENT';
     if(byId('livingConfirmTitle'))byId('livingConfirmTitle').textContent=options.title||'Are you sure?';
     if(byId('livingConfirmText'))byId('livingConfirmText').textContent=options.text||'Review this change before continuing.';
     if(byId('livingConfirmIcon'))byId('livingConfirmIcon').textContent=options.icon||'!';
     var details=byId('livingConfirmDetails');if(details){details.textContent=options.details||'';details.hidden=!options.details;}
     if(byId('livingConfirmAccept'))byId('livingConfirmAccept').textContent=options.accept||'Confirm';
+    byId('livingConfirmAccept').classList.toggle('button-danger',!!options.destructive);
     if(livingOpen)setOverlayIsolation('living','livingPanel',false);
     setHidden(byId('livingConfirmOverlay'),false);setOverlayIsolation('living-confirm','livingConfirmOverlay',true);focusSoon('livingConfirmCancel');return true;
   }
   function closeLivingConfirmation(accepted) {
     if(!confirmationRuntime.open)return;var action=accepted?confirmationRuntime.onConfirm:confirmationRuntime.onCancel,returnFocus=confirmationRuntime.returnFocus,returnFocusOnAccept=confirmationRuntime.returnFocusOnAccept,returnsToPause=confirmationRuntime.returnsToPause;
+    var suspended=confirmationRuntime.suspended||[];
     confirmationRuntime={open:false,onConfirm:null,onCancel:null,returnFocus:null,returnFocusOnAccept:true,returnsToPause:false};setOverlayIsolation('living-confirm','livingConfirmOverlay',false);setHidden(byId('livingConfirmOverlay'),true);
+    suspended.forEach(function(entry){if(panelIsOpen(entry.panelId))setOverlayIsolation(entry.token,entry.panelId,true);});
     if(livingOpen)setOverlayIsolation('living','livingPanel',true);if(typeof action==='function')action();
     if(returnsToPause&&paused&&panelIsOpen('pauseScreen'))setOverlayIsolation('pause','pauseScreen',true);
-    if((!accepted||returnFocusOnAccept)&&returnFocus&&returnFocus.isConnected&&typeof returnFocus.focus==='function')window.requestAnimationFrame(function(){returnFocus.focus();});
+    if((!accepted||returnFocusOnAccept)&&returnFocus&&returnFocus.isConnected&&typeof returnFocus.focus==='function')window.requestAnimationFrame(function(){if(!returnFocus.closest('[hidden],[inert]'))returnFocus.focus();});
   }
   function unlockMasteryNode(classId,pathId,nodeId) {
     var record=classMasteryRecord(classId),path=LIVING.mastery[classId]&&LIVING.mastery[classId].paths[pathId],node=LIVING.nodeById(classId,nodeId);
@@ -3202,7 +3239,7 @@
 
   function stateSnapshotWithoutLiving(model) {var snapshot=JSON.parse(JSON.stringify(model));delete snapshot.living;return snapshot;}
   function prepareEncoreState(model) {
-    var next=sanitizeState(stateSnapshotWithoutLiving(model));next.stage=1;next.chapter=1;next.x=LEVELS[1].spawn.x;next.y=LEVELS[1].spawn.y;next.stagePositions={};next.defeated=[];next.stageBosses=[];next.bossDefeated=false;next.campaignFinaleSeen=false;next.completedQuests=[];next.questStates={};next.puzzleStates={};next.chapterRelics=[];next.storyGuides=[];next.drums=[];next.speakers=[];next.stageTokens=[];next.collectibles=[];next.weeds=[];next.notes=[];next.melody=['-','-','-','-','-','-','-','-'];next.composed=false;return sanitizeState(next);
+    var next=sanitizeState(stateSnapshotWithoutLiving(model));next.stage=1;next.chapter=1;next.x=LEVELS[1].spawn.x;next.y=LEVELS[1].spawn.y;next.stagePositions={};next.defeated=[];next.stageBosses=[];next.bossDefeated=false;next.campaignFinaleSeen=false;next.completedQuests=[];next.questStates={};next.puzzleStates={};next.chapterRelics=[];next.storyGuides=[];next.drums=[];next.speakers=[];next.stageTokens=[];next.collectibles=[];next.weeds=[];next.notes=[];next.melody=['-','-','-','-','-','-','-','-'];next.composition=MUSIC?MUSIC.emptyComposition():next.composition;next.composed=false;return sanitizeState(next);
   }
   function confirmEncoreSwitch(toEncore) {
     var encore=livingState().encoreAdventure;if(toEncore&&!encore.unlocked)return;
@@ -3328,7 +3365,7 @@
     showToast(skipped?'PROLOGUE SKIPPED':'REHEARSAL COMPLETE','Mossvale Stage I begins at EEMS\' mix-stone.','#56f0c4',4);
     updateHUD(true);
   }
-  function skipTutorial(){if(window.confirm('Skip the rehearsal and begin Mossvale? You will still receive the starter field kit.'))completeTutorial(true);}
+  function skipTutorial(){showLivingConfirmation({kicker:'YOUR FIRST VERSE',icon:'♫',title:'Head into Mossvale?',text:'Skip the remaining rehearsal lessons and start exploring. You still receive the starter field kit.',details:'You can replay the tutorial from How to Play. Your class and appearance stay the same.',accept:'Skip rehearsal',returnFocus:byId('tutorialSkipButton'),returnFocusOnAccept:false,onConfirm:function(){completeTutorial(true);focusSoon('gameCanvas');}});}
   function replayTutorial(){if(!started){closeHowPanel();showToast('LOAD AN ADVENTURE','Continue an adventure before replaying the tutorial.','#ffc857',2.8);return;}closeHowPanel();beginTutorial(true);}
 
   function continueGame() {
@@ -3361,7 +3398,7 @@
     refreshLivingRestoration(false);
     updateHUD();
     if (state.stage === 4 && bossDefeatedForStage(4) && !state.campaignFinaleSeen) {
-      window.setTimeout(showCampaignFinale, 700);
+      queueChapterConclusion(4,0.7);
     }
     return true;
   }
@@ -3453,7 +3490,7 @@
     dialogue = null;
     setOverlayIsolation('dialogue', 'dialogueBox', false);
     setHidden(byId('dialogueBox'), true);
-    focusSoon('gameCanvas');
+    if(!canvas.closest('[inert],[hidden]'))canvas.focus({preventScroll:true});
     if (typeof onClose === 'function') onClose();
     syncStoryProgress(true);
     saveGame(true);
@@ -3461,6 +3498,19 @@
 
   function hasAllNotes() {
     return NOTE_ORDER.every(function (n) { return state.notes.indexOf(n) >= 0; });
+  }
+
+  function compositionPlaybackSteps() {
+    if (MUSIC && hasAllNotes()) {
+      if(composerOpen&&composerDraft)return composerDraft.steps;
+      if(state.composition)return state.composition.steps;
+    }
+    return state.melody;
+  }
+
+  function syncMusicProgress() {
+    var unlocked = hasAllNotes() ? COMPOSER_NOTE_ORDER.slice() : state.notes.slice();
+    audioCall('setProgress', state.notes.length, compositionPlaybackSteps(), unlocked);
   }
 
   var STORY_COMBAT_IDS={2:['rh4','rh7','rh9'],3:['sg3','sg6','sg10'],4:['mw3','mw6','mw9']};
@@ -3494,25 +3544,44 @@
     refreshLivingRestoration(announce);
   }
   function storyCanAwardRelic(stage){var arc=storyArc(stage);if(!arc)return true;var relicStep=arc.steps.findIndex(function(step){return step.id.indexOf('claim-')===0;});return (state.questStates[arc.id]||0)>=relicStep;}
-  function storyNpc(stage){var id=stage===2?'pip':stage===3?'zephra':stage===4?'tavi':'eems';return npcById(id)||{x:stage===1?1435:stage===2?1800:stage===3?1810:1840,y:stage===1?880:stage===4?1220:1190};}
+  function storyNpc(stage,id){
+    id=id||(stage===2?'pip':stage===3?'zephra':stage===4?'tavi':'eems');
+    var npc=npcById(id);
+    if(npc)return npcWorldPosition(npc);
+    if(id==='jimbo')return{x:1175,y:930};
+    if(id==='blu')return{x:1760,y:740};
+    return{x:stage===1?1435:stage===2?1800:stage===3?1810:1840,y:stage===1?880:stage===4?1220:1190};
+  }
   function storyEnemyTarget(stage){var ids=STORY_COMBAT_IDS[stage]||[];for(var i=0;i<ids.length;i++){if(state.defeated.indexOf(ids[i])>=0)continue;var live=enemies.find(function(enemy){return enemy.id===ids[i]&&!enemy.dead;});if(live)return live;var blueprint=(LEVELS[stage].enemies||[]).find(function(entry){return entry[0]===ids[i];});if(blueprint)return{x:blueprint[2],y:blueprint[3]};}return STORY_RESONATORS[stage];}
   function getActiveStoryObjective(){
     var arc=storyArc(state.stage);if(!arc)return null;var index=clamp(Math.floor(Number(state.questStates[arc.id])||0),0,arc.steps.length);if(index>=arc.steps.length)return null;
-    var step=arc.steps[index],target=STORY_RESONATORS[state.stage]||currentLevel.hub;
-    if(step.kind==='talk')target=storyNpc(state.stage);
+    var step=arc.steps[index],target=STORY_RESONATORS[state.stage]||currentLevel.hub,objectiveText=step.objective;
+    if(step.kind==='talk')target=storyNpc(state.stage,step.id==='tune-pruner'?'jimbo':null);
     else if(step.kind==='pulse')target=(state.stage===2?drums:speakers).find(function(item){return (state.stage===2?state.drums:state.speakers).indexOf(item.id)<0;})||target;
-    else if(step.kind==='collect'&&state.stage===1)target=state.weeds.length<6?{x:1175,y:930}:(shrines.find(function(item){return state.notes.indexOf(item.note)<0;})||target);
+    else if(step.id==='gather-glowweed'){
+      target=weeds.reduce(function(nearest,weed){
+        if(state.weeds.indexOf(weed.id)>=0||circleHitsObstacle(weed.x,weed.y,player.r,player))return nearest;
+        return !nearest||distanceSquared(player,weed)<distanceSquared(player,nearest)?weed:nearest;
+      },null)||target;
+      objectiveText='Walk near the marked Glowweed to gather it';
+    }
+    else if(step.id==='recover-notes'){
+      var shrineObjective=getShrineHint(true);target=shrineObjective;objectiveText=shrineObjective.text;
+    }
     else if(step.kind==='collect'&&state.stage===4)target=stageTokens.find(function(item){return state.stageTokens.indexOf(item.id)<0;})||target;
-    else if(step.kind==='combat')target=state.stage===1?{x:1760,y:740}:storyEnemyTarget(state.stage);
-    else if(step.kind==='compose')target={x:1435,y:880};
+    else if(step.kind==='combat'){
+      target=state.stage===1?(aliveGroup('blu')[0]||storyNpc(1,'blu')):storyEnemyTarget(state.stage);
+      if(state.stage===1)objectiveText=aliveGroup('blu').length?'Clear the feedback pests near Blu':'Speak to Blu to learn Echo Pulse';
+    }
+    else if(step.kind==='compose')target=storyNpc(1,'eems');
     else if(step.kind==='boss')target=BOSS_CENTER;
     if(step.kind==='boss'&&regionalBossObjectiveMet(state.stage)&&!rhythmGateCleared(state.stage)){
       var gateChart=RHYTHM&&RHYTHM.charts[regionIdForStage(state.stage)];
       return{text:'Perform '+(gateChart?gateChart.name:'the Resonance Gate')+' · press E at the arena',x:BOSS_CENTER.x,y:BOSS_CENTER.y,story:true,step:step,arc:arc};
     }
     var progressValue=step.kind==='combat'?storyCombatCount(state.stage):step.kind==='pulse'?countCollected(state.stage===2?drums:speakers,state.stage===2?state.drums:state.speakers):step.id==='recover-notes'?state.notes.length:step.kind==='collect'&&state.stage===4?countCollected(stageTokens,state.stageTokens):state.weeds.length;
-    var suffix=step.goal?' · '+progressValue+'/'+step.goal:'';
-    return{text:step.objective+suffix,x:target.x,y:target.y,story:true,step:step,arc:arc};
+    var suffix=step.goal?' · '+(step.id==='recover-notes'?'Notes ':'')+progressValue+'/'+step.goal:'';
+    return{text:objectiveText+suffix,x:target.x,y:target.y,story:true,step:step,arc:arc};
   }
 
   function clearChordPreview(){chordRuntime.previewTimers.forEach(function(timer){clearTimeout(timer);});chordRuntime.previewTimers=[];document.querySelectorAll('#chordPattern .playing').forEach(function(el){el.classList.remove('playing');});}
@@ -3520,9 +3589,10 @@
     var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord)return;
     if(byId('chordTitle'))byId('chordTitle').textContent=chord.name;
     if(byId('chordConcept'))byId('chordConcept').textContent=chord.concept;
-    if(byId('chordHint'))byId('chordHint').textContent=chord.hint+' Notes are shown with labels and shapes as well as colour.';
-    var pattern=byId('chordPattern');if(pattern){pattern.innerHTML='';chord.notes.forEach(function(note,index){var chip=document.createElement('span'),label=document.createElement('span');var noteDef=window.MossStory.notes[note];chip.className='chord-note '+noteDef.shape;chip.dataset.patternIndex=String(index);chip.style.setProperty('--note-color',noteDef.color);label.textContent=note;chip.appendChild(label);chip.setAttribute('aria-label','Note '+note+', '+noteDef.shape);pattern.appendChild(chip);});}
+    if(byId('chordHint'))byId('chordHint').textContent=chord.hint+' Notes are shown with labels and shapes as well as colour. Keyboard keys 1–7 play C through B.';
+    var pattern=byId('chordPattern');if(pattern){pattern.innerHTML='';chord.notes.forEach(function(note,index){var chip=document.createElement('span'),label=document.createElement('span');var noteDef=window.MossStory.notes[note];chip.className='chord-note '+noteDef.shape;chip.dataset.patternIndex=String(index);chip.style.setProperty('--note-color',noteDef.color);label.textContent=note;chip.appendChild(label);chip.setAttribute('data-note-symbol',noteDef.symbol||'');chip.setAttribute('aria-label','Note '+note+', '+noteDef.shape);pattern.appendChild(chip);});}
     var progress=byId('chordInputProgress');if(progress){progress.innerHTML='';chord.notes.forEach(function(note,index){var chip=document.createElement('span');chip.textContent=index<chordRuntime.input.length?chordRuntime.input[index]:'—';chip.className=index<chordRuntime.input.length?'filled':'';progress.appendChild(chip);});}
+    var controls=byId('chordNoteGrid');if(controls&&!controls.children.length){Object.keys(window.MossStory.notes).forEach(function(note){var noteDef=window.MossStory.notes[note],button=document.createElement('button'),symbol=document.createElement('span'),key=document.createElement('small');button.type='button';button.dataset.chordNote=note;button.style.setProperty('--note-color',noteDef.color);button.setAttribute('aria-label','Play note '+note+', '+noteDef.shape+', shortcut '+noteDef.key);button.textContent=note;symbol.textContent=noteDef.symbol||'◆';symbol.setAttribute('aria-hidden','true');key.textContent=noteDef.key;key.setAttribute('aria-hidden','true');button.appendChild(symbol);button.appendChild(key);controls.appendChild(button);});}
   }
   function replayChordPattern(){
     var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord)return;clearChordPreview();
@@ -3543,7 +3613,7 @@
     chordRuntime.id='';chordRuntime.input=[];chordRuntime.returnToMap=false;updateHUD(true);
   }
   function submitChordNote(note){
-    var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord||NOTE_ORDER.indexOf(note)<0)return false;
+    var chord=window.MossStory&&window.MossStory.chords[chordRuntime.id];if(!chord||!window.MossStory.notes[note])return false;
     var now=performance.now()/1000,windowSeconds=window.MossStory.timingWindow(settings.chordTiming);
     if(chordRuntime.input.length&&chordRuntime.lastInputAt&&now-chordRuntime.lastInputAt>windowSeconds){chordRuntime.input=[];var timed=storyPuzzle(chord.id);timed.attempts++;if(timed.status!=='completed')timed.input=[];if(byId('chordStatus'))byId('chordStatus').textContent='The phrase faded. Take your time and begin again.';}
     chordRuntime.lastInputAt=now;chordRuntime.input.push(note);audioCall('previewNote',note);
@@ -3560,14 +3630,21 @@
 
   var RESONANCE_ACTION_LANES={rhythmC:0,rhythmE:1,rhythmG:2,rhythmB:3};
   var RESONANCE_CAPTURE_KEYS=new Set(['d','f','j','k','arrowleft','arrowdown','arrowup','arrowright']);
-  var RESONANCE_TUTORIAL_COPY={
-    C:'C · press D or Left as the leaf reaches the Crown.',
-    E:'E · press F or Down as the diamond reaches the Crown.',
-    G:'G · press J or Up as the wave reaches the Crown.',
-    B:'B · press K or Right as the star reaches the Crown.',
-    hold:'Hold the lane until the glowing root has passed the Crown.',
-    chord:'Two paths answer together · press both shown lanes at once.'
+  var RESONANCE_TUTORIAL_LANES={
+    C:{action:'rhythmC',shape:'leaf'},
+    E:{action:'rhythmE',shape:'diamond'},
+    G:{action:'rhythmG',shape:'wave'},
+    B:{action:'rhythmB',shape:'star'}
   };
+
+  function resonanceTutorialCopy(kind) {
+    if(kind==='hold')return'Hold the lane until the glowing root has passed the Crown.';
+    if(kind==='chord')return'Two paths answer together · press both shown lanes at once.';
+    var lane=RESONANCE_TUTORIAL_LANES[kind];if(!lane)return'';
+    var input=window.MossInput,method=input&&input.getActiveMethod?input.getActiveMethod():'keyboard';
+    var label=input&&input.label?input.label(lane.action):'';
+    return method==='touch'?(kind+' · tap the '+lane.shape+' lane as it reaches the Crown.'):(kind+' · press '+(label||kind)+' as the '+lane.shape+' reaches the Crown.');
+  }
 
   function resonanceTrialRecord(region) {
     var living=livingState();
@@ -3579,7 +3656,11 @@
   function resonanceClockSnapshot() {
     var fallback=performance.now()/1000;
     var snapshot=audioCall('getTransportSnapshot',fallback);
-    if(!snapshot||!Number.isFinite(snapshot.audioTime))return{audioTime:fallback,bpm:104,beatDuration:60/104,phase:0,running:false};
+    if(!snapshot||!Number.isFinite(snapshot.audioTime))snapshot={audioTime:fallback,bpm:104,beatDuration:60/104,phase:0,running:false};
+    if(resonanceGateRuntime.clockMode==='wall'){
+      var beatDuration=Number(snapshot.beatDuration)||60/104,wrapped=((fallback%beatDuration)+beatDuration)%beatDuration;
+      return{audioTime:fallback,bpm:Number(snapshot.bpm)||104,beatDuration:beatDuration,phase:wrapped/beatDuration,running:false,contextState:snapshot.contextState||'fallback'};
+    }
     return snapshot;
   }
 
@@ -3606,6 +3687,12 @@
     if(status&&status.textContent!==text)status.textContent=text;
   }
 
+  function setResonanceTutorialPrompt(message) {
+    var text=String(message||''),tutorialNode=byId('resonanceTutorialPrompt');
+    resonanceGateRuntime.tutorialPrompt=text;
+    if(tutorialNode){tutorialNode.textContent=text;tutorialNode.hidden=!text;}
+  }
+
   function renderResonanceInputPrompts() {
     var input=window.MossInput,method=input&&input.getActiveMethod?input.getActiveMethod():'keyboard';
     var actions=['rhythmC','rhythmE','rhythmG','rhythmB'],fallback=['D / ←','F / ↓','J / ↑','K / →'];
@@ -3616,9 +3703,18 @@
     });
   }
 
+  function setResonanceLiveControlsEnabled(enabled,lanesEnabled) {
+    var active=!!enabled,lanesActive=active&&lanesEnabled!==false,pauseButton=byId('resonancePauseButton'),laneGroup=byId('resonanceLaneButtons');
+    if(pauseButton)pauseButton.disabled=!active;
+    document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.disabled=!lanesActive;if(!lanesActive)button.classList.remove('active','pressed');});
+    if(laneGroup)laneGroup.setAttribute('aria-disabled',lanesActive?'false':'true');
+  }
+
   function setResonanceGatePhase(phase) {
     resonanceGateRuntime.phase=phase;
     var intro=phase==='intro',results=phase==='results',play=!intro&&!results&&phase!=='inactive';
+    var exitButton=byId('resonanceGateExitButton'),exitLabel=['count-in','playing','resuming'].indexOf(phase)>=0?'Pause performance and show exit options':'Leave Resonance Gate';
+    if(exitButton){exitButton.setAttribute('aria-label',exitLabel);exitButton.title=exitLabel;}
     setHidden(byId('resonanceGateIntro'),!intro);
     setHidden(byId('resonanceGatePlay'),!play);
     setHidden(byId('resonanceGateResults'),!results);
@@ -3650,6 +3746,7 @@
     var inCurrentRegion=chart.stage===state.stage,record=resonanceTrialRecord(id),storyReady=inCurrentRegion&&regionalBossObjectiveMet(chart.stage);
     var replayAllowed=!!(record&&(record.unlocked||record.cleared))||stateHasBoss(state,chart.stage);
     if(!storyReady&&!options.replay&&!replayAllowed){audioCall('sfx','error');showToast('GATE STILL SLEEPING','Complete this region’s restoration story before attempting its performance.',chart.palette.primary,2.8);return false;}
+    var gateOpener=document.activeElement,returnContext=homeOpen?'home':paused?'pause':'world';
     if(livingOpen)closeLiving();
     releaseHeldInputs();
     var living=livingState();
@@ -3661,9 +3758,10 @@
     resonanceGateRuntime.mode='scored';
     resonanceGateRuntime.session=null;
     resonanceGateRuntime.result=null;
-    resonanceGateRuntime.returnFocus=document.activeElement;
+    resonanceGateRuntime.returnFocus=gateOpener;
+    resonanceGateRuntime.returnContext=returnContext;
     resonanceGateRuntime.firstVisit=!living.rhythmTrials[id].cleared;
-    resonanceGateRuntime.audioWasPaused=paused||orientationBlocked;
+    resonanceGateRuntime.audioWasPaused=paused||orientationBlocked||homeOpen;
     resonanceGateRuntime.previousRecord=JSON.parse(JSON.stringify(living.rhythmTrials[id]));
     resonanceGateRuntime.currentSongTime=0;
     resonanceGateRuntime.pausedSongTime=0;
@@ -3674,10 +3772,12 @@
     resonanceGateRuntime.countCue=-1;
     resonanceGateRuntime.autoDemoIndex=0;
     resonanceGateRuntime.autoDemoReleases=[];
+    resonanceGateRuntime.suspendedHoldLanes=[];
     resonanceGateRuntime.audioTier=-1;
     setHidden(byId('resonanceGateOverlay'),false);
     setOverlayIsolation('resonance-gate','resonanceGateOverlay',true);
     document.body.classList.add('resonance-gate-open');
+    renderResonanceInputPrompts();
     renderResonanceGateIntro();
     audioCall('pause',false);
     saveGame(true);
@@ -3690,7 +3790,7 @@
       difficulty:settings.difficulty,mode:mode,
       widerTiming:settings.rhythmTiming==='wide',simplified:!!settings.rhythmSimplified,
       holdAssist:!!settings.rhythmHoldAssist,noFail:mode==='demo'||(mode==='scored'&&!!settings.rhythmNoFail),
-      latencyOffsetMs:clamp(Number(settings.rhythmLatencyOffset)||0,-300,300)
+      latencyOffsetMs:mode==='demo'?0:clamp(Number(settings.rhythmLatencyOffset)||0,-200,200)
     };
   }
 
@@ -3709,22 +3809,27 @@
     resonanceGateRuntime.countCue=-1;
     resonanceGateRuntime.autoDemoIndex=0;
     resonanceGateRuntime.autoDemoReleases=[];
+    resonanceGateRuntime.suspendedHoldLanes=[];
     resonanceGateRuntime.laneHeld=[false,false,false,false];
     document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
     resonanceGateRuntime.laneFlash=[0,0,0,0];
     resonanceGateRuntime.judgement='LISTEN';
     resonanceGateRuntime.judgementUntil=0;
-    resonanceGateRuntime.tutorialPrompt='';
+    setResonanceTutorialPrompt('');
     resonanceGateRuntime.lastFrameTime=performance.now()/1000;
+    audioCall('pause',false);
+    var sourceClock=audioCall('getTransportSnapshot',resonanceGateRuntime.lastFrameTime);
+    resonanceGateRuntime.clockMode=sourceClock&&sourceClock.running?'audio':'wall';
     var clock=resonanceClockSnapshot(),alignDelay=clock.beatDuration?((1-clamp(clock.phase,0,1))*clock.beatDuration)%clock.beatDuration:0;
     if(alignDelay<0.045)alignDelay=0;
     resonanceGateRuntime.startClock=clock.audioTime+alignDelay;
     if(cleanMode==='scored'){
       var living=livingState();living.rhythmTrials=RHYTHM.recordAttempt(living.rhythmTrials,resonanceGateRuntime.region);saveGame(true);
     }
+    setResonanceLiveControlsEnabled(true,cleanMode!=='demo');
     setResonanceGatePhase('count-in');
-    if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent=(cleanMode==='demo'?'Demonstration':'Performance')+' count-in started.';
-    audioCall('pause',false);
+    var assisted=cleanMode==='scored'&&(settings.rhythmTiming==='wide'||settings.rhythmSimplified||settings.rhythmHoldAssist||settings.rhythmNoFail);
+    setResonancePerformanceStatus((assisted?'Assisted performance':cleanMode==='demo'?'Demonstration':'Performance')+' count-in started.'+(assisted?' Wider timing, simplified notes, and hold help are active.':''));
     drawResonanceGateFrame(0);
     resonanceGateRuntime.animationFrame=requestAnimationFrame(stepResonanceGate);
     focusSoon('resonancePauseButton');
@@ -3736,14 +3841,19 @@
     var now=resonanceGateRuntime.currentSongTime;
     (event.lanes||[]).forEach(function(lane){resonanceGateRuntime.laneFlash[lane]=event.judgement==='miss'?0.28:0.7;resonanceGateRuntime.laneFeedback[lane]=event.judgement||event.type;});
     if(event.type==='chord-part')return;
-    if(event.type==='stray'){resonanceGateRuntime.judgement='';return;}
+    if(event.type==='hold-resume')return;
+    if(event.type==='stray'){
+      if(event.penalized){resonanceGateRuntime.judgement='OFF BEAT';resonanceGateRuntime.judgementUntil=now+0.55;audioCall('sfx','resonance-miss');mobileHaptic(8);setResonancePerformanceStatus('Off-beat input. Combo reset.');}
+      return;
+    }
     var judgement=event.judgement||'';
     if(judgement){
       resonanceGateRuntime.judgement=judgement.toUpperCase();
       resonanceGateRuntime.judgementUntil=now+0.62;
       audioCall('sfx','resonance-'+judgement);
       if(judgement==='perfect'){rumble(0.18,55);mobileHaptic(12);}else if(judgement==='miss'){rumble(0.08,45);mobileHaptic(8);}
-      if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent=judgement+' timing. Combo '+event.combo+'.';
+      var announce=judgement==='miss'||event.type==='hold-break'||event.type==='hold-start'||(event.lanes&&event.lanes.length>1)||(event.combo>0&&event.combo%10===0);
+      if(announce)setResonancePerformanceStatus(judgement==='miss'?'Miss. Combo reset.':event.type==='hold-start'?'Hold started.':event.type==='hold-break'?'Hold released early.':(event.lanes&&event.lanes.length>1)?('Chord '+judgement+'. Combo '+event.combo+'.'):('Combo milestone '+event.combo+'.'));
     }
   }
 
@@ -3754,13 +3864,26 @@
     if(detail.phase==='released'){
       resonanceGateRuntime.laneHeld[lane]=false;
       var touchButton=document.querySelector('[data-resonance-lane="'+lane+'"]');if(touchButton)touchButton.classList.remove('pressed','active');
-      if(resonanceGateRuntime.phase==='playing')resonanceFeedback(resonanceGateRuntime.session.releaseLane(lane,resonanceSongTime()));
+      if(resonanceGateRuntime.phase!=='resuming'||resonanceGateRuntime.suspendedHoldLanes.indexOf(lane)<0)resonanceFeedback(resonanceGateRuntime.session.releaseLane(lane,resonanceSongTime()));
       return;
     }
-    if(detail.phase!=='pressed'||resonanceGateRuntime.phase!=='playing')return;
+    if(detail.phase!=='pressed')return;
+    if(resonanceGateRuntime.phase==='resuming'){
+      var suspendedLane=resonanceGateRuntime.suspendedHoldLanes.indexOf(lane)>=0;
+      var resumeElapsed=resonanceClockSnapshot().audioTime-resonanceGateRuntime.resumeCountStarted;
+      var resumeTotal=RHYTHM.beatToSeconds(4,resonanceGateRuntime.session.chart.bpm);
+      if(!suspendedLane&&resumeElapsed<resumeTotal-resonanceGateRuntime.session.windows.good)return;
+      resonanceGateRuntime.laneHeld[lane]=true;
+      var resumeButton=document.querySelector('[data-resonance-lane="'+lane+'"]');if(resumeButton)resumeButton.classList.add('active');
+      if(!suspendedLane){var resumedEvent=resonanceGateRuntime.session.pressLane(lane,resonanceGateRuntime.pausedSongTime);if(resumedEvent&&resumedEvent.type!=='stray')audioCall('rhythmHit',RHYTHM.lanes[lane].id,resumedEvent.judgement||'great');resonanceFeedback(resumedEvent);}
+      return;
+    }
+    var actionSongTime=resonanceSongTime(),countLength=RHYTHM.beatToSeconds(resonanceGateRuntime.session.chart.countInBeats,resonanceGateRuntime.session.chart.bpm);
+    var earlyWindow=resonanceGateRuntime.phase==='count-in'&&actionSongTime>=countLength-resonanceGateRuntime.session.windows.good;
+    if(resonanceGateRuntime.phase!=='playing'&&!earlyWindow)return;
     resonanceGateRuntime.laneHeld[lane]=true;
     var activeButton=document.querySelector('[data-resonance-lane="'+lane+'"]');if(activeButton)activeButton.classList.add('active');
-    var event=resonanceGateRuntime.session.pressLane(lane,resonanceSongTime());
+    var event=resonanceGateRuntime.session.pressLane(lane,actionSongTime);
     if(event&&event.type!=='stray')audioCall('rhythmHit',RHYTHM.lanes[lane].id,event.judgement||'great');
     resonanceFeedback(event);
   }
@@ -3779,14 +3902,17 @@
   }
 
   function resonanceTutorialAt(songTime) {
+    if(resonanceGateRuntime.phase==='resuming'&&resonanceGateRuntime.suspendedHoldLanes.length){return'Hold '+resonanceGateRuntime.suspendedHoldLanes.map(function(lane){return RHYTHM.lanes[lane].id;}).join(' + ')+' through the count-in to continue the sustain.';}
+    if(resonanceGateRuntime.phase==='count-in'&&resonanceGateRuntime.mode==='scored'&&(settings.rhythmTiming==='wide'||settings.rhythmSimplified||settings.rhythmHoldAssist||settings.rhythmNoFail))return'Assisted run · wider timing · simplified notes · hold help'+(settings.rhythmNoFail?' · No-Fail progression':'')+'.';
     if(resonanceGateRuntime.region!=='mossvale')return'';
     var chart=resonanceGateRuntime.session&&resonanceGateRuntime.session.chart;if(!chart)return'';
+    var best='',bestDistance=Infinity;
     for(var i=0;i<chart.notes.length;i++){
       var note=chart.notes[i];if(!note.tutorial)continue;
       var time=RHYTHM.beatToSeconds(note.beat,chart.bpm);
-      if(songTime>=time-1.45&&songTime<=time+0.55)return RESONANCE_TUTORIAL_COPY[note.tutorial]||'';
+      if(songTime>=time-1.45&&songTime<=time+0.55&&Math.abs(time-songTime)<bestDistance){bestDistance=Math.abs(time-songTime);best=resonanceTutorialCopy(note.tutorial);}
     }
-    return'';
+    return best;
   }
 
   function resonanceGlyph(ctx,lane,x,y,size,alpha) {
@@ -3795,7 +3921,7 @@
     else if(def.shape==='wave'){ctx.lineWidth=Math.max(3,size*.22);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-size*.72,0);ctx.quadraticCurveTo(-size*.36,-size*.65,0,0);ctx.quadraticCurveTo(size*.36,size*.65,size*.72,0);ctx.stroke();}
     else if(def.shape==='star'){ctx.beginPath();for(var i=0;i<10;i++){var a=-Math.PI/2+i*Math.PI/5,r=i%2?size*.42:size*.78;if(!i)ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);}ctx.closePath();ctx.fill();ctx.stroke();}
     else{ctx.beginPath();ctx.ellipse(0,0,size*.72,size*.56,-.4,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(-size*.34,size*.34);ctx.lineTo(size*.34,-size*.34);ctx.stroke();}
-    if(settings.rhythmLaneLabels){ctx.fillStyle='#061513';ctx.font='800 '+Math.max(11,size*.72)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(def.id,0,1);}
+    if(settings.rhythmLaneLabels){ctx.font='800 '+Math.max(11,size*.72)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';if(def.shape==='wave'){ctx.lineWidth=3;ctx.strokeStyle='#041013';ctx.strokeText(def.id,0,1);ctx.fillStyle='#f2ffff';}else{ctx.fillStyle='#061513';}ctx.fillText(def.id,0,1);}
     ctx.restore();
   }
 
@@ -3822,7 +3948,7 @@
     gateCtx.lineCap='round';
     laneX.forEach(function(x,lane){
       var held=resonanceGateRuntime.laneHeld[lane],flash=resonanceGateRuntime.laneFlash[lane],visualFlash=settings.rhythmFlashReduction?flash*.25:flash;
-      gateCtx.strokeStyle=held||visualFlash>0?RHYTHM.lanes[lane].color:'rgba(171,240,225,.22)';gateCtx.lineWidth=held?10:5;gateCtx.beginPath();gateCtx.moveTo(w/2+(x-w/2)*.42,spawnY);gateCtx.quadraticCurveTo(x+(lane-1.5)*10,h*.48,x,hitY);gateCtx.stroke();
+      gateCtx.strokeStyle=held||visualFlash>0?RHYTHM.lanes[lane].color:'rgba(171,240,225,.22)';gateCtx.lineWidth=held?(settings.rhythmFlashReduction?7:10):5;gateCtx.beginPath();gateCtx.moveTo(w/2+(x-w/2)*.42,spawnY);gateCtx.quadraticCurveTo(x+(lane-1.5)*10,h*.48,x,hitY);gateCtx.stroke();
       gateCtx.save();gateCtx.globalAlpha=.18+visualFlash*.42;gateCtx.fillStyle=RHYTHM.lanes[lane].color;gateCtx.beginPath();gateCtx.arc(x,hitY,31+visualFlash*9,0,Math.PI*2);gateCtx.fill();gateCtx.restore();resonanceGlyph(gateCtx,lane,x,hitY,22,1);
     });
     function yFor(time){return hitY-clamp((time-songTime)/travel,0,1)*(hitY-spawnY);}
@@ -3842,16 +3968,16 @@
   function updateResonanceGateHud(songTime) {
     var session=resonanceGateRuntime.session,snapshot=session.snapshot(songTime),length=snapshot.chartLength;
     var fill=byId('resonanceMeterFill');if(fill)fill.style.width=snapshot.resonance+'%';
-    var meter=fill&&fill.parentElement;if(meter)meter.setAttribute('aria-valuenow',String(Math.round(snapshot.resonance)));
+    var meter=fill&&fill.parentElement;if(meter){meter.setAttribute('aria-valuenow',String(Math.round(snapshot.resonance)));meter.setAttribute('aria-valuetext',Math.round(snapshot.resonance)+'%, '+snapshot.threshold+'% required');}
     if(byId('resonanceMeterThreshold'))byId('resonanceMeterThreshold').style.left=snapshot.threshold+'%';
     if(byId('resonanceMeterValue'))byId('resonanceMeterValue').textContent=Math.round(snapshot.resonance)+'% / '+snapshot.threshold+'%';
     if(byId('resonanceCombo'))byId('resonanceCombo').textContent=String(snapshot.combo);
     if(byId('resonanceMultiplier'))byId('resonanceMultiplier').textContent='×'+RHYTHM.multiplierForCombo(snapshot.combo).toFixed(snapshot.combo>=10?1:0);
     if(byId('resonanceScore'))byId('resonanceScore').textContent=snapshot.score.toLocaleString();
     if(byId('resonanceAccuracy'))byId('resonanceAccuracy').textContent=snapshot.accuracy.toFixed(1)+'%';
-    if(byId('resonanceProgressFill'))byId('resonanceProgressFill').style.width=clamp(songTime/length*100,0,100)+'%';
-    var judgement=byId('resonanceJudgement');if(judgement){judgement.textContent=songTime<=resonanceGateRuntime.judgementUntil?resonanceGateRuntime.judgement:'';judgement.dataset.quality=(resonanceGateRuntime.judgement||'').toLowerCase();}
-    var tutorial=resonanceTutorialAt(songTime);if(byId('resonanceTutorialPrompt')){byId('resonanceTutorialPrompt').textContent=tutorial;byId('resonanceTutorialPrompt').hidden=!tutorial;}
+    var progressValue=clamp(songTime/length*100,0,100);if(byId('resonanceProgressFill'))byId('resonanceProgressFill').style.width=progressValue+'%';if(byId('resonanceSongProgress'))byId('resonanceSongProgress').setAttribute('aria-valuenow',String(Math.round(progressValue)));
+    var judgement=byId('resonanceJudgement'),judgementText=songTime<=resonanceGateRuntime.judgementUntil?resonanceGateRuntime.judgement:'';if(judgement){if(judgement.textContent!==judgementText)judgement.textContent=judgementText;judgement.dataset.quality=(resonanceGateRuntime.judgement||'').toLowerCase();}
+    var tutorial=resonanceTutorialAt(songTime);if(tutorial!==resonanceGateRuntime.tutorialPrompt){setResonanceTutorialPrompt(tutorial);if(tutorial)setResonancePerformanceStatus(tutorial);}
     var audioTier=clamp(Math.floor(snapshot.resonance/25),0,4);if(audioTier!==resonanceGateRuntime.audioTier){resonanceGateRuntime.audioTier=audioTier;audioCall('setAdaptiveState',{stage:resonanceGateRuntime.stage,scene:'exploration',intensity:.22+audioTier*.18,track:'resonance-gate-'+resonanceGateRuntime.region});}
     drawResonanceGateFrame(songTime,snapshot);
   }
@@ -3864,20 +3990,21 @@
     if(runtime.phase==='paused'){updateResonanceGateHud(runtime.pausedSongTime);return;}
     if(runtime.phase==='resuming'){
       var resumeElapsed=resonanceClockSnapshot().audioTime-runtime.resumeCountStarted,beatLength=60/runtime.session.chart.bpm,total=beatLength*4,remaining=Math.max(0,4-Math.floor(resumeElapsed/beatLength));
-      if(byId('resonanceCountIn')){byId('resonanceCountIn').textContent=remaining?String(remaining):'PLAY';byId('resonanceCountIn').hidden=false;}
-      if(remaining>0&&remaining!==runtime.countCue){runtime.countCue=remaining;audioCall('sfx','resonance-countdown');}
+      var resumeCue=remaining?String(remaining):'PLAY';if(byId('resonanceCountIn')){if(byId('resonanceCountIn').textContent!==resumeCue)byId('resonanceCountIn').textContent=resumeCue;byId('resonanceCountIn').hidden=false;}
+      if(remaining>0&&remaining!==runtime.countCue){runtime.countCue=remaining;audioCall('sfx','resonance-countdown');setResonancePerformanceStatus('Resume count '+remaining+(runtime.suspendedHoldLanes.length?'. Keep the shown hold lane pressed.':'.'));}
       updateResonanceGateHud(runtime.pausedSongTime);
-      if(resumeElapsed>=total){runtime.startClock=resonanceClockSnapshot().audioTime-runtime.pausedSongTime;runtime.phase='playing';setHidden(byId('resonancePauseCurtain'),true);if(byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;if(byId('resonancePerformanceStatus'))byId('resonancePerformanceStatus').textContent='Performance resumed.';}
+      if(resumeElapsed>=total){runtime.session.resumeHolds(runtime.laneHeld,runtime.pausedSongTime).forEach(resonanceFeedback);runtime.suspendedHoldLanes=[];runtime.startClock=resonanceClockSnapshot().audioTime-runtime.pausedSongTime;runtime.phase='playing';setHidden(byId('resonancePauseCurtain'),true);if(byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;setResonancePerformanceStatus('Performance resumed.');}
       runtime.animationFrame=requestAnimationFrame(stepResonanceGate);return;
     }
     var songTime=resonanceSongTime();runtime.currentSongTime=songTime;
     var countLength=RHYTHM.beatToSeconds(runtime.session.chart.countInBeats,runtime.session.chart.bpm),beat=60/runtime.session.chart.bpm;
     if(songTime<countLength){
       runtime.phase='count-in';var beatIndex=Math.max(0,Math.floor(Math.max(0,songTime)/beat)),cue=clamp(4-beatIndex,1,4);
-      if(byId('resonanceCountIn')){byId('resonanceCountIn').hidden=false;byId('resonanceCountIn').textContent=songTime<0?'READY':String(cue);}
-      if(songTime>=0&&cue!==runtime.countCue){runtime.countCue=cue;audioCall('sfx','resonance-countdown');}
+      var countText=songTime<0?'READY':String(cue);if(byId('resonanceCountIn')){byId('resonanceCountIn').hidden=false;if(byId('resonanceCountIn').textContent!==countText)byId('resonanceCountIn').textContent=countText;}
+      if(songTime<0&&runtime.countCue!=='ready'){runtime.countCue='ready';setResonancePerformanceStatus('Ready. Four beat count-in follows.');}
+      else if(songTime>=0&&cue!==runtime.countCue){runtime.countCue=cue;audioCall('sfx','resonance-countdown');setResonancePerformanceStatus('Count in '+cue+'.');}
     }else if(runtime.phase==='count-in'){
-      runtime.phase='playing';if(byId('resonanceCountIn')){byId('resonanceCountIn').textContent='PLAY';runtime.countInHideTimer=window.setTimeout(function(){runtime.countInHideTimer=0;if(runtime.open&&runtime.phase==='playing'&&byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;},360);}audioCall('sfx','resonance-go');
+      runtime.phase='playing';if(byId('resonanceCountIn')){byId('resonanceCountIn').textContent='PLAY';runtime.countInHideTimer=window.setTimeout(function(){runtime.countInHideTimer=0;if(runtime.open&&runtime.phase==='playing'&&byId('resonanceCountIn'))byId('resonanceCountIn').hidden=true;},360);}audioCall('sfx','resonance-go');setResonancePerformanceStatus('Play.');
     }
     if(runtime.phase==='playing'){
       if(runtime.mode==='demo')processResonanceDemo(songTime);
@@ -3891,18 +4018,19 @@
   function pauseResonanceGate(interrupted) {
     var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session||['results','intro','paused'].indexOf(runtime.phase)>=0)return false;
     if(runtime.countInHideTimer){clearTimeout(runtime.countInHideTimer);runtime.countInHideTimer=0;}
-    runtime.pausedSongTime=resonanceSongTime();runtime.currentSongTime=runtime.pausedSongTime;runtime.phase='paused';runtime.laneHeld=[false,false,false,false];
+    runtime.pausedSongTime=resonanceSongTime();runtime.currentSongTime=runtime.pausedSongTime;runtime.suspendedHoldLanes=Array.from(new Set(runtime.suspendedHoldLanes.concat(runtime.session.suspendHolds())));setResonanceGatePhase('paused');runtime.laneHeld=[false,false,false,false];
     document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
-    setHidden(byId('resonancePauseCurtain'),false);document.body.classList.add('resonance-gate-paused');audioCall('pause',true);releaseHeldInputs();
+    setResonanceLiveControlsEnabled(false);setHidden(byId('resonancePauseCurtain'),false);document.body.classList.add('resonance-gate-paused');audioCall('pause',true);releaseHeldInputs();
     if(runtime.animationFrame){cancelAnimationFrame(runtime.animationFrame);runtime.animationFrame=0;}
     updateResonanceGateHud(runtime.pausedSongTime);
     if(byId('resonancePauseTitle'))byId('resonancePauseTitle').textContent=interrupted?'Performance safely suspended':'Performance paused';
+    setResonancePerformanceStatus(runtime.suspendedHoldLanes.length?'Performance paused during a hold. Press and hold that lane during the resume count-in.':'Performance paused.');
     focusSoon('resonanceResumeButton');return true;
   }
 
   function resumeResonanceGate() {
     var runtime=resonanceGateRuntime;if(!runtime.open||!runtime.session||runtime.phase!=='paused')return false;
-    runtime.phase='resuming';runtime.resumeCountStarted=resonanceClockSnapshot().audioTime;runtime.lastFrameTime=performance.now()/1000;runtime.countCue=-1;document.body.classList.remove('resonance-gate-paused');setHidden(byId('resonancePauseCurtain'),true);audioCall('pause',false);
+    audioCall('pause',false);setResonanceGatePhase('resuming');runtime.resumeCountStarted=resonanceClockSnapshot().audioTime;runtime.lastFrameTime=performance.now()/1000;runtime.countCue=-1;setResonanceTutorialPrompt('');document.body.classList.remove('resonance-gate-paused');setHidden(byId('resonancePauseCurtain'),true);setResonanceLiveControlsEnabled(true,runtime.mode!=='demo');
     if(runtime.animationFrame)cancelAnimationFrame(runtime.animationFrame);runtime.animationFrame=requestAnimationFrame(stepResonanceGate);focusSoon('resonancePauseButton');return true;
   }
 
@@ -3923,20 +4051,31 @@
       }
       saveGame(true);syncStoryProgress(false);updateHUD(true);
     }
-    var record=resonanceTrialRecord(runtime.region),cleared=runtime.mode==='scored'&&outcome.cleared;
-    if(byId('resonanceResultRank')){byId('resonanceResultRank').textContent=outcome.rank||'—';byId('resonanceResultRank').dataset.rank=outcome.rank||'';}
-    if(byId('resonanceResultKicker'))byId('resonanceResultKicker').textContent=cleared?'GATE RESTORED':runtime.mode==='practice'?'PRACTICE COMPLETE':runtime.mode==='demo'?'DEMONSTRATION COMPLETE':'RESONANCE UNSTABLE';
-    if(byId('resonanceResultsTitle'))byId('resonanceResultsTitle').textContent=cleared?(firstClear?'The boss road is open':'Performance cleared'):runtime.mode==='scored'?'The gate needs another phrase':'Arrangement explored';
-    var summary=cleared?(firstClear?'The regional resonator now stays awake. Losing the boss fight will never relock it.':'Your permanent gate remains open; this replay strengthened your record.'):(runtime.mode==='scored'?'Restore '+outcome.threshold+'% resonance to clear. Retry immediately, practise, or enable Wider Timing, Simplified Charts, Hold Assist, or No-Fail in Accessibility.':'Practice and demonstrations never change campaign progress or personal bests.');
+    var record=resonanceTrialRecord(runtime.region),cleared=runtime.mode==='scored'&&outcome.cleared,gateOpen=!!(record&&record.cleared);
+    var rankLabel=runtime.mode==='demo'?'Demonstration':runtime.mode==='practice'||outcome.rank==='Practice'?'Practice':outcome.rank||'Not cleared',rankVisual=runtime.mode==='demo'?'DEMO':runtime.mode==='practice'||outcome.rank==='Practice'?'P':outcome.rank||'—';
+    if(byId('resonanceResultRank')){byId('resonanceResultRank').textContent=rankVisual;byId('resonanceResultRank').dataset.rank=rankVisual;byId('resonanceResultRank').setAttribute('aria-label','Performance rank: '+rankLabel);}
+    if(byId('resonanceResultKicker'))byId('resonanceResultKicker').textContent=cleared?'GATE RESTORED':gateOpen?'GATE REMAINS OPEN':runtime.mode==='practice'?'PRACTICE COMPLETE':runtime.mode==='demo'?'DEMONSTRATION COMPLETE':'RESONANCE UNSTABLE';
+    if(byId('resonanceResultsTitle'))byId('resonanceResultsTitle').textContent=cleared?(firstClear?'The boss road is open':'Performance cleared'):gateOpen?'The permanent road is still open':runtime.mode==='scored'?'The gate needs another phrase':'Arrangement explored';
+    var summary=cleared?(firstClear?'The regional resonator now stays awake. Losing the boss fight will never relock it.':'Your permanent gate remains open; this replay strengthened your record.'):(gateOpen?'This run did not reach the clear threshold, but an earlier performance already restored the resonator. Continue to the boss or try for a stronger record.':runtime.mode==='scored'?'Restore '+outcome.threshold+'% resonance to clear. Retry immediately, practise, or choose the assisted chart.':'Practice and demonstrations never change campaign progress or personal bests.');
     if(rewardCoins)summary+=' First-clear restoration: +1 resonance and +'+rewardCoins+' Beatcoins.';
     if(byId('resonanceResultSummary'))byId('resonanceResultSummary').textContent=summary;
     if(byId('resonanceResultAssist'))byId('resonanceResultAssist').textContent=outcome.assistanceUsed?'Assisted result · '+resonanceAssistanceSummary(runtime.mode):'Unassisted result · standard chart rules';
     [['resonanceResultScore',outcome.score.toLocaleString()],['resonanceResultAccuracy',outcome.accuracy.toFixed(1)+'%'],['resonanceResultCombo',String(outcome.maxCombo)],['resonanceResultPerfect',String(outcome.perfect)],['resonanceResultGreat',String(outcome.great)],['resonanceResultGood',String(outcome.good)],['resonanceResultMiss',String(outcome.miss)]].forEach(function(entry){if(byId(entry[0]))byId(entry[0]).textContent=entry[1];});
-    if(byId('resonanceResultBest'))byId('resonanceResultBest').textContent=runtime.mode==='scored'&&record&&record.bestRank?(record.bestRank+' · '+record.bestAccuracy.toFixed(1)+'%'+(outcome.score>Number(previous.bestScore||0)?' · NEW SCORE':'')):'Not recorded';
+    if(byId('resonanceResultBest'))byId('resonanceResultBest').textContent=record&&record.bestRank?(record.bestRank+' · '+record.bestAccuracy.toFixed(1)+'%'+(runtime.mode==='scored'&&outcome.score>Number(previous.bestScore||0)?' · NEW SCORE':runtime.mode!=='scored'?' · this run not recorded':'')):'No scored record';
     var canBoss=!!(record&&record.cleared&&runtime.stage===state.stage&&!bossDefeatedForStage(runtime.stage));setHidden(byId('resonanceContinueBossButton'),!canBoss);
+    var canAssist=runtime.mode==='scored'&&!outcome.cleared&&!gateOpen,assistButton=byId('resonanceAssistButton');if(assistButton){setHidden(assistButton,!canAssist);assistButton.textContent=record&&record.attempts>=3?'Retry with No-Fail assistance':'Retry with wider timing + fewer notes';}
     if(byId('resonanceRetryButton'))byId('resonanceRetryButton').textContent=outcome.cleared?'Play again':'Retry now';
-    setResonanceGatePhase('results');audioCall('sfx',cleared?'resonance-clear':runtime.mode==='scored'?'resonance-miss':'unlock');if(cleared)rumble(.32,180);
+    if(byId('resonanceRetryButton')){byId('resonanceRetryButton').classList.toggle('button-primary',!canBoss);byId('resonanceRetryButton').classList.toggle('button-secondary',canBoss);}
+    setResonanceLiveControlsEnabled(false);setResonanceGatePhase('results');setResonancePerformanceStatus((gateOpen?'Gate open. ':'')+(runtime.mode==='demo'?'Demonstration complete':runtime.mode==='practice'?'Practice complete':'Rank '+rankLabel)+', '+outcome.accuracy.toFixed(1)+'% accuracy. '+(canBoss?'Continue to the boss or choose another action.':canAssist?'Retry, practise, or choose the assisted chart.':'Retry, practise, or return to the region.'));audioCall('sfx',cleared?'resonance-clear':runtime.mode==='scored'?'resonance-miss':'unlock');if(cleared)rumble(.32,180);
     focusSoon(canBoss?'resonanceContinueBossButton':'resonanceRetryButton');return true;
+  }
+
+  function startResonanceAssistedRetry() {
+    if(!resonanceGateRuntime.open||resonanceGateRuntime.phase!=='results')return false;
+    var record=resonanceTrialRecord(resonanceGateRuntime.region),useNoFail=!!(record&&record.attempts>=3);
+    settings.rhythmTiming='wide';settings.rhythmSimplified=true;settings.rhythmHoldAssist=true;if(useNoFail)settings.rhythmNoFail=true;
+    saveSettings();applySettings();
+    return startResonanceGate('scored');
   }
 
   function closeResonanceGate(options) {
@@ -3944,7 +4083,7 @@
     var continuingToBoss=!!(options.toBoss&&runtime.stage===state.stage&&rhythmGateCleared(runtime.stage)&&!bossDefeatedForStage(runtime.stage));
     if(runtime.animationFrame)cancelAnimationFrame(runtime.animationFrame);
     if(runtime.countInHideTimer){clearTimeout(runtime.countInHideTimer);runtime.countInHideTimer=0;}
-    runtime.animationFrame=0;runtime.open=false;runtime.phase='inactive';runtime.session=null;runtime.result=null;runtime.autoDemoReleases=[];runtime.laneHeld=[false,false,false,false];runtime.audioTier=-1;
+    runtime.animationFrame=0;runtime.open=false;runtime.phase='inactive';runtime.clockMode='audio';runtime.session=null;runtime.result=null;runtime.autoDemoReleases=[];runtime.suspendedHoldLanes=[];runtime.laneHeld=[false,false,false,false];runtime.audioTier=-1;
     document.querySelectorAll('[data-resonance-lane]').forEach(function(button){button.classList.remove('active','pressed');});
     setOverlayIsolation('resonance-gate','resonanceGateOverlay',false);setHidden(byId('resonanceGateOverlay'),true);document.body.classList.remove('resonance-gate-open','resonance-gate-playing','resonance-gate-paused');releaseHeldInputs();
     if(continuingToBoss&&homeOpen)closeHome();
@@ -3952,9 +4091,11 @@
     audioCall('pause',orientationBlocked||(!continuingToBoss&&(paused||runtime.audioWasPaused)));saveGame(true);
     if(continuingToBoss){
       var dx=player.x-BOSS_CENTER.x,dy=player.y-BOSS_CENTER.y,n=Math.sqrt(dx*dx+dy*dy)>0.001?normalize(dx,dy):{x:-1,y:0};player.x=BOSS_CENTER.x+n.x*292;player.y=BOSS_CENTER.y+n.y*292;camera.x=player.x;camera.y=player.y;focusSoon('gameCanvas');showToast('BOSS ROAD OPEN','The restored gate carries you into '+bossDefForStage(runtime.stage).shortName+'’s arena.',bossDefForStage(runtime.stage).shieldColor,2.6);
-    }else if(runtime.returnFocus&&runtime.returnFocus.isConnected&&typeof runtime.returnFocus.focus==='function'){var returnFocus=runtime.returnFocus;requestAnimationFrame(function(){returnFocus.focus({preventScroll:true});});}
+    }else if(runtime.returnContext==='home'&&homeOpen){setOverlayIsolation('home','homeScreen',true);focusSoon('closeHomeButton');}
+    else if(runtime.returnContext==='pause'&&paused){setHidden(byId('pauseScreen'),false);setOverlayIsolation('pause','pauseScreen',true);focusSoon('pauseLivingButton');}
+    else if(runtime.returnFocus&&runtime.returnFocus.isConnected&&!runtime.returnFocus.closest('[hidden],[inert]')&&typeof runtime.returnFocus.focus==='function'){var returnFocus=runtime.returnFocus;requestAnimationFrame(function(){returnFocus.focus({preventScroll:true});});}
     else focusSoon('gameCanvas');
-    runtime.returnFocus=null;updateHUD(true);return true;
+    runtime.returnFocus=null;runtime.returnContext='world';updateHUD(true);return true;
   }
 
   function getObjective() {
@@ -3968,13 +4109,19 @@
     var storyObjective=getActiveStoryObjective();
     if(storyObjective)return storyObjective;
     if (state.stage === 1) {
-      if (!state.metEems) return { text: 'Meet EEMS at the mix-stone', x: 1435, y: 880 };
-      if (state.weeds.length < 6) return { text: 'Gather Glowweed for Jimbo · ' + state.weeds.length + '/6', x: 1175, y: 930 };
-      if (!state.pruner) return { text: 'Take 6 Glowweed to Jimbo', x: 1175, y: 930 };
-      if (!state.pulse) return { text: 'Help Blu east of the grove', x: 1760, y: 740 };
+      if (!state.metEems) {var eems=storyNpc(1);return { text: 'Meet EEMS at the mix-stone', x:eems.x, y:eems.y };}
+      if (state.weeds.length < 6) {
+        var nextWeed=weeds.reduce(function(nearest,weed){
+          if(state.weeds.indexOf(weed.id)>=0||circleHitsObstacle(weed.x,weed.y,player.r,player))return nearest;
+          return !nearest||distanceSquared(player,weed)<distanceSquared(player,nearest)?weed:nearest;
+        },null)||currentLevel.hub;
+        return { text: 'Walk near the marked Glowweed to gather it · ' + state.weeds.length + '/6', x:nextWeed.x, y:nextWeed.y };
+      }
+      if (!state.pruner) {var jimbo=storyNpc(1,'jimbo');return { text: 'Take 6 Glowweed to Jimbo', x:jimbo.x, y:jimbo.y };}
+      if (!state.pulse) {var blu=aliveGroup('blu')[0]||storyNpc(1,'blu');return { text:aliveGroup('blu').length?'Clear the feedback pests near Blu':'Speak to Blu to learn Echo Pulse',x:blu.x,y:blu.y };}
       if (!hasAllNotes()) {
-        var shrineTarget = shrines.find(function (s) { return state.notes.indexOf(s.note) < 0; });
-        return { text: 'Recover the lost notes · ' + state.notes.length + '/4', x: shrineTarget.x, y: shrineTarget.y };
+        var shrineTarget=getShrineHint(true);
+        return { text:shrineTarget.text+' · Notes '+state.notes.length+'/4',x:shrineTarget.x,y:shrineTarget.y };
       }
       if (!state.composed) return { text: 'Compose your song with EEMS', x: 1435, y: 880 };
       if (!bossDefeatedForStage(1)) return { text: 'Enter the Feedback Amphitheatre', x: BOSS_CENTER.x, y: BOSS_CENTER.y };
@@ -3983,7 +4130,7 @@
     if (state.stage === 2) {
       var rootDrum = drums.find(function (d) { return state.drums.indexOf(d.id) < 0; });
       if (rootDrum) return {text:'Wake the Rootsong drums · ' + countCollected(drums,state.drums) + '/3',x:rootDrum.x,y:rootDrum.y};
-      var pip = npcById('pip') || {x:1800,y:1190};
+      var pip = storyNpc(2);
       if (state.chapterRelics.indexOf('rootsong') < 0) return {text:'Bring the Rootsong rhythm to Pip',x:pip.x,y:pip.y};
       if (!bossDefeatedForStage(2)) return {text:'Defeat the Rootbound Colossus',x:BOSS_CENTER.x,y:BOSS_CENTER.y};
       return {text:'Enter the Skyglass Gate',x:2070,y:750};
@@ -3991,14 +4138,14 @@
     if (state.stage === 3) {
       var glassChime = speakers.find(function (s) { return state.speakers.indexOf(s.id) < 0; });
       if (glassChime) return {text:'Retune the Skyglass chimes · ' + countCollected(speakers,state.speakers) + '/3',x:glassChime.x,y:glassChime.y};
-      var zephra = npcById('zephra') || {x:1810,y:1190};
+      var zephra = storyNpc(3);
       if (state.chapterRelics.indexOf('skyglass') < 0) return {text:'Bring the clear chord to Zephra',x:zephra.x,y:zephra.y};
       if (!bossDefeatedForStage(3)) return {text:'Defeat the Prism Choir',x:BOSS_CENTER.x,y:BOSS_CENTER.y};
       return {text:'Enter the Moonwake Gate',x:2070,y:750};
     }
     var moonShell = stageTokens.find(function (token) { return state.stageTokens.indexOf(token.id) < 0; });
     if (moonShell) return {text:'Gather the Moonwake shells · ' + countCollected(stageTokens,state.stageTokens) + '/3',x:moonShell.x,y:moonShell.y};
-    var tavi = npcById('tavi') || {x:1840,y:1220};
+    var tavi = storyNpc(4);
     if (state.chapterRelics.indexOf('moonwake') < 0) return {text:'Carry the tide-song to Tavi',x:tavi.x,y:tavi.y};
     if (!bossDefeatedForStage(4)) return {text:'Defeat the Tidebreaker',x:BOSS_CENTER.x,y:BOSS_CENTER.y};
     var outstanding=typeof EXPANSION_QUESTS!=='undefined'&&EXPANSION_QUESTS.find(function(quest){
@@ -4313,7 +4460,7 @@
         notePills.appendChild(pill);
       });
     }
-    audioCall('setProgress', state.notes.length, state.melody, state.notes.slice());
+    syncMusicProgress();
     audioCall('setAdaptiveState',{
       stage:state.stage,
       scene:homeOpen?'home':boss&&!boss.dead?'boss':combatPressure>.06?'combat':'exploration',
@@ -4359,6 +4506,55 @@
       showToast(title, '+1 skill point · +5 Beatcoins', '#f6e36d', 4);
     }
   }
+  function queueChapterConclusion(stage,delay) {
+    chapterTransitionRuntime.stage=stage;
+    chapterTransitionRuntime.remaining=delay;
+  }
+
+  function updateChapterConclusion(dt) {
+    if(!chapterTransitionRuntime.stage||!started||paused||orientationBlocked||interruptionModalOpen())return;
+    if(chapterTransitionRuntime.stage!==state.stage){chapterTransitionRuntime.stage=0;return;}
+    chapterTransitionRuntime.remaining-=dt;
+    if(chapterTransitionRuntime.remaining>0)return;
+    var stage=chapterTransitionRuntime.stage;chapterTransitionRuntime.stage=0;
+    if(!bossDefeatedForStage(stage))return;
+    if(stage===4){showCampaignFinale();return;}
+    var nextNames={1:'Rootsong',2:'Skyglass',3:'Moonwake'};
+    var conclusions={
+      1:['MOSSVALE, IN FULL COLOR','Your Living Score rolls through the trees. Blu bends the high notes, Jimbo raises his harvest, and EEMS sends the new bass line toward Rootsong.'],
+      2:['THE ROOTS BREATHE AGAIN','The Colossus releases its grip. Pip’s drums carry a steady pulse through the hollows, and the roots lift a road toward the fractured skies.'],
+      3:['ONE SKY, MANY VOICES','The Prism Choir finds its harmony. Zephra gathers the scattered reflections into a clear synth line; far below, Moonwake answers with an unfinished melody.']
+    };
+    releaseHeldInputs();paused=true;player.health=player.maxHealth;
+    byId('endingTitle').textContent=conclusions[stage][0];
+    byId('endingText').textContent=conclusions[stage][1];
+    byId('endingRewards').textContent='+2 skill points · +8 Beatcoins · '+({1:'Bass',2:'Drumsticks',3:'Synth'}[stage])+' joins the band';
+    byId('endingNext').textContent='Next: '+nextNames[stage]+' · '+storyArc(stage+1).summary;
+    byId('replayButton').textContent='Continue to '+nextNames[stage];
+    byId('endingStayButton').textContent='Keep exploring '+STAGE_NAMES[stage];
+    setHidden(byId('endingStayButton'),false);
+    setHidden(byId('endingScreen'),false);setOverlayIsolation('ending','endingScreen',true);
+    audioCall('pause',false);saveGame(true);focusSoon('replayButton');
+  }
+
+  function leaveChapterConclusion(stay) {
+    var advancing=!stay&&state.stage<4&&bossDefeatedForStage(state.stage);
+    if(advancing){
+      var portal=stagePortals.find(function(item){return item.target===state.stage+1&&!item.back;});
+      if(!portal||!enterStage(portal))return false;
+    }
+    setOverlayIsolation('ending','endingScreen',false);setHidden(byId('endingScreen'),true);
+    releaseHeldInputs();player.health=player.maxHealth;paused=orientationBlocked;
+    if(!advancing){
+      player.x=HUB.x;player.y=HUB.y+100;camera.x=player.x;camera.y=player.y;
+      if(state.odinRecruited){odin.x=player.x-40;odin.y=player.y+30;odin.target=null;resetOdinVisuals();}
+      showToast(state.stage===4?'AFTERGLOW':'THE ROAD CAN WAIT',state.stage===4?'Your campaign is complete. Explore, revisit the band, or open Encore Adventure at home.':getObjective().text+' whenever you are ready.','#f6e36d',3.5);
+    }
+    if(orientationBlocked){setHidden(byId('pauseScreen'),false);setOverlayIsolation('pause','pauseScreen',true);}
+    else focusSoon('gameCanvas');
+    audioCall('pause',paused);saveGame(true);updateHUD(true);return true;
+  }
+
   function showCampaignFinale() {
     if (!bossDefeatedForStage(4)) return;
     campaignFinaleShown = true;
@@ -4369,6 +4565,9 @@
     if (byId('endingTitle')) byId('endingTitle').textContent = 'THE FOUR-STAGE ENCORE';
     if (byId('endingText')) byId('endingText').textContent = 'The Nullspeaker is quiet, the Rootbound drum is free, the Prism Choir rings clear, and the Tidebreaker lowers its moon-shell. Rootsong carries the bass, Skyglass holds the harmony, and Moonwake sends your melody across the water while Blu, Jimbo, EEMS, Brad, Odin, and every traveller join the final beat.';
     if (byId('replayButton')) byId('replayButton').textContent = 'Keep Exploring';
+    byId('endingRewards').textContent='All four regions restored · Encore Adventure unlocked';
+    byId('endingNext').textContent='The campaign is complete. The Afterglow House, rehearsals, and optional stories are yours to explore.';
+    setHidden(byId('endingStayButton'),true);
     setHidden(byId('endingScreen'), false);
     setOverlayIsolation('ending', 'endingScreen', true);
     audioCall('pause', false);
@@ -4387,10 +4586,10 @@
     }
     var expansionDialogue = {
       mara: ['Odin found you before I did. That means the old roads are waking.', 'Take him with you. His nose can find songs buried deeper than stone.'],
-      pip: ['The buried Rootsong has lost the rhythm that lets every root breathe together.', 'Wake the three resonators, then answer their call in E, G, B. The note labels and shapes will guide you.', 'Three discord roots are feeding on the restored beat. Quiet them before we bind the relic.'],
-      zephra: ['The sky prisms split one melody into convincing lies.', 'Retune the three chimes, then follow the true reflection: E, G, C. It is C major heard from a different starting point.', 'Break the three false echoes and the bridge will hold one voice again.'],
+      pip: ['The buried Rootsong has lost the rhythm that lets every root breathe together.', 'Wake the three resonators, then deepen their familiar E, G, B call with D. That final tone turns it into an E-minor seventh.', 'Three discord roots are feeding on the restored beat. Quiet them before we bind the relic.'],
+      zephra: ['The sky prisms split one melody into convincing lies.', 'Retune the three chimes, follow E, G, C, then reveal F and A behind the reflection. Together they form a wide F-major-ninth colour.', 'Break the three false echoes and the bridge will hold one voice again.'],
       nix: ['Courier rule one: never trust a silent mailbox.', 'Bring me a Rootsong, a Skyglass tone, and a Moonwake shell.'],
-      tavi: ['The resonance tide is carrying unfinished memories instead of water.', 'Recover the three shells and free the echoes holding them apart.', 'The keeper supplies the missing upper voice. Play C, E, G, B and the whole memory can return.'],
+      tavi: ['The resonance tide is carrying unfinished memories instead of water.', 'Recover the three shells and free the echoes holding them apart.', 'The keeper supplies one last colour beyond the seventh. Play C, E, G, B, D and the whole memory can return.'],
       luma: ['Melody is a path. Rhythm is a footprint. Harmony is everyone arriving together.', 'Your final song will need all three.']
     };
     if (expansionDialogue[npc.id]) {
@@ -4403,6 +4602,14 @@
       if(relatedQuest){
         if(state.completedQuests.indexOf(relatedQuest.id)>=0)reactiveLines.push('You finished ' + relatedQuest.name + '. The house and the road both sound better for it.');
         else if(relatedQuest.unlock())reactiveLines.push(relatedQuest.objective + ' Reward: ' + relatedQuest.reward + '.');
+      }
+      var guideStage={pip:2,zephra:3,tavi:4}[npc.id];
+      if(guideStage&&state['met'+npc.id.charAt(0).toUpperCase()+npc.id.slice(1)]){
+        var guideArc=storyArc(guideStage),guideStep=guideArc.steps[state.questStates[guideArc.id]||0];
+        reactiveLines=state.chapterRelics.indexOf(regionIdForStage(guideStage))>=0?
+          [bossDefeatedForStage(guideStage)?'Listen—the whole region is playing together again. Your next road is ready.':'Our song is whole. Perform the Resonance Gate at the arena; the boss road will stay open once you clear it.']:
+          storyCanAwardRelic(guideStage)?['You brought every part back into time. Let us bind the relic.','The restored song is ready for its Resonance Gate. You can practise there before the boss.']:
+          [guideStep?guideStep.objective:guideArc.summary];
       }
       openDialogue(npc.name, reactiveLines, function () {
         var flag = 'met' + npc.id.charAt(0).toUpperCase() + npc.id.slice(1);
@@ -4463,7 +4670,7 @@
         var grovePuzzle=storyPuzzle('mossvale-major');
         openDialogue('EEMS', [
           state.composed ? '[COMPOSITION STABLE. ABSOLUTELY WIGGLY.]' : grovePuzzle.status!=='completed' ? '[FOUR FREQUENCIES FOUND. HARMONY TEST READY.]' : '[HARMONY STABLE. COMPOSER READY.]',
-          state.composed ? 'Your gate-tone is saved. The amphitheatre can hear you coming.' : grovePuzzle.status!=='completed' ? 'Play C, E and G at the Story Resonator beside the mix-stone. Any order works.' : 'Eight beats. Use every recovered note. Leave rests where the groove needs air.'
+          state.composed ? 'Your Living Score is saved. The amphitheatre can hear you coming.' : grovePuzzle.status!=='completed' ? 'Play C, E and G at the Story Resonator beside the mix-stone. Any order works.' : 'Two bars. Shape at least four sounding steps with three tones; leave rests wherever the groove needs air.'
         ], function () { if(grovePuzzle.status==='completed'||state.composed)openComposer(); });
       } else {
         openDialogue('EEMS', [
@@ -4531,12 +4738,22 @@
     }
   }
 
-  function getShrineHint() {
-    if (state.notes.indexOf('C') < 0) return 'C is ringing in the moon garden, straight north.';
-    if (state.notes.indexOf('E') < 0) return 'E waits west. The Bramble Bell wants its guardians quiet.';
-    if (state.notes.indexOf('G') < 0) return 'G sleeps in the southern marsh. Pulse all three drum-stones.';
-    if (state.notes.indexOf('B') < 0) return 'B hides in the eastern static. Retune three broken speakers.';
-    return 'All four frequencies are humming.';
+  function getShrineHint(asObjective) {
+    var shrine=shrines.find(function(item){return state.notes.indexOf(item.note)<0;}),target=shrine||storyNpc(1),text='All four frequencies are humming.';
+    if(shrine){
+      text='Recover '+shrine.note+' at the '+shrine.title;
+      if(shrine.note==='E'){
+        var guardians=aliveGroup('bramble');
+        if(guardians.length){target=guardians[0];text='Free E · defeat the Bramble guardians ('+guardians.length+' left)';}
+      }else if(shrine.note==='G'){
+        var drum=drums.find(function(item){return state.drums.indexOf(item.id)<0;});
+        if(drum){target=drum;text='Wake G · use Echo Pulse near the marked drum ('+countCollected(drums,state.drums)+'/3)';}
+      }else if(shrine.note==='B'){
+        var speaker=speakers.find(function(item){return state.speakers.indexOf(item.id)<0;});
+        if(speaker){target=speaker;text='Clear B · use Echo Pulse near the marked speaker ('+countCollected(speakers,state.speakers)+'/3)';}
+      }
+    }
+    return asObjective?{text:text,x:target.x,y:target.y}:text+'. Follow the gold compass marker.';
   }
 
   function canCollectShrine(shrine) {
@@ -5799,6 +6016,20 @@
     if (player.health <= 0) defeatPlayer();
   }
 
+  function bossApproachPoint(origin) {
+    var angle=Math.atan2(origin.y-BOSS_CENTER.y,origin.x-BOSS_CENTER.x);
+    var radii=[365,390,420,455,500,545,590,640];
+    for(var ring=0;ring<radii.length;ring++){
+      for(var offset=0;offset<17;offset++){
+        var swing=offset===0?0:Math.ceil(offset/2)*(offset%2?-1:1);
+        var turn=angle+swing*Math.PI/12,radius=radii[ring];
+        var point={x:BOSS_CENTER.x+Math.cos(turn)*radius,y:BOSS_CENTER.y+Math.sin(turn)*radius};
+        if(point.x>40&&point.y>40&&point.x<WORLD.w-40&&point.y<WORLD.h-40&&!circleHitsObstacle(point.x,point.y,player.r))return point;
+      }
+    }
+    return {x:currentLevel.spawn.x,y:currentLevel.spawn.y};
+  }
+
   function defeatPlayer() {
     if(rehearsalRuntime.active){finishRehearsal(false);return;}
     if (state.skills.indexOf('encore') >= 0 && !state.encoreUsed) {
@@ -5819,6 +6050,11 @@
       updateHUD();
       return;
     }
+    if(respawnTimer)return;
+    var fallenState=state,fallenStage=state.stage;
+    var retryBoss=!!(boss&&!boss.dead&&bossPrerequisiteMet(state.stage));
+    var checkpoint=retryBoss?bossApproachPoint(player):{x:currentLevel.spawn.x,y:currentLevel.spawn.y};
+    releaseHeldInputs();
     player.health = 0;
     equipmentVisualRuntime.animationState = 'death';
     equipmentVisualRuntime.animationElapsed = 0;
@@ -5832,15 +6068,25 @@
     saveGame(true);
     updateHUD();
     paused = true;
-    setTimeout(function () {
+    respawnTimer=setTimeout(function () {
+      respawnTimer=0;
+      if(state!==fallenState||state.stage!==fallenStage||!started)return;
       boss = null;
+      bossPadLatch = null;
       projectiles = [];
       hazards = [];
       attacks = [];
-      player.x = currentLevel.spawn.x;
-      player.y = currentLevel.spawn.y;
+      pulses = [];classFields=[];
+      releaseHeldInputs();
+      player.x = checkpoint.x;
+      player.y = checkpoint.y;
       player.health = player.maxHealth;
-      player.invuln = 2;
+      player.invuln = 3;
+      player.dashTimer=0;player.dashCooldown=0;player.attackCooldown=0;player.pulseCooldown=0;
+      player.blocking=false;player.guardBroken=0;player.blockStamina=100;player.hurtTimer=0;
+      player.classBarrier=0;player.classBarrierCharges=0;player.classDashTimer=0;
+      camera.x=player.x;camera.y=player.y;
+      if(state.odinRecruited){odin.x=player.x-40;odin.y=player.y+30;odin.target=null;resetOdinVisuals();}
       resetEquipmentVisualRuntime(true);
       resetFirstStageRuntime('respawn');
       enemies.forEach(function (enemy) {
@@ -5848,10 +6094,11 @@
         releaseEnemyAttackSlot(enemy);
         enemy.mode = 'idle';
         enemy.vx = enemy.vy = 0;
+        enemy.disengageTimer = Math.max(enemy.disengageTimer||0,3);
         enemy.spawnWarmup = state.stage === 1 ? FIRST_STAGE_BALANCE.enemySpawnWarmupSeconds : 0;
       });
       paused = orientationBlocked || panelIsOpen('pauseScreen');
-      if (orientationBlocked) {
+      if (paused) {
         setHidden(byId('pauseScreen'), false);
         setOverlayIsolation('pause', 'pauseScreen', true);
         audioCall('pause', true);
@@ -5860,7 +6107,8 @@
         focusSoon('gameCanvas');
       }
       audioCall('sfx', 'quest');
-      showToast('BACK ON THE BEAT', 'No collectibles lost. Take a breath and try again.', '#56f0c4', 3.5);
+      showToast('BACK ON THE BEAT', retryBoss?'Restored beside the arena. Your Resonance Gate stays open—step inside when ready.':'No collectibles lost. '+getObjective().text, '#56f0c4', 3.5);
+      saveGame(true);
       updateHUD();
     }, 650);
   }
@@ -7150,8 +7398,10 @@
     renderClassChoices(byId('homeClassChoices'),state.character.classId,function(id){
       if(id===state.character.classId)return;var cost=state.classState.firstRespecUsed?8:0,def=starterClass(id);
       if(state.beatcoins<cost){showToast('NOT ENOUGH BEATCOINS','Class retuning costs '+cost+' Beatcoins.','#ff7892',2.4);return;}
-      if(!window.confirm('Retune as '+def.name+(cost?' for '+cost+' Beatcoins':' for free')+'? Instruments and progression stay unchanged.'))return;
-      if(cost){state.beatcoins-=cost;state.statistics.beatcoinsSpent+=cost;}state.classState.firstRespecUsed=true;state.character.classId=id;player.classCooldown=0;state.classState.cooldown=0;classFields=[];saveGame(true);updateHUD(true);renderHome();showToast('CLASS RETUNED',def.name+' · '+def.ability,def.color,3);
+      showLivingConfirmation({title:'Retune as '+def.name+'?',text:(cost?'Spend '+cost+' Beatcoins.':'Your first retuning is free.')+' Instruments and progression stay unchanged.',accept:'Retune class',onConfirm:function(){
+        if(state.beatcoins<cost)return;
+        if(cost){state.beatcoins-=cost;state.statistics.beatcoinsSpent+=cost;}state.classState.firstRespecUsed=true;state.character.classId=id;player.classCooldown=0;state.classState.cooldown=0;classFields=[];saveGame(true);updateHUD(true);renderHome();showToast('CLASS RETUNED',def.name+' · '+def.ability,def.color,3);
+      }});
     },true);
   }
 
@@ -7456,13 +7706,10 @@
     var tasks=[];
     if(questLogFilter==='main'){
       tasks=[];
-      if(window.MossStory)Object.keys(window.MossStory.arcs).forEach(function(stageKey){var arc=window.MossStory.arcs[stageKey],progress=clamp(state.questStates[arc.id]||0,0,arc.steps.length),complete=progress>=arc.steps.length,current=arc.steps[progress];tasks.push([complete,'MAIN STORY · '+arc.region+' · '+progress+'/'+arc.steps.length,current?current.objective:arc.title+' complete.',complete?'Chord replay available · progression rewards disabled':arc.summary,arc.chord]);});
-      EXPANSION_QUESTS.filter(function(quest){return quest.category==='main'&&quest.unlock();}).forEach(function(quest){
-        var complete=state.completedQuests.indexOf(quest.id)>=0;
-        tasks.push([complete,quest.name+' · '+Math.min(quest.goal,quest.progress())+'/'+quest.goal,quest.objective,quest.reward]);
-      });
+      if(window.MossStory)Object.keys(window.MossStory.arcs).filter(function(key){return Number(key)<=Math.max(state.stage,state.chapter);}).sort(function(a,b){return (Number(a)===state.stage?-1:Number(b)===state.stage?1:Number(a)-Number(b));}).forEach(function(stageKey){var arc=window.MossStory.arcs[stageKey],progress=clamp(state.questStates[arc.id]||0,0,arc.steps.length),complete=progress>=arc.steps.length,current=arc.steps[progress],active=Number(stageKey)===state.stage;tasks.push([complete,(active?'CURRENT ROAD · ':'MAIN STORY · ')+arc.region+' · '+progress+'/'+arc.steps.length,active?getObjective().text:current?current.objective:arc.title+' complete.',null,arc.chord]);});
+      tasks.push([false,'Explore at your own pace','Optional errands and regional stories are in the Side quests tab. They are never required to finish the campaign.']);
     }else if(questLogFilter==='side'){
-      EXPANSION_QUESTS.filter(function(quest){return quest.category==='side'&&quest.unlock();}).forEach(function(quest){
+      EXPANSION_QUESTS.filter(function(quest){return quest.unlock();}).forEach(function(quest){
         var complete=state.completedQuests.indexOf(quest.id)>=0;
         tasks.push([complete,quest.name+' · '+Math.min(quest.goal,quest.progress())+'/'+quest.goal,quest.objective,quest.reward]);
       });
@@ -7505,7 +7752,7 @@
       [state.pruner, 'Tune the Pruner Edge'],
       [state.pulse, 'Learn Resonance Pulse from Blu'],
       [hasAllNotes(), 'Recover C · E · G · B'],
-      [state.composed, 'Compose an eight-beat gate-tone'],
+      [state.composed, 'Save a two-bar Living Score'],
       [bossDefeatedForStage(1), 'Defeat the Nullspeaker'],
       [state.odinRecruited, 'Recruit Odin at the Afterglow road'],
       [state.chapterRelics.indexOf('rootsong') >= 0, 'Rootsong drums · ' + countCollected(LEVELS[2].drums,state.drums) + '/3'],
@@ -7540,6 +7787,20 @@
     };
   }
 
+  var mapLabelQueue=[],mapLabelObstacles=[],mapLabelLayout=[];
+  function drawMapLabels(m,mw,mh){
+    mapLabelLayout=window.MossMapLabels.layout(mapLabelQueue,mw,mh,mapLabelObstacles);
+    m.save();m.font='bold 8px monospace';m.textAlign='center';m.textBaseline='middle';
+    mapLabelLayout.forEach(function(label){
+      var cx=label.x+label.w/2,cy=label.y+label.h/2;
+      m.strokeStyle=label.color||'#a2baa9';m.globalAlpha=.65;m.lineWidth=.75;
+      m.beginPath();m.moveTo(label.anchorX,label.anchorY);m.lineTo(cx,cy);m.stroke();
+      m.globalAlpha=1;m.fillStyle='rgba(3,12,18,.94)';m.fillRect(label.x,label.y,label.w,label.h);
+      m.fillStyle=label.color||'#f1f7f4';m.fillText(label.text,cx,cy+.5);
+    });
+    m.restore();
+  }
+
   function drawMapMarker(m,x,y,color,shape,label,pulse) {
     var size = pulse ? 5.5 + Math.sin(mapAnimationTime*4+x)*1.3 : 4.5;
     m.save();
@@ -7572,17 +7833,15 @@
     m.fill();
     m.stroke();
     m.shadowBlur = 0;
-    if (label) {
-      m.rotate(shape==='diamond'?-Math.PI/4:0);
-      m.font = 'bold 8px monospace';
-      m.textAlign = 'center';
-      m.fillStyle = '#f1f7f4';
-      m.strokeStyle = 'rgba(2,6,12,.92)';
-      m.lineWidth = 3;
-      m.strokeText(label,0,-size-5);
-      m.fillText(label,0,-size-5);
-    }
     m.restore();
+    var transform=m.getTransform(),ax=transform.a*x+transform.c*y+transform.e,ay=transform.b*x+transform.d*y+transform.f;
+    mapLabelObstacles.push({x:ax-7,y:ay-7,w:14,h:14});
+    if(label){
+      m.save();m.font='bold 8px monospace';
+      mapLabelQueue.push({text:label,x:ax,y:ay,w:Math.ceil(m.measureText(label).width)+8,h:13,color:color,
+        priority:label==='QUEST'||label==='LESSON'?100:label==='YOU'?95:label==='OPTIONAL'||label==='SECRET'?10:shape==='boss'?60:40});
+      m.restore();
+    }
   }
 
   function drawPrologueMap(map,m,mw,mh){
@@ -7598,6 +7857,8 @@
     drawMapMarker(m,player.x*scale,player.y*scale,'#ffffff','circle','YOU',true);
     m.restore();
     m.fillStyle='#e7f7df';m.font='bold 13px monospace';m.textAlign='center';m.fillText('REHEARSAL GROVE - PROLOGUE',mw/2,22);
+    mapLabelObstacles.push({x:mw/2-150,y:8,w:300,h:20});
+    drawMapLabels(m,mw,mh);
   }
 
   function drawMap() {
@@ -7606,6 +7867,7 @@
     var m=map.getContext('2d'),mw=map.width,mh=map.height;
     mapAnimationTime=nowTime||performance.now()/1000;
     m.clearRect(0,0,mw,mh);
+    mapLabelQueue=[];mapLabelObstacles=[];
     if(currentLevel&&currentLevel.isPrologue){drawPrologueMap(map,m,mw,mh);return;}
     if(worldMapImage.complete&&worldMapImage.naturalWidth&&!worldMapImage.failed)m.drawImage(worldMapImage,0,0,mw,mh);
     else{var fallback=m.createLinearGradient(0,0,mw,mh);fallback.addColorStop(0,'#10291f');fallback.addColorStop(.5,'#1b2449');fallback.addColorStop(1,'#082a38');m.fillStyle=fallback;m.fillRect(0,0,mw,mh);}
@@ -7626,6 +7888,7 @@
       m.font='bold 10px monospace';m.textAlign='left';m.strokeStyle='rgba(2,6,12,.9)';m.lineWidth=3;
       var regionLabel=unlocked?STAGE_NAMES[stage].toUpperCase():'UNKNOWN ROAD';
       m.strokeText(regionLabel,region.labelX,region.labelY);m.fillStyle=unlocked?'#f0f7ef':'#71808a';m.fillText(regionLabel,region.labelX,region.labelY);
+      mapLabelObstacles.push({x:region.labelX-2,y:region.labelY-11,w:m.measureText(regionLabel).width+4,h:15});
       if(!unlocked)return;
       var level=LEVELS[stage],hub=worldToAtlas(stage,level.hub.x,level.hub.y),bossPoint=worldToAtlas(stage,level.boss.x,level.boss.y);
       drawMapMarker(m,hub.x,hub.y,'#62c7ff','gate','',false);
@@ -7650,6 +7913,7 @@
     [['fernside-secret',1,470,520],['root-camp',2,580,1160],['cloud-sanctum',3,1620,280],['tidal-vault',4,1960,1080],['dream-gate',1,2240,420]].forEach(function(secret){if(state.discoveredSecrets.indexOf(secret[0])<0)return;var point=worldToAtlas(secret[1],secret[2],secret[3]);drawMapMarker(m,point.x,point.y,'#d77cff','diamond','SECRET',true);});
     if(state.home.unlocked)drawMapMarker(m,278,203,'#ffc857','gate','HOME',false);
     var vignette=m.createRadialGradient(mw/2,mh/2,mh*.18,mw/2,mh/2,mh*.72);vignette.addColorStop(0,'rgba(2,6,12,0)');vignette.addColorStop(1,'rgba(2,6,12,.38)');m.fillStyle=vignette;m.fillRect(0,0,mw,mh);
+    drawMapLabels(m,mw,mh);
   }
 
   function drawLegacyMap() {
@@ -7755,101 +8019,240 @@
 
   function openComposer() {
     if (!hasAllNotes()) return;
+    composerReturnFocus=document.activeElement;
+    composerDraft=MUSIC?MUSIC.sanitizeComposition(state.composition,state.melody):state.composition;
     composerOpen = true;
     pendingComposer = true;
+    composerSelectedStep=clamp(composerSelectedStep,0,(MUSIC?MUSIC.maxSteps:16)-1);
     setHidden(byId('composerScreen'), false);
     setOverlayIsolation('composer', 'composerScreen', true);
     renderComposer();
+    if(byId('composerStatus'))byId('composerStatus').textContent='';
     releaseHeldInputs();
     focusSoon('closeComposerButton');
   }
   function closeComposer() {
+    var returnFocus=composerReturnFocus;
     composerOpen = false;
     pendingComposer = false;
-    audioCall('playMelody', []);
-    if (melodyPreviewTimer) {
-      clearInterval(melodyPreviewTimer);
-      melodyPreviewTimer = null;
-    }
+    stopComposerPreview();
+    composerDraft=null;composerReturnFocus=null;
+    syncMusicProgress();
     setOverlayIsolation('composer', 'composerScreen', false);
     setHidden(byId('composerScreen'), true);
-    focusSoon('gameCanvas');
+    window.requestAnimationFrame(function(){
+      var canRestore=returnFocus&&returnFocus!==document.body&&returnFocus!==document.documentElement&&returnFocus.isConnected&&typeof returnFocus.focus==='function'&&returnFocus.getClientRects&&returnFocus.getClientRects().length>0&&!returnFocus.closest('[hidden],[inert]');
+      if(canRestore){try{returnFocus.focus({preventScroll:true});}catch(_error){returnFocus.focus();}if(document.activeElement===returnFocus)return;}
+      focusSoon(paused?'pauseBackpackButton':'gameCanvas');
+    });
   }
-  function melodyUsesAllNotes() {
-    return NOTE_ORDER.every(function (n) { return state.melody.indexOf(n) >= 0; });
+
+  function ensureComposition() {
+    if(!MUSIC)return state.composition;
+    if(composerOpen){composerDraft=MUSIC.sanitizeComposition(composerDraft||state.composition,state.melody);return composerDraft;}
+    state.composition=MUSIC.sanitizeComposition(state.composition,state.melody);
+    return state.composition;
   }
+
+  function compositionIsReady() {
+    return MUSIC ? MUSIC.isReady(ensureComposition()) : NOTE_ORDER.every(function (n) { return state.melody.indexOf(n) >= 0; });
+  }
+
+  function syncLegacyMelody(commit) {
+    var legacy=MUSIC?MUSIC.toLegacyMelody(ensureComposition()):state.melody;
+    if(commit&&MUSIC)state.melody=legacy;
+    return legacy;
+  }
+
+  function selectedComposerStep() {
+    var composition=ensureComposition();
+    return composition&&composition.steps[composerSelectedStep]?composition.steps[composerSelectedStep]:[];
+  }
+
+  function stopComposerPreview() {
+    audioCall('playMelody', []);
+    finishComposerPreviewVisual();
+  }
+
+  function finishComposerPreviewVisual() {
+    if(melodyPreviewTimer){clearInterval(melodyPreviewTimer);melodyPreviewTimer=null;}
+    document.querySelectorAll('#composerGrid .playing').forEach(function(cell){cell.classList.remove('playing');});
+    var playButton=byId('playMelodyButton');if(playButton)playButton.textContent='▶ Play Score';
+  }
+
+  function selectComposerStep(index,focus) {
+    if(melodyPreviewTimer)stopComposerPreview();
+    composerSelectedStep=clamp(Math.floor(Number(index)||0),0,(MUSIC?MUSIC.maxSteps:16)-1);
+    var grid=byId('composerGrid'),next=grid&&grid.querySelector('[data-beat-index="'+composerSelectedStep+'"]');
+    if(!next){renderComposer(focus?composerSelectedStep:undefined);}
+    else {
+      grid.querySelectorAll('[data-beat-index]').forEach(function(cell){var selected=cell===next;cell.classList.toggle('selected',selected);cell.setAttribute('aria-selected',selected?'true':'false');cell.tabIndex=selected?0:-1;});
+      renderComposerTools();
+      updateComposerSelectionReadout();
+      if(focus){try{next.focus({preventScroll:true});}catch(_error){next.focus();}}
+    }
+    var step=selectedComposerStep();if(step.length)audioCall('previewChord',step);
+  }
+
+  function updateComposerSelectionReadout() {
+    var selectionInfo=byId('composerSelectionInfo'),selected=selectedComposerStep();
+    if(selectionInfo)selectionInfo.textContent='Step '+(composerSelectedStep+1)+' · '+(selected.length?MUSIC.chordName(selected)+' · '+selected.map(function(note){return MUSIC.notes[note].label;}).join(' '):'Rest');
+  }
+
+  function setComposerStep(notes,message) {
+    if(!MUSIC)return;
+    stopComposerPreview();
+    composerDraft=MUSIC.setStep(ensureComposition(),composerSelectedStep,notes);
+    syncMusicProgress();
+    renderComposer();
+    if(message){byId('composerSelectionInfo').textContent=message;byId('composerStatus').textContent=message;}
+  }
+
+  function toggleComposerTone(note) {
+    if(!MUSIC)return false;
+    stopComposerPreview();
+    var result=MUSIC.toggleNote(ensureComposition(),composerSelectedStep,note);
+    if(!result.changed){
+      if(result.reason==='voicing-full'){audioCall('sfx','error');var message='This step already has four tones. Remove one before adding another.';byId('composerSelectionInfo').textContent=message;byId('composerStatus').textContent=message;}
+      return false;
+    }
+    composerDraft=result.composition;
+    syncMusicProgress();
+    var step=selectedComposerStep();if(step.length)audioCall('previewChord',step);
+    renderComposer();return true;
+  }
+
+  function placeComposerChord(presetId) {
+    if(!MUSIC)return false;
+    var preset=MUSIC.findPreset(presetId);if(!preset)return false;
+    setComposerStep(preset.notes,preset.name+' placed on step '+(composerSelectedStep+1)+'.');
+    audioCall('previewChord',preset.notes);return true;
+  }
+
+  function clearComposerStep() {
+    setComposerStep([],'Step '+(composerSelectedStep+1)+' cleared to a rest.');
+  }
+
+  function copyPreviousComposerStep() {
+    if(!MUSIC)return;
+    var sourceIndex=composerSelectedStep>0?composerSelectedStep-1:MUSIC.maxSteps-1;
+    var source=ensureComposition().steps[sourceIndex]||[];
+    setComposerStep(source,'Copied step '+(sourceIndex+1)+' to step '+(composerSelectedStep+1)+'.');
+    if(source.length)audioCall('previewChord',source);
+  }
+
+  function renderComposerTools() {
+    if(!MUSIC)return;
+    var palette=byId('composerNotePalette');
+    if(palette&&!palette.children.length){
+      MUSIC.noteOrder.forEach(function(note){var def=MUSIC.notes[note],button=document.createElement('button'),key=document.createElement('small');button.type='button';button.className='composer-tone-button';button.dataset.composerNote=note;button.style.setProperty('--note-color',def.color);button.setAttribute('aria-label','Toggle '+def.spoken+' on selected step, shortcut '+def.key);button.textContent=def.label;key.textContent=def.key;key.setAttribute('aria-hidden','true');button.appendChild(key);palette.appendChild(button);});
+    }
+    var current=selectedComposerStep();
+    if(palette)palette.querySelectorAll('[data-composer-note]').forEach(function(button){button.setAttribute('aria-pressed',current.indexOf(button.dataset.composerNote)>=0?'true':'false');});
+    var presets=byId('composerChordPresets');
+    if(presets&&!presets.children.length){
+      MUSIC.chordPresets.forEach(function(preset){var button=document.createElement('button'),name=document.createElement('strong'),tones=document.createElement('small');button.type='button';button.className='composer-chord-button';button.dataset.chordPreset=preset.id;name.textContent=preset.label;tones.textContent=preset.notes.map(function(note){return MUSIC.notes[note].label;}).join(' ');tones.setAttribute('aria-hidden','true');button.appendChild(name);button.appendChild(tones);button.title=preset.name+' · '+tones.textContent;button.setAttribute('aria-label','Place '+preset.name+', '+preset.notes.map(function(note){return MUSIC.notes[note].spoken;}).join(', '));presets.appendChild(button);});
+    }
+  }
+
   function renderComposer(focusIndex) {
     var grid = byId('composerGrid');
     var info = byId('composerInfo');
     if (!grid) return;
+    var composition=ensureComposition();
+    var restoreGridFocus=!!(document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#composerGrid'));
     grid.innerHTML = '';
-    state.melody.forEach(function (note, index) {
+    var row=null;
+    composition.steps.forEach(function (step, index) {
+      if(index%8===0){row=document.createElement('div');row.className='composer-row';row.setAttribute('role','row');grid.appendChild(row);}
       var button = document.createElement('button');
+      var number=document.createElement('span'),symbols=document.createElement('span'),label=document.createElement('span');
+      var rest=!step.length,description=rest?'rest':(MUSIC?MUSIC.chordName(step):step.join(' + '));
       button.type = 'button';
-      button.className = 'beat-cell' + (note === '-' ? ' rest' : '');
+      button.className = 'beat-cell' + (rest?' rest':'')+(step.length>1?' chord':'')+(index===composerSelectedStep?' selected':'')+(index%4===0?' beat-accent':'');
+      button.setAttribute('role','gridcell');
       button.setAttribute('data-beat-index', index);
-      button.textContent = note === '-' ? '—' : note;
-      button.style.setProperty('--beat-color', note === '-' ? '#667274' : NOTE_COLORS[note]);
-      button.setAttribute('aria-label', 'Beat ' + (index + 1) + ': ' + (note === '-' ? 'rest' : 'note ' + note));
+      button.setAttribute('aria-rowindex',String(Math.floor(index/8)+1));
+      button.setAttribute('aria-colindex',String(index%8+1));
+      button.tabIndex=index===composerSelectedStep?0:-1;
+      button.style.setProperty('--beat-color',rest?'#667274':NOTE_COLORS[step[0]]);
+      button.setAttribute('aria-selected',index===composerSelectedStep?'true':'false');
+      button.setAttribute('aria-label','Step '+(index+1)+', bar '+(index<8?1:2)+': '+description+(rest?'':', '+step.map(function(note){return MUSIC.notes[note].spoken;}).join(', ')));
+      number.className='beat-number';number.textContent=String(index+1);
+      symbols.className='beat-symbols';symbols.textContent=rest?'·':step.map(function(note){return MUSIC.notes[note].symbol;}).join('');symbols.setAttribute('aria-hidden','true');
+      label.className='beat-label';label.textContent=rest?'REST':(step.length===1?MUSIC.notes[step[0]].label:MUSIC.chordName(step));
+      button.appendChild(number);button.appendChild(symbols);button.appendChild(label);
       button.addEventListener('click', function () {
-        var choices = ['-'].concat(state.notes);
-        var next = (choices.indexOf(state.melody[index]) + 1) % choices.length;
-        state.melody[index] = choices[next];
-        audioCall('previewNote', state.melody[index]);
-        audioCall('setProgress', state.notes.length, state.melody, state.notes.slice());
-        renderComposer(index);
+        selectComposerStep(index,true);
       });
-      grid.appendChild(button);
+      row.appendChild(button);
     });
-    if (typeof focusIndex === 'number') {
-      window.requestAnimationFrame(function () {
-        var next = grid.querySelector('[data-beat-index="' + focusIndex + '"]');
-        if (next) next.focus();
-      });
+    renderComposerTools();
+    var requestedFocus=typeof focusIndex==='number'?focusIndex:(restoreGridFocus?composerSelectedStep:null);
+    if (requestedFocus!==null) {
+      var next = grid.querySelector('[data-beat-index="' + requestedFocus + '"]');
+      if(next){try{next.focus({preventScroll:true});}catch(_error){next.focus();}}
     }
+    updateComposerSelectionReadout();
     if (info) {
-      info.textContent = melodyUsesAllNotes() ?
-        'All four colors are in the groove. Save it when it feels right.' :
-        'Use C, E, G, and B at least once. Rests are welcome.';
-      info.classList.toggle('ready', melodyUsesAllNotes());
+      var summary=MUSIC?MUSIC.compositionSummary(composition):{occupiedSteps:0,distinctTones:0,chordSteps:0};
+      info.textContent = compositionIsReady() ?
+        'Score ready · '+summary.occupiedSteps+'/16 sounding steps · '+summary.distinctTones+' distinct tones · '+summary.chordSteps+' chord'+(summary.chordSteps===1?'':'s')+'.' :
+        'Add at least four sounding steps using three distinct tones. You currently have '+summary.occupiedSteps+' steps and '+summary.distinctTones+' tones.';
+      info.classList.toggle('ready', compositionIsReady());
     }
   }
   function previewMelody() {
     if (!composerOpen) return;
-    if (melodyPreviewTimer) {
-      clearInterval(melodyPreviewTimer);
-      melodyPreviewTimer = null;
+    if(melodyPreviewTimer){stopComposerPreview();return;}
+    var steps=ensureComposition().steps.map(function(step){return step.slice();}),index=0;
+    syncMusicProgress();var scheduled=audioCall('playComposition',{version:1,steps:steps});
+    var playButton=byId('playMelodyButton');if(playButton)playButton.textContent='■ Stop';
+    function showStep(){
+      document.querySelectorAll('#composerGrid .playing').forEach(function(cell){cell.classList.remove('playing');});
+      if(!composerOpen){stopComposerPreview();return;}
+      if(index>=steps.length){finishComposerPreviewVisual();return;}
+      var cell=byId('composerGrid')&&byId('composerGrid').querySelector('[data-beat-index="'+index+'"]');if(cell)cell.classList.add('playing');
+      if(!scheduled&&steps[index].length)audioCall('previewChord',steps[index]);
+      index++;
     }
-    audioCall('setProgress', state.notes.length, state.melody, state.notes.slice());
-    if (window.MossAudio && typeof window.MossAudio.playMelody === 'function') {
-      audioCall('playMelody', state.melody);
-    } else {
-      var index = 0;
-      var copy = state.melody.slice();
-      melodyPreviewTimer = setInterval(function () {
-        if (!composerOpen || index >= copy.length) {
-          clearInterval(melodyPreviewTimer);
-          melodyPreviewTimer = null;
-          return;
-        }
-        if (copy[index] !== '-') audioCall('previewNote', copy[index]);
-        index++;
-      }, 250);
-    }
+    showStep();melodyPreviewTimer=setInterval(showStep,Math.round(60000/104/2));
   }
   function saveMelody() {
-    if (!melodyUsesAllNotes()) {
+    if (!compositionIsReady()) {
       audioCall('sfx', 'error');
-      showToast('ONE COLOR IS MISSING', 'Use C, E, G, and B at least once.', '#ff7892', 2.7);
+      showToast('THE PHRASE NEEDS SHAPE', 'Use at least four steps and three distinct tones.', '#ff7892', 2.7);
       return;
     }
+    state.composition=MUSIC?MUSIC.sanitizeComposition(composerDraft,state.melody):state.composition;
+    syncLegacyMelody(true);
     state.composed = true;
     audioCall('sfx', 'unlock');
     syncStoryProgress(true);
     saveGame(true);
     updateHUD();
     closeComposer();
-    showToast('GATE-TONE SAVED', 'The Feedback Amphitheatre is open.', '#d77cff', 4);
+    var summary=MUSIC?MUSIC.compositionSummary(state.composition):{chordSteps:0};
+    showToast('LIVING SCORE SAVED', (summary.chordSteps?summary.chordSteps+' chord steps resonate. ':'')+(state.stage===1&&!bossDefeatedForStage(1)?rhythmGateCleared(1)?'The boss road stays open.':'Next: perform the Resonance Gate at the Feedback Amphitheatre.':'Your arrangement now accompanies the adventure.'), '#d77cff', 4);
+  }
+
+  function handleComposerKeydown(event) {
+    if(!composerOpen||!MUSIC||event.altKey||event.ctrlKey||event.metaKey||event.repeat)return;
+    var note=MUSIC.noteOrder.find(function(id){return MUSIC.notes[id].key===event.key;});
+    if(note){event.preventDefault();event.stopPropagation();toggleComposerTone(note);return;}
+    if(event.key==='Backspace'||event.key==='Delete'||event.key==='0'){
+      event.preventDefault();event.stopPropagation();clearComposerStep();return;
+    }
+    if(!event.target.closest||!event.target.closest('#composerGrid'))return;
+    var next=composerSelectedStep;
+    if(event.key==='ArrowLeft')next--;
+    else if(event.key==='ArrowRight')next++;
+    else if(event.key==='ArrowUp')next-=8;
+    else if(event.key==='ArrowDown')next+=8;
+    else if(event.key==='Home')next=0;
+    else if(event.key==='End')next=MUSIC.maxSteps-1;
+    else return;
+    event.preventDefault();event.stopPropagation();selectComposerStep((next+MUSIC.maxSteps)%MUSIC.maxSteps,true);
   }
 
   var controlContacts = new Map();
@@ -8263,6 +8666,7 @@
   }
 
   function pauseForInterruption() {
+    if(composerOpen&&melodyPreviewTimer){stopComposerPreview();byId('composerStatus').textContent='Playback stopped while you were away. Your draft is safe. Press Play Score to listen again.';}
     if(resonanceGateRuntime.open){if(!pauseResonanceGate(true)){releaseHeldInputs();audioCall('pause',true);resumeAudioOnGesture=true;saveGame(true);}canvasDirty=true;return;}
     releaseHeldInputs();
     if (!started) return;
@@ -8334,17 +8738,19 @@
   }
 
   window.addEventListener('keydown', function (event) {
+    if(event.altKey||event.ctrlKey||event.metaKey||event.isComposing)return;
     var key = keyName(event);
     recoverAudioFromGesture();
     if(resonanceGateRuntime.open){
-      if(controlledKeys.has(key))event.preventDefault();
-      if(key==='escape'&&!event.repeat){if(resonanceGateRuntime.phase==='paused')resumeResonanceGate();else if(resonanceGateRuntime.phase==='intro'||resonanceGateRuntime.phase==='results')closeResonanceGate();else pauseResonanceGate(false);}
+      var liveRhythmPhase=['count-in','playing','resuming'].indexOf(resonanceGateRuntime.phase)>=0;
+      if(liveRhythmPhase&&RESONANCE_CAPTURE_KEYS.has(key))event.preventDefault();
+      if(key==='escape'&&!event.repeat){event.preventDefault();if(resonanceGateRuntime.phase==='paused')resumeResonanceGate();else if(resonanceGateRuntime.phase==='intro'||resonanceGateRuntime.phase==='results')closeResonanceGate();else pauseResonanceGate(false);}
       return;
     }
 
     if(chordRuntime.open){
-      var chordKeys={'1':'C','2':'E','3':'G','4':'B'};
-      if(chordKeys[key]){event.preventDefault();submitChordNote(chordKeys[key]);return;}
+      var chordKey=window.MossStory&&Object.keys(window.MossStory.notes).find(function(note){return window.MossStory.notes[note].key===key;});
+      if(chordKey){event.preventDefault();if(!event.repeat)submitChordNote(chordKey);return;}
       if(key==='escape'){event.preventDefault();closeChordPanel();return;}
       return;
     }
@@ -8367,6 +8773,7 @@
     var target = event.target;
     var interactiveTarget = target && target.closest &&
       target.closest('button, input, select, textarea, [contenteditable="true"], a[href]');
+    if(interactiveTarget&&interactiveTarget.closest('[hidden],[inert]'))interactiveTarget=null;
     if (key === 'escape' && (panelIsOpen('settingsPanel') || panelIsOpen('howPanel') || statisticsOpen)) {
       event.preventDefault();
       closeTopOverlay();
@@ -8416,7 +8823,7 @@
   });
   window.addEventListener('keyup', function (event) {
     var key = keyName(event);
-    if(resonanceGateRuntime.open){if(controlledKeys.has(key))event.preventDefault();keys.delete(key);return;}
+    if(resonanceGateRuntime.open){var liveRhythmPhase=['count-in','playing','resuming'].indexOf(resonanceGateRuntime.phase)>=0;if(liveRhythmPhase&&RESONANCE_CAPTURE_KEYS.has(key))event.preventDefault();keys.delete(key);return;}
     keys.delete(key);
     if ((key === 'space' && !firstPersonActive()) || key === 'j') {
       releaseAttackIfIdle();
@@ -8539,16 +8946,17 @@
     if(byId('synergyHudChip'))byId('synergyHudChip').addEventListener('click',function(event){openLiving('synergies',event.currentTarget);});
     if(byId('closeLivingButton'))byId('closeLivingButton').addEventListener('click',closeLiving);
     document.querySelectorAll('[data-living-tab]').forEach(function(tab){tab.addEventListener('click',function(){setLivingTab(tab.dataset.livingTab);});});
-    if(byId('resonanceGateExitButton'))byId('resonanceGateExitButton').addEventListener('click',function(){closeResonanceGate();});
+    if(byId('resonanceGateExitButton'))byId('resonanceGateExitButton').addEventListener('click',function(){if(['count-in','playing','resuming'].indexOf(resonanceGateRuntime.phase)>=0)pauseResonanceGate(false);else closeResonanceGate();});
     if(byId('resonanceGateStartButton'))byId('resonanceGateStartButton').addEventListener('click',function(){startResonanceGate('scored');});
     if(byId('resonanceGatePracticeButton'))byId('resonanceGatePracticeButton').addEventListener('click',function(){startResonanceGate('practice');});
     if(byId('resonanceGateDemoButton'))byId('resonanceGateDemoButton').addEventListener('click',function(){startResonanceGate('demo');});
     if(byId('resonancePauseButton'))byId('resonancePauseButton').addEventListener('click',function(){pauseResonanceGate(false);});
     if(byId('resonanceResumeButton'))byId('resonanceResumeButton').addEventListener('click',resumeResonanceGate);
-    if(byId('resonanceRestartButton'))byId('resonanceRestartButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode==='demo'?'practice':resonanceGateRuntime.mode);});
+    if(byId('resonanceRestartButton'))byId('resonanceRestartButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode);});
     if(byId('resonancePauseExitButton'))byId('resonancePauseExitButton').addEventListener('click',function(){closeResonanceGate();});
     if(byId('resonanceContinueBossButton'))byId('resonanceContinueBossButton').addEventListener('click',function(){closeResonanceGate({toBoss:true});});
-    if(byId('resonanceRetryButton'))byId('resonanceRetryButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode==='demo'?'practice':resonanceGateRuntime.mode);});
+    if(byId('resonanceRetryButton'))byId('resonanceRetryButton').addEventListener('click',function(){startResonanceGate(resonanceGateRuntime.mode);});
+    if(byId('resonanceAssistButton'))byId('resonanceAssistButton').addEventListener('click',startResonanceAssistedRetry);
     if(byId('resonanceResultsPracticeButton'))byId('resonanceResultsPracticeButton').addEventListener('click',function(){startResonanceGate('practice');});
     if(byId('resonanceReturnButton'))byId('resonanceReturnButton').addEventListener('click',function(){closeResonanceGate();});
     document.querySelectorAll('[data-resonance-lane]').forEach(function(button){
@@ -8580,7 +8988,7 @@
     if(characterForm)characterForm.addEventListener('submit',confirmCharacter);
     if(byId('closeChordButton'))byId('closeChordButton').addEventListener('click',closeChordPanel);
     if(byId('replayChordButton'))byId('replayChordButton').addEventListener('click',replayChordPattern);
-    document.querySelectorAll('[data-chord-note]').forEach(function(button){button.addEventListener('click',function(){submitChordNote(button.dataset.chordNote);});});
+    if(byId('chordNoteGrid'))byId('chordNoteGrid').addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-chord-note]');if(button)submitChordNote(button.dataset.chordNote);});
     if(closeCharacter)closeCharacter.addEventListener('click',closeCharacterCreator);
     if(byId('characterName'))byId('characterName').addEventListener('input',function(){if(characterDraft)characterDraft.displayName=this.value;});
     if(byId('characterPronouns'))byId('characterPronouns').addEventListener('change',function(){if(characterDraft)characterDraft.pronouns=this.value;});
@@ -8598,32 +9006,21 @@
     if (playMelodyButton) playMelodyButton.addEventListener('click', previewMelody);
     if (saveMelodyButton) saveMelodyButton.addEventListener('click', saveMelody);
     if (closeComposerButton) closeComposerButton.addEventListener('click', closeComposer);
+    if(byId('composerNotePalette'))byId('composerNotePalette').addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-composer-note]');if(button)toggleComposerTone(button.dataset.composerNote);});
+    if(byId('composerChordPresets'))byId('composerChordPresets').addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-chord-preset]');if(button)placeComposerChord(button.dataset.chordPreset);});
+    if(byId('clearComposerStepButton'))byId('clearComposerStepButton').addEventListener('click',clearComposerStep);
+    if(byId('copyComposerStepButton'))byId('copyComposerStepButton').addEventListener('click',copyPreviousComposerStep);
+    if(byId('composerScreen'))byId('composerScreen').addEventListener('keydown',handleComposerKeydown);
     if (resetButton) resetButton.addEventListener('click', function () {
-      if (window.confirm('Start a fresh adventure? Settings will be kept.')) {
+      showLivingConfirmation({kicker:'ERASE LOCAL PROGRESS',icon:'!',destructive:true,title:'Erase this adventure?',text:'This removes your character, campaign progress, inventory, music scores, and local save backups on this browser.',details:'Your settings stay. This cannot be undone. Cancel to keep your adventure.',accept:'Erase adventure',returnFocus:resetButton,returnFocusOnAccept:false,onConfirm:function(){
         started = false;
         releaseHeldInputs();
         removeStoredSaves();
         window.location.reload();
-      }
+      }});
     });
-    if (replayButton) replayButton.addEventListener('click', function () {
-      setOverlayIsolation('ending', 'endingScreen', false);
-      setHidden(byId('endingScreen'), true);
-      var advancing=state.bossDefeated&&state.stage===1;
-      if(advancing) enterStage(stagePortals[0]);
-      else { player.x = HUB.x; player.y = HUB.y + 100; }
-      player.health = player.maxHealth;
-      paused = orientationBlocked;
-      if (orientationBlocked) {
-        setHidden(byId('pauseScreen'), false);
-        setOverlayIsolation('pause', 'pauseScreen', true);
-        audioCall('pause', true);
-      } else {
-        audioCall('pause', false);
-        focusSoon('gameCanvas');
-      }
-      if(!advancing) showToast('ENCORE MODE', 'Explore, finish the harvest, or replay your melody with EEMS.', '#f6e36d', 4);
-    });
+    if (replayButton) replayButton.addEventListener('click', function () {leaveChapterConclusion(false);});
+    if (byId('endingStayButton')) byId('endingStayButton').addEventListener('click',function(){leaveChapterConclusion(true);});
 
     bindSetting('difficultySelect', 'difficulty', false);
     bindSetting('musicVolume', 'musicVolume', true);
@@ -8668,7 +9065,7 @@
     bindControllerSetting('reticle', 'reticle', 'check');
     enhanceSettingsPanel();
     if(byId('resetSettingsCategory'))byId('resetSettingsCategory').addEventListener('click',resetSettingsCategory);
-    if(byId('resetAllSettings'))byId('resetAllSettings').addEventListener('click',function(){if(!window.confirm('Reset every setting to its recommended default? Your adventure save will be kept.'))return;settings=Object.assign({},defaults);saveSettings();if(window.MossInput)window.MossInput.resetSettings();applySettings();enhanceRangeOutputs();showToast('SETTINGS RESET','Recommended defaults restored.','#56f0c4',2.5);});
+    if(byId('resetAllSettings'))byId('resetAllSettings').addEventListener('click',function(){showLivingConfirmation({title:'Restore recommended settings?',text:'This resets audio, display, controller and accessibility preferences. Your adventure progress stays.',accept:'Reset settings',onConfirm:function(){settings=Object.assign({},defaults);saveSettings();if(window.MossInput)window.MossInput.resetSettings();applySettings();enhanceRangeOutputs();showToast('SETTINGS RESET','Recommended defaults restored.','#56f0c4',2.5);}});});
 
     var fullscreenToggle = byId('fullscreenToggle');
     if (fullscreenToggle) {
@@ -8688,9 +9085,14 @@
     window.addEventListener('moss-fp-ready', applyViewMode);
 
     if (window.MossInput) {
+      window.MossInput.setKeyboardContextProvider(function(){
+        if(resonanceGateRuntime.open)return ['count-in','playing','resuming'].indexOf(resonanceGateRuntime.phase)>=0?'rhythm':'menu';
+        if(document.body.classList.contains('arena-match-active'))return 'gameplay';
+        return started&&!paused&&!orientationBlocked&&!interruptionModalOpen()?'gameplay':'menu';
+      });
       /* Refresh the status line and prompt glyphs the moment a pad appears. */
       window.MossInput.onConnectionChange(function () { applyControllerSettings(); });
-      window.MossInput.onMethodChange(function () { applyControllerSettings(); });
+      window.MossInput.onMethodChange(function () { applyControllerSettings();renderResonanceInputPrompts(); });
       window.MossInput.onActionEvent(handleResonanceActionEvent);
     }
 
@@ -9881,7 +10283,13 @@
     var menuHandled = window.MossControllerUI&&!rhythmOwnsPad ? window.MossControllerUI.update(dt) : false;
     pollGamepad(menuHandled, dt);
     updateTouchActionUi();
-    if (!started || paused || orientationBlocked || resonanceGateRuntime.open || livingOpen || quickWheelRuntime.open || panelIsOpen('rehearsalResultsOverlay') || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
+    updateChapterConclusion(dt);
+    if(chapterTransitionRuntime.stage&&!paused&&!orientationBlocked&&!interruptionModalOpen()){
+      // Let the victory flourish finish, but do not let a new hostile attack
+      // arrive during the transition and strand Continue behind a travel lock.
+      updateBoss(dt);updateParticles(dt);return;
+    }
+    if (!started || paused || orientationBlocked || confirmationRuntime.open || resonanceGateRuntime.open || livingOpen || quickWheelRuntime.open || panelIsOpen('rehearsalResultsOverlay') || mapOpen || chordRuntime.open || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen || dialogue) return;
     state.playSeconds += dt;
     syncExpansionQuests(dt);
     updateRhythmCombo(dt);
@@ -9967,7 +10375,7 @@
     boss.pendingPattern='';
     boss.patternWindup=0;
     if (def.mechanic === 'sequence') {
-      var sequence = state.melody.filter(function (n) { return n !== '-'; }).slice(0, 4);
+      var sequence = MUSIC ? MUSIC.bossAnchorSequence(state.composition) : state.melody.filter(function (n) { return NOTE_ORDER.indexOf(n)>=0; }).slice(0, 4);
       NOTE_ORDER.forEach(function (n) {
         if (sequence.length < 4 && sequence.indexOf(n) < 0) sequence.push(n);
       });
@@ -10329,7 +10737,7 @@
   }
 
   function finishBoss() {
-    if (!boss) return;
+    if (!boss || boss.dead) return;
     if(rehearsalRuntime.active){finishRehearsal(true);return;}
     var def = bossDefForStage(boss.stage);
     var defeatedStage = boss.stage;
@@ -10366,38 +10774,22 @@
     if (!previousBest || clearTime < previousBest) state.statistics.bestBossTimes[def.id] = clearTime;
     projectiles = [];
     hazards = [];
+    player.invuln=Math.max(player.invuln,2);
+    releaseHeldInputs();attacks=[];pulses=[];classFields=[];
+    firstStageRuntime.attackSlots.clear();
+    enemies.forEach(function(enemy){if(!enemy.dead){enemy.mode='idle';enemy.vx=0;enemy.vy=0;enemy.disengageTimer=Math.max(enemy.disengageTimer||0,3);}});
     audioCall('sfx', 'win');
     for (var i = 0; i < 80; i++) {
       var color = NOTE_COLORS[NOTE_ORDER[i % NOTE_ORDER.length]];
       spawnParticle(boss.x, boss.y, color, 165, 5);
     }
     shake = 12;
+    syncStoryProgress(true);
     saveGame(true);
     updateHUD();
     showToast(def.name + ' DEFEATED', def.victory + ' · +2 skill points · +8 Beatcoins', '#f6e36d', 4.6);
     syncExpansionQuests(99);
-    if (defeatedStage === 1) {
-      setTimeout(function () {
-        paused = true;
-        var title = byId('endingTitle');
-        var text = byId('endingText');
-        if (title) title.textContent = 'MOSSVALE, IN FULL COLOR';
-        if (text) {
-          var harvest = state.weeds.length === 30 ?
-            'Jimbo raises the golden bloom. Every plant in the grove answers your rhythm.' :
-            'Jimbo counts ' + state.weeds.length + ' bright sprigs and insists the rest are “encore material.”';
-          text.textContent = 'Blu bends the high notes, EEMS drops the beat, and your eight-step melody rolls through the trees. ' +
-            harvest + ' You restored all four notes in ' + formatTime(state.playSeconds) + '.';
-        }
-        setHidden(byId('endingScreen'), false);
-        if(byId('replayButton'))byId('replayButton').textContent='Continue to Rootsong';
-        setOverlayIsolation('ending', 'endingScreen', true);
-        audioCall('pause', false);
-        focusSoon('replayButton');
-      }, settings.reducedMotion ? 350 : 1500);
-    } else if (defeatedStage === 4 && !campaignFinaleShown) {
-      window.setTimeout(showCampaignFinale, settings.reducedMotion ? 450 : 1300);
-    }
+    queueChapterConclusion(defeatedStage,settings.reducedMotion?0.35:1.3);
   }
 
   function formatTime(seconds) {
@@ -12255,8 +12647,10 @@
           started: started,
           paused: paused,
           mapOpen: mapOpen,
+          mapLabels: mapOpen ? mapLabelLayout : [],
           inventoryOpen: inventoryOpen,
           composerOpen: composerOpen,
+          composerPreviewPlaying: !!melodyPreviewTimer,
           shopOpen: shopOpen,
           skillsOpen: skillsOpen,
           statisticsOpen: statisticsOpen,
@@ -12371,9 +12765,24 @@
       compose: function () {
         state.notes = NOTE_ORDER.slice();
         state.melody = ['C', 'E', 'G', 'B', 'C', 'G', 'E', 'B'];
+        state.composition = MUSIC ? MUSIC.sanitizeComposition(null,state.melody) : state.composition;
         state.composed = true;
         updateHUD();
         saveGame(true);
+      },
+      openComposer: function () {
+        state.notes=NOTE_ORDER.slice();
+        openComposer();
+        return composerOpen;
+      },
+      setComposition: function (raw) {
+        if(!MUSIC)return null;
+        state.composition=MUSIC.sanitizeComposition(raw,state.melody);
+        state.melody=MUSIC.toLegacyMelody(state.composition);
+        if(composerOpen)composerDraft=MUSIC.sanitizeComposition(state.composition,state.melody);
+        syncMusicProgress();
+        if(composerOpen)renderComposer();
+        return JSON.parse(JSON.stringify(state.composition));
       },
       setInvulnerable: function (seconds) {
         player.invuln = clamp(Number(seconds) || 0, 0, 120);
@@ -12450,6 +12859,7 @@
         if (state.stage === 1) {
           state.notes = NOTE_ORDER.slice();
           state.melody = ['C','E','G','B','C','E','G','B'];
+          state.composition = MUSIC ? MUSIC.sanitizeComposition(null,state.melody) : state.composition;
           state.composed = true;
         } else {
           var relic = state.stage === 2 ? 'rootsong' : state.stage === 3 ? 'skyglass' : 'moonwake';
@@ -12496,7 +12906,7 @@
         if(Object.prototype.hasOwnProperty.call(options,'noFail'))settings.rhythmNoFail=!!options.noFail;
         if(Object.prototype.hasOwnProperty.call(options,'simplified'))settings.rhythmSimplified=!!options.simplified;
         if(Object.prototype.hasOwnProperty.call(options,'holdAssist'))settings.rhythmHoldAssist=!!options.holdAssist;
-        if(Object.prototype.hasOwnProperty.call(options,'latencyOffsetMs'))settings.rhythmLatencyOffset=clamp(Number(options.latencyOffsetMs)||0,-300,300);
+        if(Object.prototype.hasOwnProperty.call(options,'latencyOffsetMs'))settings.rhythmLatencyOffset=clamp(Number(options.latencyOffsetMs)||0,-200,200);
         saveSettings();applySettings();if(resonanceGateRuntime.open&&resonanceGateRuntime.phase==='intro')renderResonanceGateIntro();
         return resonanceSessionOptions('scored');
       },

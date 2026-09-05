@@ -10,15 +10,15 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 const exists = (relative) => assert.ok(fs.existsSync(path.join(root, relative)), `Missing ${relative}`);
 const story = require(path.join(root, 'story-runtime.js'));
 
-assert.equal(story.schemaVersion, 1);
+assert.equal(story.schemaVersion, 2);
 assert.deepEqual(Object.keys(story.arcs), ['1', '2', '3', '4']);
 assert.deepEqual(Object.keys(story.chords), ['mossvale-major', 'rootsong-minor', 'skyglass-inversion', 'moonwake-seventh']);
 
 const expectedChords = {
   'mossvale-major': ['C', 'E', 'G'],
-  'rootsong-minor': ['E', 'G', 'B'],
-  'skyglass-inversion': ['E', 'G', 'C'],
-  'moonwake-seventh': ['C', 'E', 'G', 'B']
+  'rootsong-minor': ['E', 'G', 'B', 'D'],
+  'skyglass-inversion': ['E', 'G', 'C', 'F', 'A'],
+  'moonwake-seventh': ['C', 'E', 'G', 'B', 'D']
 };
 for (const [id, notes] of Object.entries(expectedChords)) {
   assert.deepEqual(Array.from(story.chords[id].notes), notes, `${id} must use the documented playable chord`);
@@ -49,7 +49,7 @@ for (const id of ['howPanel', 'settingsPanel', 'pauseScreen', 'inventoryScreen',
 for (const id of ['characterCreator', 'composerScreen', 'endingScreen']) {
   assert.match(index, new RegExp(`id=["']${id}["'][^>]*data-backdrop-dismiss=["']protected["']`), `${id} must be protected`);
 }
-assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*25/, 'newer schemas must retain the v2.3 migration surface');
+assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*26/, 'newer schemas must retain the v2.3 migration surface');
 for (const id of ['riffblade', 'groveguard', 'echo-weaver', 'tempo-runner']) {
   assert.match(game, new RegExp(`['"]${id}['"]`), `Missing class ${id}`);
 }

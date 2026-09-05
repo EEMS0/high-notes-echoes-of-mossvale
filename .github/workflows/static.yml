@@ -33,11 +33,25 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate release
+        run: |
+          node tools/validate-expanded-music.cjs
+          node tools/validate-map-labels.cjs
+          node tools/validate-resonance-gate.cjs
+          node tools/validate-save-recovery.cjs
+          node tools/validate-v2-3-upgrade.cjs
+          node tools/validate-v2-4-living-resonance.cjs
+          node tools/validate-v2-release.cjs
+      - name: Build game artifact
+        run: node tools/build-pages.cjs
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          path: '_site'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

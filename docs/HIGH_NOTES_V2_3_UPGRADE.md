@@ -47,11 +47,11 @@ Adventure-presence snapshots contain a whitelisted `classId`. The relay falls ba
 | Stage | Arc | Checkpoint sequence | Musical focus |
 | --- | --- | --- | --- |
 | 1 — Mossvale Grove | Four Notes, One Grove | EEMS; six Glowweed; Jimbo's Pruner Edge; Blu/Echo Pulse; four notes; resonator; composition; Nullspeaker | C–E–G, a C-major triad in any order |
-| 2 — Rootsong Hollows | The Rootsong Below | Pip; three root resonators; chord response; three discord roots; relic; Rootbound Colossus | E–G–B, an ordered E-minor triad |
-| 3 — Skyglass Reach | A Melody in Many Skies | Zephra; three refracted chimes; true reflection; three false echoes; relic; Prism Choir | E–G–C, ordered C major in first inversion |
-| 4 — Moonwake Coast | Moonwake Remembers | Tavi; three shell memories; three memory echoes; final pattern; relic; Tidebreaker | C–E–G–B, an ordered C-major-seventh arpeggio |
+| 2 — Rootsong Hollows | The Rootsong Below | Pip; three root resonators; chord response; three discord roots; relic; Rootbound Colossus | E–G–B–D, an ordered E-minor-seventh arpeggio |
+| 3 — Skyglass Reach | A Melody in Many Skies | Zephra; three refracted chimes; true reflection; three false echoes; relic; Prism Choir | E–G–C–F–A, an ordered reflected F-major-ninth colour |
+| 4 — Moonwake Coast | Moonwake Remembers | Tavi; three shell memories; three memory echoes; final pattern; relic; Tidebreaker | C–E–G–B–D, an ordered C-major-ninth arpeggio |
 
-C, E, G, and B are the four notes already synthesized by the game's audio engine. Keeping all puzzles inside that vocabulary avoids silent or fake note names. Ordered/arpeggiated input avoids unreliable multi-finger chords on phones. Every note has a label, colour, and distinct shape (circle, triangle, diamond, square), synchronized sound and visual feedback, a replay-heard-pattern action, and a timing window of 2.4, 4.2, or 8 seconds. Failure costs no resources. Completed puzzles can be replayed from the Main Story journal without repeating their 3-Beatcoin progression reward.
+Schema 26 keeps C, E, G, and B as the four collectible anchor frequencies while expanding playable story tones to the full C-major pitch classes C, D, E, F, G, A, and B. Later patterns append D/F/A to their schema-23 prefix so a partial old attempt remains valid. Ordered/arpeggiated input avoids unreliable multi-finger chords on phones. Every tone has a label, colour, and distinct symbol/shape, synchronized sound and visual feedback, a replay-heard-pattern action, and a timing window of 2.4, 4.2, or 8 seconds. Failure costs no resources. Completed puzzles can be replayed from the Main Story journal without repeating their 3-Beatcoin progression reward. The separate Living Score composer adds high C and simultaneous voicings; see `EXPANDED-MUSIC.md`.
 
 ## Save schema and migration
 

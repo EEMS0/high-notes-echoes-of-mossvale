@@ -829,13 +829,27 @@
     return key;
   }
 
+  var keyboardContextProvider = function(){return 'menu';};
   function handleKeyDown(event) {
     var key = normaliseKey(event);
+    if(event.altKey||event.ctrlKey||event.metaKey||event.isComposing)return;
+    var target=event.target,control=target&&target.closest&&target.closest('input,textarea,select,[contenteditable="true"]');
+    if(control&&!control.closest('[hidden],[inert]'))return;
+    var context=keyboardContextProvider();
+    if(context==='menu')return;
+    var focusedControl=target&&target.closest&&target.closest('button,a[href],summary');
+    if(context!=='rhythm'&&focusedControl&&!focusedControl.closest('[hidden],[inert]'))return;
+    var owned=context==='rhythm'?RHYTHM_ACTIONS.some(function(action){return(keyBindings[action]||[]).indexOf(key)>=0;}):Object.keys(keyBindings).some(function(action){return keyBindings[action].indexOf(key)>=0;});
+    if(owned)event.preventDefault();
     var fresh = !keysDown.has(key);
+    var rhythmWasHeld = {};
+    RHYTHM_ACTIONS.forEach(function (action) {
+      rhythmWasHeld[action] = (keyBindings[action] || []).some(function (binding) { return keysDown.has(binding); });
+    });
     keysDown.add(key);
     setActiveMethod('keyboard');
     if (fresh && !event.repeat) RHYTHM_ACTIONS.forEach(function (action) {
-      if ((keyBindings[action] || []).indexOf(key) >= 0) emitActionEvent(action,'pressed','keyboard',event);
+      if ((keyBindings[action] || []).indexOf(key) >= 0 && !rhythmWasHeld[action]) emitActionEvent(action,'pressed','keyboard',event);
     });
   }
 
@@ -844,7 +858,8 @@
     var wasDown = keysDown.has(key);
     keysDown.delete(key);
     if (wasDown) RHYTHM_ACTIONS.forEach(function (action) {
-      if ((keyBindings[action] || []).indexOf(key) >= 0) emitActionEvent(action,'released','keyboard',event);
+      var bindings=keyBindings[action]||[];
+      if (bindings.indexOf(key) >= 0 && !bindings.some(function (binding) { return keysDown.has(binding); })) emitActionEvent(action,'released','keyboard',event);
     });
   }
 
@@ -957,6 +972,7 @@
     keyBindings: keyBindings,
     settings: settings,
     settingDefaults: settingDefaults,
+    setKeyboardContextProvider: function(provider){keyboardContextProvider=typeof provider==='function'?provider:function(){return 'menu';};releaseAll();},
     update: update,
     isHeld: isHeld,
     wasPressed: wasPressed,

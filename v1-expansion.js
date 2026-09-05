@@ -1042,11 +1042,16 @@
     var peer = knownPeer || {id:message.from,profile:payload.profile || {},ping:0};
     peer.lastSeen = performance.now();
     peer.ping = clamp(Date.now() - (Number(message.ts) || Date.now()),0,999);
+    if (this.relayUrl) {
+      peer.connected = true;
+      peer.reconnectUntil = 0;
+    }
     if (payload.profile) peer.profile = payload.profile;
     this.peers.set(message.from,peer);
     if (message.type === 'room-join') {
       peer.connected = true;
       peer.reconnectUntil = 0;
+      peer.lastReconnectMessageTs = Number(message.ts) || Date.now();
       if (this.peers.size > MAX_ROOM_PLAYERS) {
         this.peers.delete(message.from);
         this.send('room-reject',{target:message.from,reason:'full'});
@@ -1088,9 +1093,17 @@
       }
     } else if (message.type === 'room-leave') {
       if (payload.temporary === true) {
+        if (peer.lastReconnectMessageTs && Number(message.ts) && Number(message.ts) < peer.lastReconnectMessageTs) return;
         peer.connected = false;
         peer.reconnectUntil = clamp(Number(payload.reconnectUntil) || 0,0,9999999999999);
         this.peers.set(message.from,peer);
+        if (this.relayUrl && message.from === this.host) {
+          var nextRelayHost = '';
+          this.peers.forEach(function (candidate,id) {
+            if (!nextRelayHost && id !== message.from && candidate.connected !== false) nextRelayHost = id;
+          });
+          if (nextRelayHost) this.host = nextRelayHost;
+        }
       } else {
         this.peers.delete(message.from);
         this.remoteSnapshots.delete(message.from);

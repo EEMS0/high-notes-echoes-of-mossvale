@@ -76,6 +76,12 @@ checked(() => {
   assert.equal(complete.type, 'hit');
   assert.equal(complete.judgement, 'perfect');
   assert.equal(complete.combo, 1, 'a chord advances combo once');
+  const loose = rhythm.createSession(chart);
+  assert.equal(loose.pressLane(note.lanes[0], time - 0.08).type, 'chord-part');
+  assert.equal(loose.pressLane(note.lanes[1], time + 0.08).type, 'chord-break', 'standard chords enforce simultaneity');
+  const wide = rhythm.createSession(chart, { widerTiming: true });
+  wide.pressLane(note.lanes[0], time - 0.08);
+  assert.equal(wide.pressLane(note.lanes[1], time + 0.08).type, 'hit', 'wider timing also widens chord accessibility');
 });
 
 checked(() => {
@@ -97,6 +103,36 @@ checked(() => {
   assisted.pressLane(note.lane, start);
   assert.equal(assisted.releaseLane(note.lane, start + 0.01), null);
   assert.equal(assisted.update(end).some((event) => event.type === 'hold-complete'), true);
+  const resumed = rhythm.createSession(chart);
+  resumed.pressLane(note.lane, start);
+  assert.deepEqual(resumed.suspendHolds(), [note.lane]);
+  resumed.update(end);
+  assert.equal(resumed.snapshot(end).states.find((state) => state.id === `${chart.id}-note-${chart.notes.indexOf(note)}`).status, 'suspended', 'suspended hold cannot auto-complete');
+  assert.equal(resumed.resumeHolds([note.lane], start + 0.25)[0].type, 'hold-resume');
+  assert.equal(resumed.update(end).some((event) => event.type === 'hold-complete'), true);
+  const abandoned = rhythm.createSession(chart);
+  abandoned.pressLane(note.lane, start);
+  abandoned.suspendHolds();
+  assert.equal(abandoned.resumeHolds([], start + 0.25)[0].type, 'hold-break', 'resume requires the held lane');
+  const assistedResume = rhythm.createSession(chart, { holdAssist: true });
+  assistedResume.pressLane(note.lane, start);
+  assistedResume.suspendHolds();
+  assert.equal(assistedResume.resumeHolds([], start + 0.25)[0].type, 'hold-resume');
+});
+
+checked(() => {
+  const chart = rhythm.charts.mossvale;
+  const note = chart.notes[0];
+  const time = rhythm.beatToSeconds(note.beat, chart.bpm);
+  const session = rhythm.createSession(chart);
+  const stray = session.pressLane(3, time);
+  assert.equal(stray.type, 'stray');
+  assert.equal(stray.penalized, true);
+  assert.equal(session.pressLane(2, time + 0.01).penalized, false, 'one simultaneous mash is debounced');
+  session.pressLane(note.lane, time);
+  const snapshot = session.snapshot(time);
+  assert.equal(snapshot.miss, 1);
+  assert.ok(snapshot.resonance < 100, 'off-beat input reduces resonance');
 });
 
 checked(() => {
@@ -190,6 +226,12 @@ checked(() => {
     (() => { const c = clone(base); c.notes[c.notes.length - 1].beat = c.lengthBeats - 1; return c; })()
   ];
   invalidCases.forEach((chart, index) => assert.equal(rhythm.validateChart(chart, { campaign: true }).valid, false, `invalid chart ${index}`));
+  const invalidHoldLane = clone(base);
+  const invalidHold = invalidHoldLane.notes.find((note) => note.type === 'hold');
+  invalidHold.lane = 9; invalidHold.lanes = [9];
+  assert.doesNotThrow(() => rhythm.validateChart(invalidHoldLane, { campaign: true }));
+  assert.equal(rhythm.validateChart(invalidHoldLane, { campaign: true }).valid, false, 'unknown hold lane is rejected without throwing');
+  assert.equal(rhythm.validateChart({ ...base, notes: [null] }, { campaign: true }).valid, false, 'null note is rejected without throwing');
   const overlap = clone(base);
   const firstHold = overlap.notes.find((note) => note.type === 'hold');
   overlap.notes.splice(overlap.notes.indexOf(firstHold) + 1, 0, { beat: firstHold.beat + 0.5, lane: firstHold.lane, lanes: [firstHold.lane], type: 'hold', durationBeats: 1 });
@@ -249,6 +291,9 @@ checked(() => {
   });
   assert.equal(assisted.record.cleared, true);
   assert.equal(assisted.record.assistedClear, true);
+  const unassistedFirst = rhythm.applyResult(rhythm.freshProgress(), 'mossvale', clearResult);
+  const assistedReplay = rhythm.applyResult(unassistedFirst.progress, 'mossvale', { ...clearResult, assistanceUsed: true });
+  assert.equal(assistedReplay.record.assistedClear, false, 'assisted replay cannot rewrite first-clear history');
   const practiceOnly = rhythm.applyResult(rhythm.freshProgress(), 'rootsong', {
     ...clearResult, progressionEligible: false
   });
@@ -293,9 +338,47 @@ checked(() => {
   assert.match(input, /rhythmB:\s*\['k',\s*'arrowright'\]/);
   assert.match(input, /onActionEvent/);
   assert.match(input, /dispatchVirtualAction/);
+  const listeners = {};
+  const body = { classList: { toggle() {} }, setAttribute() {}, appendChild() {} };
+  const inputSandbox = {
+    window: {
+      localStorage: { getItem: () => null, setItem() {} },
+      performance: { now: () => 0 },
+      addEventListener(type, listener) { (listeners[type] ||= []).push(listener); }
+    },
+    document: { body, hidden: false, addEventListener() {}, createElement: () => ({ remove() {} }) },
+    navigator: { getGamepads: () => [] },
+    console
+  };
+  vm.createContext(inputSandbox);
+  vm.runInContext(input, inputSandbox, { filename: 'input-manager.js' });
+  const routed = [];
+  inputSandbox.window.MossInput.onActionEvent((event) => routed.push(`${event.action}:${event.phase}`));
+  let prevented = 0;
+  const emitKey = (type, key, code) => listeners[type].forEach((listener) => listener({ key, code, repeat: false, preventDefault() { prevented++; } }));
+  emitKey('keydown', 'd', 'KeyD');
+  assert.deepEqual(routed, [], 'menu typing is not rhythm input');
+  assert.equal(prevented, 0, 'menus retain native browser behaviour');
+  inputSandbox.window.MossInput.setKeyboardContextProvider(() => 'rhythm');
+  emitKey('keydown', 'd', 'KeyD');
+  emitKey('keydown', 'ArrowLeft', 'ArrowLeft');
+  emitKey('keyup', 'd', 'KeyD');
+  emitKey('keyup', 'ArrowLeft', 'ArrowLeft');
+  assert.deepEqual(routed, ['rhythmC:pressed', 'rhythmC:released'], 'keyboard aliases emit aggregate action edges');
+  assert.ok(prevented > 0, 'live rhythm lanes own their browser keys');
   const index = read('index.html');
   assert.equal((index.match(/data-resonance-lane=/g) || []).length, 4, 'four touch lanes');
+  const gateMarkup = index.slice(index.indexOf('id="resonanceGateOverlay"'), index.indexOf('id="rehearsalResultsOverlay"'));
+  assert.equal((gateMarkup.match(/aria-live=/g) || []).length, 1, 'Gate uses one paced screen-reader live region');
+  assert.match(gateMarkup, /id="resonanceSongProgress"[^>]*role="progressbar"/);
   assert.match(read('controller-ui.js'), /'resonanceGateOverlay'/, 'gamepad menu navigation includes Gate intro, pause, and results');
+  const styles = read('styles.css');
+  assert.match(styles, /@media \(max-width:600px\) and \(max-height:560px\)[\s\S]*?resonance-control-guide[^}]*repeat\(4/,
+    'short-landscape intro keeps all four controls on one compact row');
+  assert.match(styles, /resonance-lane-buttons button:disabled/,
+    'paused and demonstration lanes have a visible disabled state');
+  assert.match(styles, /resonance-result-rank\[data-rank="DEMO"\]/,
+    'demonstration rank is bounded inside its emblem');
 });
 
 checked(() => {
@@ -317,9 +400,36 @@ checked(() => {
   assert.ok(keydownHandler, 'keyboard listener is present');
   assert.doesNotMatch(keydownHandler[0], /releaseGamepadHolds\(\)/,
     'gamepad ownership guard is not misplaced in the keyboard listener');
+  assert.match(keydownHandler[0], /liveRhythmPhase&&RESONANCE_CAPTURE_KEYS\.has\(key\)/,
+    'only live rhythm lane keys are captured');
+  assert.doesNotMatch(game.match(/var RESONANCE_CAPTURE_KEYS[^;]+/)[0], /tab|enter|space/,
+    'native dialog navigation and activation keys remain available');
+  const keyupHandler = game.match(/window\.addEventListener\('keyup'[\s\S]*?\n  \}\);/);
+  assert.ok(keyupHandler, 'keyboard release listener is present');
+  assert.match(keyupHandler[0], /liveRhythmPhase&&RESONANCE_CAPTURE_KEYS\.has\(key\)/,
+    'Space and other native button releases remain available outside live lane input');
+  assert.match(game, /clockMode=sourceClock&&sourceClock\.running\?'audio':'wall'/,
+    'each attempt locks to an advancing audio or monotonic wall clock');
+  assert.match(game, /resonanceGateRuntime\.clockMode==='wall'/,
+    'suspended Web Audio uses the monotonic fallback instead of freezing count-in');
+  assert.match(game, /setResonanceLiveControlsEnabled\(false\)/,
+    'paused and results states disable inactive performance controls');
+  assert.match(game, /setResonanceLiveControlsEnabled\(true,cleanMode!=='demo'\)/,
+    'demonstrations keep pause available without exposing inert lane actions');
+  assert.match(game, /resonanceTutorialCopy\(note\.tutorial\)/,
+    'first-run teaching copy follows the active input method');
+  assert.match(game, /rankVisual=runtime\.mode==='demo'\?'DEMO'/,
+    'demonstration results use a compact visual rank');
+  assert.match(game, /runtime\.mode==='practice'\|\|outcome\.rank==='Practice'\?'P'/,
+    'No-Fail and practice results keep the full label out of the rank emblem');
+  assert.match(game, /runtime\.session\.suspendHolds\(\)/);
+  assert.match(game, /runtime\.session\.resumeHolds\(runtime\.laneHeld/);
+  assert.match(game, /latencyOffsetMs:mode==='demo'\?0:/, 'demonstration ignores player calibration offset');
+  assert.match(game, /countInHideTimer/);
   assert.match(game, /Losing the boss fight will never relock it/);
-  assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*25\b/);
+  assert.match(game, /SAVE_SCHEMA_VERSION\s*=\s*26\b/);
   assert.match(game, /savedVersion\s*<\s*25\s*&&\s*stateHasBoss/);
+  assert.doesNotMatch(game, /qaResonanceGate/, 'temporary visual-QA URL hook was removed');
   for (const helper of ['openRhythmTrial', 'startRhythmTrial', 'setRhythmAssist', 'getRhythmSnapshot',
     'injectRhythmInput', 'completeRhythmTrial', 'resetRhythmTrial']) {
     assert.match(game, new RegExp(`${helper}\\s*:`), `missing QA helper ${helper}`);

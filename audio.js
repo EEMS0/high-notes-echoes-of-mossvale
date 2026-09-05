@@ -3,13 +3,23 @@
   "use strict";
 
   const AudioContextClass = root.AudioContext || root.webkitAudioContext;
-  const NOTE_MIDI = Object.freeze({ C: 72, E: 76, G: 79, B: 83 });
+  const MUSIC = root.MossMusic || null;
+  const NOTE_MIDI = Object.freeze(MUSIC ? Array.from(MUSIC.noteOrder).reduce((catalog, note) => {
+    catalog[note] = MUSIC.notes[note].midi;
+    return catalog;
+  }, {}) : { C: 72, D: 74, E: 76, F: 77, G: 79, A: 81, B: 83, C5: 84 });
   const MUSIC_BPM = 104;
   const MUSIC_STEP = 60 / MUSIC_BPM / 4; // Sixteenth-note clock.
   const EPSILON = 0.0001;
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const midiToHz = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+  const normalizeNote = (note) => MUSIC ? MUSIC.normalizeNote(note) : (() => {
+    const clean = String(note || "").trim().toUpperCase();
+    return Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean) ? clean : "";
+  })();
+  const normalizeStep = (step) => MUSIC ? MUSIC.normalizeStep(step) : (Array.isArray(step) ? step : [step])
+    .map(normalizeNote).filter((note, index, notes) => note && notes.indexOf(note) === index).slice(0, 4);
 
   class MossAudioEngine {
     constructor() {
@@ -540,30 +550,24 @@
         : typeof melodyArray === "string"
           ? melodyArray.split(/[\s,]+/)
           : [];
-      this.melody = input.slice(0, 32).map((note) => {
-        const clean = String(note || "-").trim().toUpperCase().replace(/[0-9]/g, "");
-        return Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean) ? clean : "-";
-      });
+      this.melody = input.slice(0, 32).map(normalizeStep);
       this._activeMelodyNames = [];
       if (Array.isArray(unlockedNotes)) {
-        const unlocked = new Set(unlockedNotes.map((note) => {
-          const clean = String(note || "").trim().toUpperCase().replace(/[0-9]/g, "");
-          return Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean) ? clean : "-";
-        }));
-        this.melody.forEach((note) => {
-          if (note !== "-" && unlocked.has(note) && !this._activeMelodyNames.includes(note)) {
-            this._activeMelodyNames.push(note);
-          }
+        const unlocked = new Set(unlockedNotes.map(normalizeNote).filter(Boolean));
+        this.melody.forEach((step) => {
+          step.forEach((note) => {
+            if (unlocked.has(note) && !this._activeMelodyNames.includes(note)) this._activeMelodyNames.push(note);
+          });
         });
       } else {
         // Legacy callers reveal at most noteCount distinct melody colors.
-        this.melody.forEach((note) => {
-          if (note !== "-" && !this._activeMelodyNames.includes(note) && this._activeMelodyNames.length < this.noteCount) {
-            this._activeMelodyNames.push(note);
-          }
+        this.melody.forEach((step) => {
+          step.forEach((note) => {
+            if (!this._activeMelodyNames.includes(note) && this._activeMelodyNames.length < this.noteCount) this._activeMelodyNames.push(note);
+          });
         });
       }
-      return { noteCount: this.noteCount, melody: this.melody.slice() };
+      return { noteCount: this.noteCount, melody: this.melody.map((step) => step.slice()) };
     }
 
     /** Update the procedural arrangement without restarting the transport. */
@@ -681,7 +685,7 @@
     /** Immediate pitched feedback for one Resonance Gate lane. */
     rhythmHit(noteName, judgement = "great") {
       if (!this._soundReady()) return false;
-      const clean = String(noteName || "").trim().toUpperCase().replace(/[0-9]/g, "");
+      const clean = normalizeNote(noteName);
       if (!Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean)) return false;
       const quality = ["perfect", "great", "good"].includes(judgement) ? judgement : "good";
       const volume = quality === "perfect" ? 0.11 : quality === "great" ? 0.085 : 0.064;
@@ -790,30 +794,36 @@
         });
       }
 
-      // Collected notes occupy eighth-note slots; '-' deliberately leaves musical space.
+      // Player-authored steps occupy eighth-note slots. Each step may now be a
+      // bounded voicing; gain is divided by voice count to keep seventh chords
+      // from overpowering the adaptive score.
       if (this.noteCount > 0 && this.melody.length && inBar % 2 === 0) {
         const melodyIndex = Math.floor(step / 2) % this.melody.length;
-        const note = this.melody[melodyIndex];
-        if (note !== "-" && this._activeMelodyNames.includes(note)) {
-          const phraseLift = bar === 3 && inBar >= 8 ? 12 : 0;
-          const midi = NOTE_MIDI[note] + phraseLift;
-          this._osc({
-            time,
-            freq: midiToHz(midi),
-            duration: MUSIC_STEP * 1.55,
-            type: "triangle",
-            volume: 0.052,
-            attack: 0.008,
-            release: 0.2,
-            filter: 2200,
-            bus: this.musicBus,
-            music: true,
-            pan: melodyIndex % 2 ? 0.13 : -0.13
+        const authoredStep = this.melody[melodyIndex] || [];
+        const voices = authoredStep.filter((note) => this._activeMelodyNames.includes(note)).slice(0, 4);
+        if (voices.length) {
+          const voiceVolume = 0.052 / Math.sqrt(voices.length);
+          voices.forEach((note, voiceIndex) => {
+            const midi = NOTE_MIDI[note];
+            this._osc({
+              time: time + voiceIndex * 0.006,
+              freq: midiToHz(midi),
+              duration: MUSIC_STEP * (voices.length > 1 ? 1.82 : 1.55),
+              type: voiceIndex === 0 ? "triangle" : "sine",
+              volume: voiceVolume,
+              attack: 0.008,
+              release: 0.2,
+              filter: 2200 + voiceIndex * 180,
+              bus: this.musicBus,
+              music: true,
+              pan: voices.length === 1 ? (melodyIndex % 2 ? 0.13 : -0.13) : -0.24 + voiceIndex * (0.48 / Math.max(1, voices.length - 1))
+            });
           });
           if (this.noteCount >= 4 && melodyIndex % 4 === 3) {
+            const rootMidi = NOTE_MIDI[voices[0]] - 12;
             this._osc({
               time: time + MUSIC_STEP * 0.72,
-              freq: midiToHz(midi - 12),
+              freq: midiToHz(rootMidi),
               duration: MUSIC_STEP * 0.65,
               type: "sine",
               volume: 0.019,
@@ -1017,12 +1027,30 @@
 
     previewNote(noteName) {
       if (!this._soundReady()) return false;
-      const clean = String(noteName || "").trim().toUpperCase().replace(/[0-9]/g, "");
+      const clean = normalizeNote(noteName);
       if (!Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean)) return false;
       const now = this.context.currentTime + 0.012;
       const midi = NOTE_MIDI[clean];
       this._osc({ time: now, freq: midiToHz(midi), duration: 0.64, type: "triangle", volume: 0.13, attack: 0.006, release: 0.34, filter: 2900 });
       this._osc({ time: now + 0.035, freq: midiToHz(midi + 12), duration: 0.48, type: "sine", volume: 0.055, attack: 0.004, release: 0.31, pan: 0.18 });
+      return true;
+    }
+
+    /** Immediate, gain-safe preview for a polyphonic composer step. */
+    previewChord(noteNames) {
+      this._cancelMelodyPreview();
+      if (!this._soundReady()) return false;
+      const notes = normalizeStep(noteNames);
+      if (!notes.length) return false;
+      const now = this.context.currentTime + 0.012;
+      const voiceVolume = 0.115 / Math.sqrt(notes.length);
+      notes.forEach((note, index) => {
+        this._osc({ time: now + index * 0.007, freq: midiToHz(NOTE_MIDI[note]), duration: 0.72,
+          type: index === 0 ? "triangle" : "sine", volume: voiceVolume, attack: 0.008,
+          release: 0.38, filter: 2700 + index * 180, pan: notes.length === 1 ? 0 : -0.28 + index * (0.56 / Math.max(1, notes.length - 1)), preview: true });
+      });
+      if (notes.length >= 3) this._osc({ time: now, freq: midiToHz(NOTE_MIDI[notes[0]] - 12), duration: 0.62,
+        type: "sine", volume: 0.026, attack: 0.012, release: 0.34, filter: 1100, preview: true });
       return true;
     }
 
@@ -1037,31 +1065,41 @@
       // Empty input is an explicit, context-free cancellation command.
       if (!input.length) return true;
       if (!this._soundReady()) return false;
-      const melody = input.slice(0, 32).map((note) => {
-        const clean = String(note || "-").trim().toUpperCase().replace(/[0-9]/g, "");
-        return Object.prototype.hasOwnProperty.call(NOTE_MIDI, clean) ? clean : "-";
-      });
+      const melody = input.slice(0, 32).map(normalizeStep);
       if (!melody.length) return false;
 
       const startTime = this.context.currentTime + 0.035;
-      const spacing = 0.24;
-      melody.forEach((note, index) => {
-        if (note === "-") return;
-        const midi = NOTE_MIDI[note] + (index >= melody.length - 2 ? 12 : 0);
-        this._osc({
-          time: startTime + index * spacing,
-          freq: midiToHz(midi),
-          duration: 0.3,
-          type: "triangle",
-          volume: 0.095,
-          attack: 0.006,
-          release: 0.18,
-          filter: 2800,
-          pan: index % 2 ? 0.16 : -0.16,
-          preview: true
+      const spacing = MUSIC_STEP * 2;
+      const lastSounding = melody.reduce((last, step, index) => step.length ? index : last, -1);
+      melody.forEach((step, index) => {
+        if (!step.length) return;
+        const voiceVolume = 0.095 / Math.sqrt(step.length);
+        step.forEach((note, voiceIndex) => {
+          this._osc({
+            time: startTime + index * spacing + voiceIndex * 0.006,
+            freq: midiToHz(NOTE_MIDI[note]),
+            duration: step.length > 1 ? spacing * 0.94 : spacing * 0.78,
+            type: voiceIndex === 0 ? "triangle" : "sine",
+            volume: voiceVolume,
+            attack: 0.006,
+            release: 0.18,
+            filter: 2750 + voiceIndex * 160,
+            pan: step.length === 1 ? (index % 2 ? 0.16 : -0.16) : -0.28 + voiceIndex * (0.56 / Math.max(1, step.length - 1)),
+            preview: true
+          });
         });
+        if (step.length >= 3) this._osc({ time: startTime + index * spacing, freq: midiToHz(NOTE_MIDI[step[0]] - 12),
+          duration: spacing * 0.9, type: "sine", volume: 0.023, attack: 0.009, release: 0.18,
+          filter: 1150, preview: true });
+        if (index === lastSounding) this._osc({ time: startTime + index * spacing + 0.025,
+          freq: midiToHz(NOTE_MIDI[step[step.length - 1]] + 12), duration: spacing * 1.45,
+          type: "sine", volume: 0.025, attack: 0.012, release: 0.3, filter: 3400, pan: 0.24, preview: true });
       });
       return true;
+    }
+
+    playComposition(composition) {
+      return this.playMelody(composition && Array.isArray(composition.steps) ? composition.steps : composition);
     }
 
     _cancelMelodyPreview() {
