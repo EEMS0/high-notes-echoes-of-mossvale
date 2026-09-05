@@ -15,7 +15,7 @@
   <link rel="manifest" href="manifest.webmanifest?v=2">
   <meta name="description" content="HIGH NOTES V2: Echoes of Mossvale — an original musical action RPG with local platform-fighter battles.">
   <title>HIGH NOTES V2: Echoes of Mossvale</title>
-  <link rel="stylesheet" href="styles.css?v=39">
+  <link rel="stylesheet" href="styles.css?v=40">
   <script src="music-runtime.js?v=1" defer></script>
   <script src="map-label-runtime.js?v=1" defer></script>
   <script src="audio.js?v=17" defer></script>
@@ -26,7 +26,7 @@
   <script src="story-runtime.js?v=2" defer></script>
   <script src="resonance-gate-runtime.js?v=1" defer></script>
   <script src="living-resonance-runtime.js?v=3" defer></script>
-  <script src="game.js?v=42" defer></script>
+  <script src="game.js?v=43" defer></script>
   <script src="controller-ui.js?v=6" defer></script>
   <script src="v1-expansion.js?v=13" defer></script>
   <script src="v2-platform-fighter.js?v=32" defer></script>
@@ -201,7 +201,7 @@
     </section>
 
     <section id="characterCreator" class="overlay feature-screen character-creator" role="dialog" aria-modal="true" aria-labelledby="characterCreatorTitle" data-backdrop-dismiss="protected" data-backdrop-reason="Finish or cancel character creation." hidden>
-      <div class="feature-card character-creator-card">
+      <div id="characterDesignCard" class="feature-card character-creator-card">
         <div class="panel-heading">
           <div><p class="panel-kicker">YOUR SONG, YOUR SILHOUETTE</p><h2 id="characterCreatorTitle">Create your adventurer</h2></div>
           <button id="closeCharacterCreator" class="icon-button" type="button" aria-label="Cancel character creation">&times;</button>
@@ -225,6 +225,15 @@
           </div>
         </div>
       </div>
+      <div id="interfaceSetupCard" class="feature-card interface-setup-card" hidden>
+        <div class="panel-heading"><div><p class="panel-kicker">BEFORE YOUR FIRST VERSE</p><h2 id="interfaceSetupTitle">Make yourself comfortable</h2></div></div>
+        <p>Choose a size you can read easily. The preview changes as you move the slider.</p>
+        <label class="interface-size-control" for="onboardingInterfaceSize"><strong>Interface size</strong><output id="onboardingInterfaceSizeValue" for="onboardingInterfaceSize">100%</output><input id="onboardingInterfaceSize" type="range" min="85" max="125" step="5" value="100" aria-describedby="interfaceSizeHelp"></label>
+        <p id="interfaceSizeHelp" class="interface-size-help">85% · Compact <span>125% · Larger</span></p>
+        <section class="interface-preview" aria-label="Live interface preview"><p class="panel-kicker">PREVIEW · YOUR FIRST LESSON</p><h3>Find your footing</h3><p>Move a few steps along the path. There are no enemies and no time limit.</p><p class="tutorial-control">One action at a time · Continue when ready</p></section>
+        <p class="interface-setup-note">Next: a safe practice grove with 12 short lessons. You can skip or replay it. Change size any time in Settings → Display.</p>
+        <div class="button-row"><button id="interfaceSetupBack" type="button" class="game-button button-secondary">Back to character</button><button id="interfaceSetupBegin" type="button" class="game-button button-primary">Start guided tutorial</button></div>
+      </div>
     </section>
 
     <section id="tutorialPanel" class="tutorial-panel" aria-live="polite" hidden>
@@ -232,6 +241,8 @@
       <p class="panel-kicker">REHEARSAL GROVE</p>
       <h2 id="tutorialStepTitle">Find your footing</h2>
       <p id="tutorialStepText">Move through the glowing rehearsal circle.</p>
+      <p id="tutorialControl" class="tutorial-control"></p>
+      <p id="tutorialLessonStatus" class="tutorial-lesson-status"></p>
       <div class="tutorial-actions"><button id="tutorialDoButton" class="game-button button-primary" type="button">Practice</button><button id="tutorialSkipButton" class="game-button button-ghost" type="button">Skip tutorial</button></div>
     </section>
 
@@ -394,13 +405,10 @@
             <input id="objectiveArrow" type="checkbox" checked>
           </label>
 
-          <label class="setting-row select-row" for="interfaceSize">
+          <label class="setting-row" for="interfaceSize">
             <span><strong>Interface size</strong><small>Scale menus, HUD text, and controls.</small></span>
-            <select id="interfaceSize">
-              <option value="compact">Compact</option>
-              <option value="standard" selected>Standard</option>
-              <option value="large">Large</option>
-            </select>
+            <input id="interfaceSize" type="range" min="85" max="125" step="5" value="100" aria-valuetext="100 percent">
+            <output id="interfaceSizeValue" for="interfaceSize">100%</output>
           </label>
 
           <label class="setting-row switch-row" for="largeText">

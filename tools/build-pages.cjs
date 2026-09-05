@@ -21,6 +21,6 @@ for (const name of ['assets', 'Sprites', 'vendor']) {
 fs.writeFileSync(path.join(output, '.nojekyll'), '');
 fs.writeFileSync(path.join(output, 'release.json'), JSON.stringify({
   commit: process.env.GITHUB_SHA || 'local',
-  name: 'Living Resonance: Expanded Music and Game Flow'
+  name: 'Living Resonance: Guided Tutorial and Interface Scaling'
 }, null, 2) + '\n');
 console.log('GitHub Pages artifact built in _site.');

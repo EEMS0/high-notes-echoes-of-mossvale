@@ -85,10 +85,10 @@ for (let i = 1; i < scriptOrder.length; i += 1) {
   assert.ok(scriptOrder[i] > scriptOrder[i - 1], 'Runtime scripts are in the wrong dependency order');
 }
 assert.match(index, /character-runtime\.js\?v=4/, 'character compositor cache version');
-assert.match(index, /styles\.css\?v=39/, 'release stylesheet cache version');
+assert.match(index, /styles\.css\?v=40/, 'release stylesheet cache version');
 assert.match(index, /audio\.js\?v=17/, 'audio transport cache version');
 assert.match(index, /sprite-runtime\.js\?v=14/, 'retained sprite runtime cache version');
-assert.match(index, /game\.js\?v=42/, 'game cache version');
+assert.match(index, /game\.js\?v=43/, 'game cache version');
 assert.match(index, /input-manager\.js\?v=8/, 'input runtime cache version');
 assert.match(index, /controller-ui\.js\?v=6/, 'controller UI cache version');
 assert.match(index, /v1-expansion\.js\?v=13/, 'expansion data cache version');

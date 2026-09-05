@@ -181,7 +181,8 @@ function watchRuntime(page, failures) {
     const worst = coverage.metrics.reduce((current, metric) => metric.overlapRatio < current.overlapRatio ? metric : current);
     console.log(`Minimum hair/body overlap ${(worst.overlapRatio * 100).toFixed(1)}%: ${worst.instrument}/${worst.hair}/row-${worst.row}/${worst.direction}`);
 
-    await page.locator('#confirmCharacter').click();
+   await page.locator('#confirmCharacter').click();
+    await page.locator('#interfaceSetupBegin').click();
     await page.waitForFunction(() => window.__HIGH_NOTES__.snapshot().runtime.started === true);
     await page.evaluate(() => window.__HIGH_NOTES__.debug.grantAll());
     for (const instrument of ['guitar','bass','synth','drums','microphone','violin']) {

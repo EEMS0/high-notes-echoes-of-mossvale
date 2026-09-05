@@ -39,7 +39,8 @@ fs.mkdirSync(out,{recursive:true});
       assert.ok(await page.locator('#confirmCharacter').isVisible());
     }
     await page.setViewportSize({width:1440,height:900});
-    await page.locator('#confirmCharacter').click();
+   await page.locator('#confirmCharacter').click();
+    await page.locator('#interfaceSetupBegin').click();
     await page.locator('#tutorialSkipButton').click();
     assert.equal(await page.evaluate(()=>document.activeElement.id),'livingConfirmCancel');
     await shot('03-skip-confirm');

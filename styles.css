@@ -37,6 +37,8 @@
 }
 
 html,
+html { font-size: calc(16px * var(--interface-scale)); }
+
 body {
   width: 100%;
   min-width: 320px;
@@ -61,7 +63,7 @@ body {
     var(--night);
   color: var(--ink);
   font-family: "Trebuchet MS", "Segoe UI", Arial, sans-serif;
-  font-size: calc(16px * var(--interface-scale));
+  font-size: 1rem;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
@@ -174,7 +176,7 @@ input:focus-visible,
   inset: 0;
   z-index: 12;
   pointer-events: none;
-  font-size: clamp(9px, 1.15vw, 15px);
+  font-size: calc(clamp(9px, 1.15vw, 15px) * var(--interface-scale));
 }
 
 .hud-cluster {
@@ -5571,6 +5573,26 @@ body.large-text .composer-chord-button small {
 .settings-footer:has(.settings-danger-zone[open]) { max-height: 52vh; overflow-y: auto; }
 
 /* Portrait menus use the display, rather than the letterboxed world frame. */
+.interface-setup-card { width: min(100%,40rem); overflow-y: auto; }
+.interface-setup-card p { line-height: 1.5; }
+.interface-size-control { display: grid; grid-template-columns: 1fr auto; gap: .75rem; margin-top: 1rem; }
+.interface-size-control input { grid-column: 1 / -1; width: 100%; min-height: 44px; accent-color: #56f0c4; }
+.interface-size-control output { color: #ffc857; font-weight: 800; }
+.interface-size-help { display: flex; justify-content: space-between; font-size: .75rem; color: var(--ink-muted); }
+.interface-preview { margin: 1rem 0; padding: 1rem; border: 1px solid rgba(86,240,196,.5); border-radius: 14px; background: #0b2724; }
+.interface-preview h3 { margin: .35rem 0; font-size: 1.25rem; }
+.interface-setup-note { font-size: .85rem; color: var(--ink-muted); }
+.interface-setup-card .button-row { flex-wrap: wrap; justify-content: space-between; }
+.tutorial-control { color: #ffe0a3; font-weight: 800; font-size: .9rem; }
+.tutorial-panel .tutorial-lesson-status { color: #b9d6cd; font-size: .75rem; }
+.tutorial-panel.lesson-complete { border-color: #ffc857; }
+.tutorial-panel.lesson-complete .tutorial-lesson-status { color: #9ff5c1; }
+body.tutorial-active .ability-wrap { visibility: hidden; }
+@media (max-height: 560px) and (orientation: landscape) {
+  .interface-setup-card { width: min(100%,48rem); }
+  .interface-preview { margin: .5rem 0; padding: .65rem; }
+  .tutorial-control { font-size: .8rem; }
+}
 @media (max-width: 640px) and (orientation: portrait) {
   .overlay { position: fixed; }
   .character-creator-card { max-height: calc(100dvh - 1.5rem); }

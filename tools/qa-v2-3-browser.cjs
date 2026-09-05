@@ -416,7 +416,8 @@ async function landscapePhoneChecks(browser, failures, viewport, label, firstPer
   await page.locator('[data-class-id="echo-weaver"], #characterClassChoices .class-choice').nth(2).click();
   await page.locator('#characterName').fill('QA Echo');
   await page.locator('#confirmCharacter').scrollIntoViewIfNeeded();
-  await page.locator('#confirmCharacter').click();
+ await page.locator('#confirmCharacter').click();
+  await page.locator('#interfaceSetupBegin').click();
   await page.locator('#tutorialPanel:not([hidden])').waitFor();
   await page.waitForTimeout(250);
   const controlIds = ['touchPulseButton', 'touchClassButton', 'touchDodgeButton', 'touchAttackButton', 'touchBlockButton', 'touchInteractButton'];
@@ -569,6 +570,7 @@ async function portraitChecks(browser, failures) {
   assert.equal(await page.locator('#rotateNotice').evaluate((element) => getComputedStyle(element).display), 'none', 'portrait title remains usable before gameplay');
   await inspectCreator(page, viewport, '390x844');
   await page.locator('#confirmCharacter').click();
+  await page.locator('#interfaceSetupBegin').click();
   await page.waitForFunction(() => getComputedStyle(document.getElementById('rotateNotice')).display !== 'none');
   await shot(page, '390x844-rotate-guidance');
   await page.locator('#portraitSettingsButton').click();

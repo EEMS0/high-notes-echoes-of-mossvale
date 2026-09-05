@@ -2496,10 +2496,15 @@
     document.body.classList.toggle('reduced-restoration-ambience', !settings.ambientRestoration);
     document.body.classList.toggle('rhythm-high-contrast', settings.rhythmHighContrast);
     document.body.classList.toggle('rhythm-flash-reduced', settings.rhythmFlashReduction);
-    var interfaceSizes = { compact: 0.88, standard: 1, large: 1.14 };
-    var interfaceSize = interfaceSizes[settings.interfaceSize] ? settings.interfaceSize : 'standard';
-    settings.interfaceSize = interfaceSize;
-    document.documentElement.style.setProperty('--interface-scale', interfaceSizes[interfaceSize]);
+    var legacyInterfaceSizes = { compact: 90, standard: 100, large: 115 };
+    var sizePercent = legacyInterfaceSizes[settings.interfaceSize] || Number(settings.interfaceSize);
+    settings.interfaceSize = clamp(Math.round((Number.isFinite(sizePercent) ? sizePercent : 100)/5)*5,85,125);
+    document.documentElement.style.setProperty('--interface-scale', settings.interfaceSize/100);
+    ['interfaceSize','onboardingInterfaceSize'].forEach(function(id){
+      var slider=byId(id),output=byId(id+'Value');
+      if(slider){slider.value=String(settings.interfaceSize);slider.setAttribute('aria-valuetext',settings.interfaceSize+' percent');}
+      if(output)output.textContent=settings.interfaceSize+'%';
+    });
     var difficulty = byId('difficultySelect');
     var music = byId('musicVolume');
     var sfx = byId('sfxVolume');
@@ -2868,7 +2873,7 @@
       tabButtons[nextIndex].focus();
     });
     document.querySelectorAll('#settingsPanel input[type="range"]').forEach(function (range) {
-      var output = document.createElement('output');
+      var output = byId(range.id+'Value') || document.createElement('output');
       output.className = 'setting-value';
       output.htmlFor = range.id;
       function render() {
@@ -2876,7 +2881,7 @@
         var percent = range.max === '1' && range.min === '0';
         output.textContent = range.id === 'rhythmLatencyOffset' ? (number > 0 ? '+' : '') + Math.round(number) + ' ms' :
           range.id === 'rhythmScrollSpeed' ? number.toFixed(2).replace(/0+$/,'').replace(/\.$/,'') + '×' :
-          percent ? Math.round(number * 100) + '%' :
+          range.id === 'interfaceSize' ? Math.round(number) + '%' : percent ? Math.round(number * 100) + '%' :
           (range.id === 'fov' ? Math.round(number) + '°' : number.toFixed(number % 1 ? 2 : 0));
       }
       range.closest('.setting-row').appendChild(output);
@@ -2907,7 +2912,7 @@
     if(details)details.innerHTML='<strong>'+selectedClass.name+'</strong><span><b>Strengths</b> '+selectedClass.strengths+'</span><span><b>Playstyle</b> '+selectedClass.playstyle+'</span><span><b>Passive</b> '+selectedClass.passive+'</span><span><b>Signature</b> '+selectedClass.ability+' — '+selectedClass.abilityText+'</span><span><b>Recommended for</b> '+selectedClass.recommended+'</span>';
     if(byId('characterName'))byId('characterName').value=characterDraft.displayName;
     if(byId('characterPronouns'))byId('characterPronouns').value=characterDraft.pronouns;
-    if(byId('confirmCharacter')){byId('confirmCharacter').textContent='Begin as '+selectedClass.name;byId('confirmCharacter').setAttribute('aria-label','Begin the prologue as '+selectedClass.name);}
+    if(byId('confirmCharacter')){byId('confirmCharacter').textContent='Continue as '+selectedClass.name;byId('confirmCharacter').setAttribute('aria-label','Continue to interface setup as '+selectedClass.name);}
     drawCharacterPreview();
   }
   function drawCharacterPreview() {
@@ -2922,6 +2927,7 @@
   }
   function openCharacterCreator() {
     warmGameplayAssets();releaseHeldInputs();characterDraft=creatorDefault();renderCharacterCreator();
+    showInterfaceSetup(false);
     setHidden(byId('characterCreator'),false);setOverlayIsolation('creator','characterCreator',true);
     byId('characterForm').scrollTop=0;drawCharacterPreview();
     var selected=byId('characterClassChoices').querySelector('[aria-pressed="true"]');if(selected)selected.focus({preventScroll:true});
@@ -2932,6 +2938,17 @@
   function confirmCharacter(event) {
     if(event)event.preventDefault();if(!characterDraft)return;
     characterDraft.displayName=window.MossCharacter?window.MossCharacter.sanitizeName(byId('characterName').value):'Echo';characterDraft.pronouns=byId('characterPronouns').value;
+    showInterfaceSetup(true);
+  }
+  function showInterfaceSetup(open) {
+    setHidden(byId('characterDesignCard'),open);setHidden(byId('interfaceSetupCard'),!open);
+    byId('characterCreator').setAttribute('aria-labelledby',open?'interfaceSetupTitle':'characterCreatorTitle');
+    if(open){applySettings();focusSoon('onboardingInterfaceSize');}
+    else if(!byId('characterCreator').hidden)focusSoon('confirmCharacter');
+  }
+  function beginConfiguredAdventure() {
+    if(!characterDraft||byId('interfaceSetupCard').hidden)return;
+    saveSettings();
     var confirmed={displayName:characterDraft.displayName,pronouns:characterDraft.pronouns,classId:CLASS_IDS.indexOf(characterDraft.classId)>=0?characterDraft.classId:'riffblade',appearance:Object.assign({},characterDraft.appearance)};
     closeCharacterCreator();startFreshAdventure(confirmed);
   }
@@ -2961,20 +2978,42 @@
   }
 
   var TUTORIAL_STEPS = [
-    {title:'Find your footing',text:'Move through the glowing rehearsal circle.',signal:'move'},
-    {title:'Listen for the prompt',text:'Use Interact near a character or rehearsal object.',signal:'interact'},
-    {title:'Strike on the beat',text:'Perform a basic attack.',signal:'attack'},
-    {title:'Hold the high note',text:'Hold Strike until a charged attack releases.',signal:'charged'},
-    {title:'Step through danger',text:'Dodge in any direction.',signal:'dodge'},
-    {title:'Guard the rest',text:'Hold Block. A perfect guard is optional in this safe rehearsal.',signal:'block'},
-    {title:'Send an Echo',text:'Use the temporary tutorial Echo Pulse.',signal:'pulse'},
-    {title:'Play your signature',text:'Use your chosen class ability once. Its icon shows when it is ready.',signal:'classAbility'},
-    {title:'Collect your field kit',text:'Pick up the rehearsal pack.',signal:'pickup',button:'Pick up kit'},
-    {title:'Use what you carry',text:'Open the backpack and use a stored Field Tonic.',signal:'item'},
-    {title:'Dress for the road',text:'Equip one of your new tutorial items.',signal:'equip'},
-    {title:'Follow the song',text:'Your objective card points toward the existing Mossvale opening.',signal:'finish',button:'Enter Mossvale'}
+    {title:'Find your footing',text:'Move a few steps to the right along the path. This grove has no enemies or time limit.',signal:'move'},
+    {title:'Tune the resonator',text:'Walk right to the glowing resonator. Stop beside it, then interact when its prompt appears.',signal:'interact'},
+    {title:'Try a quick strike',text:'Tap your attack once. You can practise in place; hitting a dummy or matching the beat is not required.',signal:'attack'},
+    {title:'Try a charged strike',text:'Keep holding your attack until a wider swing appears, then release. That wider swing is your charged strike.',signal:'charged'},
+    {title:'Try a dodge',text:'Move in any direction and dodge once. Dodging helps you escape an incoming attack.',signal:'dodge'},
+    {title:'Raise your guard',text:'Hold Block briefly. You do not need to face an enemy or time a perfect guard here.',signal:'block'},
+    {title:'Send an Echo Pulse',text:'Send out one ring of sound. Echo Pulse is temporarily unlocked for this lesson.',signal:'pulse'},
+    {title:'Play your signature',text:'Use your class ability once. In the adventure, its icon refills before you can use it again.',signal:'classAbility'},
+    {title:'Collect your field kit',text:'Collect free healing supplies and equipment for the road. This also leaves room to practise healing safely.',signal:'pickup',button:'Collect starter kit'},
+    {title:'Use a Field Tonic',text:'Open the prepared backpack and choose Use Field Tonic. Close the backpack afterwards to continue.',signal:'item',button:'Open Field Tonic'},
+    {title:'Equip your vest',text:'Open the prepared backpack and equip the selected Grooveguard Vest. Close the backpack afterwards.',signal:'equip',button:'Open starter vest'},
+    {title:'You are ready for Mossvale',text:'Follow the objective arrow to EEMS at the mix-stone. Your starter kit comes with you. Replay these lessons from How to Play any time.',signal:'finish',button:'Enter Mossvale'}
   ];
-  function signalTutorial(name){if(!tutorialRuntime.active)return;tutorialRuntime.signals[name]=true;updateTutorial();}
+  function signalTutorial(name){
+    var step=TUTORIAL_STEPS[state.tutorial.step];
+    if(!tutorialRuntime.active||!step||step.signal!==name||tutorialRuntime.signals[name])return;
+    tutorialRuntime.signals[name]=true;audioCall('sfx','unlock');updateTutorial();
+  }
+  function advanceTutorialLesson(){
+    var step=TUTORIAL_STEPS[state.tutorial.step];
+    if(!tutorialRuntime.active||!step||!tutorialRuntime.signals[step.signal])return false;
+    releaseHeldInputs();state.tutorial.step++;tutorialRuntime.signals={};
+    updateTutorial();saveGame(true);focusSoon('gameCanvas');return true;
+  }
+  function tutorialLessonControl(step){
+    var method=activePromptMode(),input=window.MossInput;
+    var action=step.signal==='charged'?'attack':step.signal;
+    if(['pickup','item','equip','finish'].indexOf(action)>=0)return 'Use the lesson button below'+(method==='touch'?'.':' or press '+(input?input.label('interact'):'E')+'.');
+    if(method==='touch'){
+      var touchLabels={move:'Drag the left movement area',interact:'Tap TALK beside the resonator',attack:'Tap STRIKE',charged:'Hold STRIKE, then release',dodge:'Tap DODGE while moving',block:'Hold BLOCK',pulse:'Tap PULSE',classAbility:'Tap '+(byId('touchClassLabel').textContent||'your class button')};
+      return touchLabels[step.signal];
+    }
+    if(action==='move')return method==='gamepad'?'Move with the left stick or D-pad':'Move with WASD or the arrow keys';
+    var label=input&&input.label?input.label(action):'';
+    return (step.signal==='charged'?'Hold ':action==='block'?'Hold ':'Press ')+label+(step.signal==='charged'?', then release':'');
+  }
   function enterPrologueLevel(resume) {
     activateLevel(state.stage,PROLOGUE_LEVEL);
     resetEnemies();
@@ -3334,9 +3373,23 @@
     paused=false;setHidden(byId('pauseScreen'),true);
     document.body.classList.add('tutorial-active');setHidden(byId('tutorialPanel'),false);
     if(!state.pulse)state.tutorialPulse=true;
-    updateTutorial();saveGame(true);updateHUD(true);
+    updateTutorial();saveGame(true);updateHUD(true);focusSoon('gameCanvas');
   }
-  function updateTutorial(){if(!tutorialRuntime.active)return;var index=state.tutorial.step,step=TUTORIAL_STEPS[index];if(!step)return completeTutorial(false);if(step.signal==='move'&&distance(player,{x:tutorialRuntime.startX,y:tutorialRuntime.startY})>70)tutorialRuntime.signals.move=true;if(tutorialRuntime.signals[step.signal]&&step.signal!=='finish'){state.tutorial.step++;saveGame(true);step=TUTORIAL_STEPS[state.tutorial.step];audioCall('sfx','unlock');}if(!step)return completeTutorial(false);var count=byId('tutorialStepCount'),title=byId('tutorialStepTitle'),text=byId('tutorialStepText'),fill=byId('tutorialProgressFill'),button=byId('tutorialDoButton');if(count)count.textContent=(state.tutorial.step+1)+' / '+TUTORIAL_STEPS.length;if(title)title.textContent=step.title;if(text)text.textContent=step.text;if(fill)fill.style.width=((state.tutorial.step+1)/TUTORIAL_STEPS.length*100)+'%';if(button){button.hidden=!step.button;button.textContent=step.button||'';}}
+  function updateTutorial(){
+    if(!tutorialRuntime.active)return;
+    var step=TUTORIAL_STEPS[state.tutorial.step];if(!step)return completeTutorial(false);
+    if(step.signal==='move'&&!tutorialRuntime.signals.move&&distance(player,{x:tutorialRuntime.startX,y:tutorialRuntime.startY})>70){signalTutorial('move');return;}
+    var done=!!tutorialRuntime.signals[step.signal];
+    // Only change text when needed: this is called every frame and is a live region.
+    function copy(id,value){var node=byId(id);if(node&&node.textContent!==value)node.textContent=value;}
+    copy('tutorialStepCount',(state.tutorial.step+1)+' / '+TUTORIAL_STEPS.length);
+    copy('tutorialStepTitle',step.title);copy('tutorialStepText',step.text);
+    copy('tutorialControl',done?'Continue with Next lesson'+(activePromptMode()==='touch'?'':(' or '+(window.MossInput?window.MossInput.label('interact'):'E'))):tutorialLessonControl(step));
+    copy('tutorialLessonStatus',done?'✓ Lesson complete. Continue when you are ready.':'Practise at your own pace.');
+    byId('tutorialPanel').classList.toggle('lesson-complete',done);
+    byId('tutorialProgressFill').style.width=((state.tutorial.step+(done?1:0))/TUTORIAL_STEPS.length*100)+'%';
+    var button=byId('tutorialDoButton');button.hidden=!done&&!step.button;copy('tutorialDoButton',done?'Next lesson':step.button||'');
+  }
   function grantTutorialRewards(){if(state.tutorial.rewardClaimed)return;addConsumable('field-tonic',3);addConsumable('tempo-tea',2);addConsumable('spore-tonic',1);grantEquipment('grooveguard-vest',false);grantEquipment('trailstep-boots',false);grantEquipment('resonance-pin',false);state.tutorial.rewardClaimed=true;}
   function restoreCampaignAfterTutorial(){
     var returnStage=clamp(Math.floor(Number(state.tutorial.returnStage)||state.stage||1),1,4);
@@ -4410,7 +4463,7 @@
     }
     if (weedCount) weedCount.textContent = state.weeds.length + '/30';
     if (backpackHudButton) backpackHudButton.setAttribute('aria-label', 'Open backpack, ' + state.weeds.length + ' of 30 Glowweed collected');
-    if (objective) objective.textContent = tutorialRuntime.active && TUTORIAL_STEPS[state.tutorial.step] ? TUTORIAL_STEPS[state.tutorial.step].text : objectiveInfo.text;
+    if (objective) objective.textContent = tutorialRuntime.active && TUTORIAL_STEPS[state.tutorial.step] ? 'Lesson '+(state.tutorial.step+1)+' / '+TUTORIAL_STEPS.length+' · '+TUTORIAL_STEPS[state.tutorial.step].title : objectiveInfo.text;
     if (stageName) stageName.textContent = tutorialRuntime.active ? 'PROLOGUE · REHEARSAL GROVE' : (STAGE_KICKERS[state.stage] || STAGE_KICKERS[1]);
     if (pauseLocation) pauseLocation.textContent = STAGE_NAMES[state.stage] + ' is holding your place · ' + starterClass(state.character.classId).name + ' · ' + equippedInstrument().name + ' · ' + state.weather.replace('-',' ');
     if(byId('restorationHudValue'))byId('restorationHudValue').textContent=livingRegion?livingRegion.tiers[livingRestoration.tier].toUpperCase():'DISTURBED';if(byId('restorationHudChip'))byId('restorationHudChip').setAttribute('aria-label','Regional restoration: '+(livingRegion?livingRegion.name+' is '+livingRegion.tiers[livingRestoration.tier]:'unavailable'));
@@ -5721,6 +5774,8 @@
   function interact(fromBuffer) {
     if (dialogue) { advanceDialogue(); return; }
     if (!started || paused || mapOpen || composerOpen || inventoryOpen || shopOpen || skillsOpen || statisticsOpen || instrumentsOpen || homeOpen) return;
+    if(advanceTutorialLesson())return;
+    if(tutorialRuntime.active&&TUTORIAL_STEPS[state.tutorial.step].button){byId('tutorialDoButton').click();return;}
     var near = firstPersonActive()&&window.MossFP&&window.MossFP.getInteractionTarget?window.MossFP.getInteractionTarget():nearestInteractable();
     if (!near && !bossDefeatedForStage(state.stage) && regionalBossObjectiveMet(state.stage) && !rhythmGateCleared(state.stage) && distance(player,BOSS_CENTER) <= 390) {
       near={type:'resonance-gate',item:{x:BOSS_CENTER.x,y:BOSS_CENTER.y,stage:state.stage},d:distance(player,BOSS_CENTER)};
@@ -8986,6 +9041,8 @@
     if(homeLeaveButton)homeLeaveButton.addEventListener('click',closeHome);
     if (closeStatisticsButton) closeStatisticsButton.addEventListener('click', closeStatistics);
     if(characterForm)characterForm.addEventListener('submit',confirmCharacter);
+    if(byId('interfaceSetupBack'))byId('interfaceSetupBack').addEventListener('click',function(){showInterfaceSetup(false);});
+    if(byId('interfaceSetupBegin'))byId('interfaceSetupBegin').addEventListener('click',beginConfiguredAdventure);
     if(byId('closeChordButton'))byId('closeChordButton').addEventListener('click',closeChordPanel);
     if(byId('replayChordButton'))byId('replayChordButton').addEventListener('click',replayChordPattern);
     if(byId('chordNoteGrid'))byId('chordNoteGrid').addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-chord-note]');if(button)submitChordNote(button.dataset.chordNote);});
@@ -8996,7 +9053,15 @@
     if(resetCharacter)resetCharacter.addEventListener('click',function(){if(!characterDraft)return;characterDraft=creatorDefault();renderCharacterCreator();});
     if(tutorialSkipButton)tutorialSkipButton.addEventListener('click',skipTutorial);
     if(replayTutorialButton)replayTutorialButton.addEventListener('click',replayTutorial);
-    if(tutorialDoButton)tutorialDoButton.addEventListener('click',function(){var step=TUTORIAL_STEPS[state.tutorial.step];if(!step)return;if(step.signal==='pickup'){grantTutorialRewards();player.health=Math.max(1,player.maxHealth-2);signalTutorial('pickup');updateHUD(true);}else if(step.signal==='finish'){signalTutorial('finish');completeTutorial(false);}});
+    if(tutorialDoButton)tutorialDoButton.addEventListener('click',function(){
+      if(advanceTutorialLesson())return;
+      var step=TUTORIAL_STEPS[state.tutorial.step];if(!step)return;
+      if(step.signal==='pickup'){grantTutorialRewards();player.health=Math.max(1,player.maxHealth-2);signalTutorial('pickup');updateHUD(true);}
+      else if(step.signal==='item'||step.signal==='equip'){
+        inventorySelection=step.signal==='item'?'field-tonic':'grooveguard-vest';
+        inventoryCategory=inventoryItem(inventorySelection).category;openInventory();focusSoon('inventoryActionButton');
+      }else if(step.signal==='finish')completeTutorial(false);
+    });
     if (dialogueContinueButton) dialogueContinueButton.addEventListener('click', advanceDialogue);
     if (closeMapButton) closeMapButton.addEventListener('click', closeMap);
     var fastTravelShop = byId('fastTravelShop');
@@ -9029,7 +9094,8 @@
     bindSetting('reducedMotion', 'reducedMotion', false);
     bindSetting('objectiveArrow', 'objectiveArrow', false);
     bindSetting('largeText', 'largeText', false);
-    bindSetting('interfaceSize', 'interfaceSize', false);
+    bindSetting('interfaceSize', 'interfaceSize', true);
+    bindSetting('onboardingInterfaceSize', 'interfaceSize', true);
     bindSetting('renderScale', 'renderScale', false);
     bindSetting('touchLayout', 'touchLayout', false);
     bindSetting('mobileHaptics', 'mobileHaptics', false);

@@ -29,6 +29,12 @@ Launch the new **HIGH NOTES** Home Screen icon and keep the device in landscape 
 
 ## Controls
 
+New adventures now show an interface-size preview after character creation and before the tutorial. Set the scale from 85% to 125%; it persists across reloads and remains adjustable in **Settings → Display**. Older Compact, Standard, and Large preferences migrate to 90%, 100%, and 115% respectively.
+
+The safe Rehearsal Grove teaches one action at a time with keyboard, controller, or touch prompts. Each completed lesson waits for **Next lesson** (or the Interact control), so actions performed early cannot skip later instructions. The backpack lessons preselect the Field Tonic and starter vest. Skipping still grants the starter kit; **How to Play → Replay tutorial** returns to the lessons.
+
+Run `node tools/qa-onboarding-browser.cjs` with Playwright installed and a local server on port 4173 to check sizing, all 12 lessons, equipment and persistence. Set `HIGH_NOTES_QA_URL` to test the published site.
+
 | Action | Keyboard |
 | --- | --- |
 | Move | `WASD` or arrow keys |

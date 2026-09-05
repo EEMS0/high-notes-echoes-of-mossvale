@@ -29,7 +29,8 @@ async function bootPlayer(browser,name) {
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>document.getElementById('gameCanvas')?.dataset.runtimeReady==='true');
   await page.locator('#startButton').click();
-  await page.locator('#confirmCharacter').click();
+ await page.locator('#confirmCharacter').click();
+  await page.locator('#interfaceSetupBegin').click();
   await page.locator('#tutorialSkipButton').click();
   await page.locator('#livingConfirmAccept').click();
   await page.waitForFunction(()=>window.__HIGH_NOTES__&&window.__HIGH_NOTES__.snapshot().runtime.started);
