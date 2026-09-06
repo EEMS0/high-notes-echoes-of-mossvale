@@ -197,7 +197,7 @@ Then run `npm run check` inside `multiplayer-relay/`. The exact boundary between
 - Production sprite atlases are retained per active region; the soak QA tours all four stages and verifies old decoded sheets are released.
 - `audio.js` — adaptive music and sound synthesis, including bounded polyphonic composer playback.
 - `manifest.webmanifest` — install metadata for browser and Home Screen launches.
-- `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — Home Screen and web-app icons.
+- `assets/app-icon-180.png`, `app-icon-192.png`, and `app-icon-512.png` — iOS Home Screen and Android/PWA icons derived from `tools/icon-source/high-notes-app-icon-source.jpg`. Separate `app-icon-maskable-*` exports keep the artwork inside Android launcher safe areas; `favicon.ico` and `assets/favicon-*` cover browser-tab sizes. Rebuild them with `node tools/build-app-icons.cjs <source-image>` and validate with `node tools/validate-app-icons.cjs`.
 - `assets/mossvale-key-art.png` — original generated title/menu artwork made for this project.
 - `assets/echo-arena-background.webp` — original moonlit Echo Arena environment used by the hub and competitive canvas.
 - `assets/ui/classes/` — four original transparent starter-class icons, runtime manifest, and source/usage notes.

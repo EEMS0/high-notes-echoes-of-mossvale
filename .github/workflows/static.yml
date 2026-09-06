@@ -40,6 +40,7 @@ jobs:
       - name: Validate release
         run: |
           node tools/validate-expanded-music.cjs
+          node tools/validate-app-icons.cjs
           node tools/validate-map-labels.cjs
           node tools/validate-resonance-gate.cjs
           node tools/validate-save-recovery.cjs

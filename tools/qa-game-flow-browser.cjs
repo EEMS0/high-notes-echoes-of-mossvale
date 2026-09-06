@@ -42,7 +42,7 @@ fs.mkdirSync(out,{recursive:true});
    await page.locator('#confirmCharacter').click();
     await page.locator('#interfaceSetupBegin').click();
     await page.locator('#tutorialSkipButton').click();
-    assert.equal(await page.evaluate(()=>document.activeElement.id),'livingConfirmCancel');
+    await page.waitForFunction(()=>document.activeElement.id==='livingConfirmCancel');
     await shot('03-skip-confirm');
     await page.keyboard.press('Escape');
     await page.waitForFunction(()=>document.getElementById('livingConfirmOverlay').hidden);
